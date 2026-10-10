@@ -1,0 +1,1072 @@
+Premier enregistrement effectué dans l'historique.
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest HTML en cours...
+
+📧 E-mail HTML envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN...
+📧 E-mail '📊 Digest Quotidien — 07/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 08/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 09/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 10/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 11/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 12/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 13/09/2026' envoyé avec succès !
+🗓️ Génération du digest HEBDOMADAIRE enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '🗓️ Bilan Hebdomadaire — Semaine du 13/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 14/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 15/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 16/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 17/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 237, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt,
+        config={"tools": [{"google_search": {}}]}
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 202, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 332, in <module>
+    run_digest()
+    ~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 304, in run_digest
+    daily_html = generate_enhanced_analysis_html(kpi_data, daily_data_text, top_positions, "daily")
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 245, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 204, in raise_error
+    raise ServerError(status_code, response_json, response)
+google.genai.errors.ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 237, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt,
+        config={"tools": [{"google_search": {}}]}
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 202, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 332, in <module>
+    run_digest()
+    ~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 304, in run_digest
+    daily_html = generate_enhanced_analysis_html(kpi_data, daily_data_text, top_positions, "daily")
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 245, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 204, in raise_error
+    raise ServerError(status_code, response_json, response)
+google.genai.errors.ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 18/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 19/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 20/09/2026' envoyé avec succès !
+🗓️ Génération du digest HEBDOMADAIRE enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '🗓️ Bilan Hebdomadaire — Semaine du 20/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 237, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt,
+        config={"tools": [{"google_search": {}}]}
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 202, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 332, in <module>
+    run_digest()
+    ~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 304, in run_digest
+    daily_html = generate_enhanced_analysis_html(kpi_data, daily_data_text, top_positions, "daily")
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 245, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 204, in raise_error
+    raise ServerError(status_code, response_json, response)
+google.genai.errors.ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 22/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 237, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt,
+        config={"tools": [{"google_search": {}}]}
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 202, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 332, in <module>
+    run_digest()
+    ~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 304, in run_digest
+    daily_html = generate_enhanced_analysis_html(kpi_data, daily_data_text, top_positions, "daily")
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 245, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 204, in raise_error
+    raise ServerError(status_code, response_json, response)
+google.genai.errors.ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 237, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt,
+        config={"tools": [{"google_search": {}}]}
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 202, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 332, in <module>
+    run_digest()
+    ~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 304, in run_digest
+    daily_html = generate_enhanced_analysis_html(kpi_data, daily_data_text, top_positions, "daily")
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 245, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 204, in raise_error
+    raise ServerError(status_code, response_json, response)
+google.genai.errors.ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 25/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 26/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 27/09/2026' envoyé avec succès !
+🗓️ Génération du digest HEBDOMADAIRE enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '🗓️ Bilan Hebdomadaire — Semaine du 27/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 28/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 237, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt,
+        config={"tools": [{"google_search": {}}]}
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 202, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 332, in <module>
+    run_digest()
+    ~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 304, in run_digest
+    daily_html = generate_enhanced_analysis_html(kpi_data, daily_data_text, top_positions, "daily")
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 245, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 204, in raise_error
+    raise ServerError(status_code, response_json, response)
+google.genai.errors.ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 30/09/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 01/10/2026' envoyé avec succès !
+📈 Génération du digest MENSUEL enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 237, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt,
+        config={"tools": [{"google_search": {}}]}
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 202, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 332, in <module>
+    run_digest()
+    ~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 322, in run_digest
+    monthly_html = generate_enhanced_analysis_html(kpi_data, monthly_data_text, top_positions, "monthly")
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 245, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 204, in raise_error
+    raise ServerError(status_code, response_json, response)
+google.genai.errors.ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 237, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt,
+        config={"tools": [{"google_search": {}}]}
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 202, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 332, in <module>
+    run_digest()
+    ~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 304, in run_digest
+    daily_html = generate_enhanced_analysis_html(kpi_data, daily_data_text, top_positions, "daily")
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 245, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 204, in raise_error
+    raise ServerError(status_code, response_json, response)
+google.genai.errors.ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+📧 E-mail '📊 Digest Quotidien — 03/10/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+⚠️ Recherche web indisponible, bascule standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 237, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt,
+        config={"tools": [{"google_search": {}}]}
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 202, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 332, in <module>
+    run_digest()
+    ~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 304, in run_digest
+    daily_html = generate_enhanced_analysis_html(kpi_data, daily_data_text, top_positions, "daily")
+  File "/home/gregoire_senant/Synthese_finary/daily_digest_engine.py", line 245, in generate_enhanced_analysis_html
+    response = client.models.generate_content(
+        model="gemini-3.6-flash",
+        contents=prompt
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 6270, in generate_content
+    response = self._generate_content(
+        model=model, contents=contents, config=parsed_config_to_call
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/models.py", line 4707, in _generate_content
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1750, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1537, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/_api_client.py", line 1514, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 173, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/gregoire_senant/Synthese_finary/venv/lib/python3.13/site-packages/google/genai/errors.py", line 204, in raise_error
+    raise ServerError(status_code, response_json, response)
+google.genai.errors.ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+🤖 Tentative d'analyse avec gemini-3.6-flash (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.6-flash indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+❌ Échec du modèle gemini-3.6-flash en mode standard : 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+🤖 Tentative d'analyse avec gemini-3.5-flash (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.5-flash indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+❌ Échec du modèle gemini-3.5-flash en mode standard : 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+🤖 Tentative d'analyse avec gemini-3.5-flash-lite (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.5-flash-lite indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+📧 E-mail '📊 Digest Quotidien — 05/10/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+🤖 Tentative d'analyse avec gemini-3.6-flash (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.6-flash indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+❌ Échec du modèle gemini-3.6-flash en mode standard : 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+🤖 Tentative d'analyse avec gemini-3.5-flash (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.5-flash indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+📧 E-mail '📊 Digest Quotidien — 06/10/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+🤖 Tentative d'analyse avec gemini-3.6-flash (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.6-flash indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+❌ Échec du modèle gemini-3.6-flash en mode standard : 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+🤖 Tentative d'analyse avec gemini-3.5-flash (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.5-flash indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+❌ Échec du modèle gemini-3.5-flash en mode standard : 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.5-flash\nPlease retry in 18h29m33.105702679s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3.5-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '66573s'}]}}
+🤖 Tentative d'analyse avec gemini-3.5-flash-lite (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.5-flash-lite indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+📧 E-mail '📊 Digest Quotidien — 07/10/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+🤖 Tentative d'analyse avec gemini-3.6-flash (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.6-flash indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+❌ Échec du modèle gemini-3.6-flash en mode standard : 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+🤖 Tentative d'analyse avec gemini-3.5-flash (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.5-flash indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+📧 E-mail '📊 Digest Quotidien — 08/10/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+🤖 Tentative d'analyse avec gemini-3.6-flash (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.6-flash indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+📧 E-mail '📊 Digest Quotidien — 09/10/2026' envoyé avec succès !
+WARNING:google_genai.models:Direct use of automatic function calling (AFC) in Models.generate_content is not recommended. Instead, we recommend to use AFC in Chat.send_message. Similarly, direct use of AFC in Models.generate_content_stream is not recommended. Instead, we recommend to use AFC in Chat.send_message_stream.
+🔍 Génération du digest QUOTIDIEN enrichi...
+🤖 Tentative d'analyse avec gemini-3.6-flash (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.6-flash indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+❌ Échec du modèle gemini-3.6-flash en mode standard : 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+🤖 Tentative d'analyse avec gemini-3.5-flash (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.5-flash indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+❌ Échec du modèle gemini-3.5-flash en mode standard : 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
+🤖 Tentative d'analyse avec gemini-3.5-flash-lite (avec recherche Web)...
+⚠️ Recherche Web ou modèle gemini-3.5-flash-lite indisponible (429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. ', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}]}}). Repli en mode standard...
+📧 E-mail '📊 Digest Quotidien — 10/10/2026' envoyé avec succès !
