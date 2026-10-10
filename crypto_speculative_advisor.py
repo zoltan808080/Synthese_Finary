@@ -8,18 +8,14 @@ from dotenv import load_dotenv
 from google import genai
 import requests
 
-from daily_digest_engine import build_current_snapshot, init_finary_session
-from db_manager import add_recommendation, init_db
+from db_manager import add_recommendation, get_open_positions, init_db
 from exchange_connectors import (
+    get_all_exchange_crypto_balances,
     get_all_open_orders,
     get_all_trades_history,
     get_total_verified_cash,
 )
-from pnl_engine import calculate_pnl, format_pnl_telegram_message
-from sl_audit_engine import (
-    audit_positions_protection,
-    format_audit_telegram_message,
-)
+from pnl_engine import calculate_pnl
 
 load_dotenv()
 init_db()
@@ -79,6 +75,39 @@ def fetch_fear_and_greed_index():
   except Exception as e:
     logging.warning(f"⚠️ Erreur Fear & Greed API : {e}")
   return {"value": 50, "classification": "Neutral"}
+
+
+def fetch_live_price(sym, exch="OKX"):
+  clean_sym = str(sym).upper().replace("USDT", "").replace("EUR", "").strip()
+  price = None
+  try:
+    res_okx = requests.get(
+        f"https://www.okx.com/api/v5/market/ticker?instId={clean_sym}-USDT",
+        timeout=1.5,
+    )
+    if res_okx.status_code == 200:
+      data_okx = res_okx.json().get("data", [])
+      if data_okx:
+        price_usdt = float(data_okx[0].get("last", 0))
+        price = price_usdt / 1.12
+  except Exception:
+    pass
+
+  if not price:
+    try:
+      res_k = requests.get(
+          f"https://api.kraken.com/0/public/Ticker?pair={clean_sym}EUR",
+          timeout=1.5,
+      )
+      if res_k.status_code == 200:
+        result_k = res_k.json().get("result", {})
+        for _, v_data in result_k.items():
+          if "c" in v_data:
+            price = float(v_data["c"][0])
+            break
+    except Exception:
+      pass
+  return price or 0.0
 
 
 def get_kraken_spot_symbols():
@@ -183,283 +212,111 @@ def parse_llm_json(raw_text):
     raise
 
 
-def clean_token_code(raw_code, name=""):
-  c = str(raw_code).upper().strip()
-  for suffix in ["ZEUR", "ZUSD", "USDT", "USDC", "EUR", "USD"]:
-    if c.endswith(suffix) and len(c) > len(suffix):
-      c = c[: -len(suffix)]
-  if len(c) == 4 and c.startswith("XX"):
-    c = c[1:]
-  if len(c) == 4 and c.startswith("X") and c not in ["XRP", "XLM", "XMR"]:
-    c = c[1:]
-  if c == "XBT":
-    c = "BTC"
-  return c.replace("-", "").replace("_", "").replace("/", "").strip()
+def calculate_unfied_crypto_categories():
+  """Calcul 100% autonome et unifié avec le Dashboard v2.8 (Exchanges + Exodus + BDD SQLite)."""
+  all_crypto_balances = get_all_exchange_crypto_balances()
+  positions = get_open_positions()
 
-
-def categorize_token(symbol, name=""):
-  clean_code = clean_token_code(symbol, name)
-  nm = str(name).upper().strip()
-
-  dominant_codes = {
-      "BTC",
-      "XBT",
-      "ETH",
-      "WBTC",
-      "STETH",
-      "CBETH",
-      "RETH",
-      "WETH",
+  speculative_symbols = {
+      str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
+      for p in positions
   }
-  if (
-      clean_code in dominant_codes
-      or "BITCOIN" in nm
-      or "ETHEREUM" in nm
-      or nm == "BTC"
-      or nm == "ETH"
-  ):
-    return "DOMINANT"
 
-  core_codes = {
-      "SOL",
-      "ADA",
-      "LINK",
-      "AVAX",
-      "ATOM",
-      "UNI",
-      "NEAR",
-      "DOT",
-      "MATIC",
-      "POL",
-      "XRP",
-      "LTC",
-      "BCH",
-      "ETC",
-      "ALGO",
-      "FIL",
-      "TRX",
-      "APT",
-      "SUI",
-      "RENDER",
-      "RNDR",
-      "TAO",
-      "FET",
-      "INJ",
-  }
-  core_names = [
-      "SOLANA",
-      "CARDANO",
-      "CHAINLINK",
-      "AVALANCHE",
-      "COSMOS",
-      "UNISWAP",
-      "POLKADOT",
-      "POLYGON",
-      "RIPPLE",
-      "LITECOIN",
-      "ALGORAND",
-      "FILECOIN",
-      "TRON",
-      "NEAR PROTOCOL",
-  ]
-  if clean_code in core_codes or any(cn in nm for cn in core_names):
-    return "CORE"
+  val_majors = 0.0
+  val_core = 0.0
+  val_speculative = 0.0
+  val_stables_crypto = 0.0
+  
+  holdings_by_asset = {}
 
-  return "SPECULATIVE"
+  # 1. Valorisation des positions spéculatives actives depuis la BDD SQLite
+  for p in positions:
+    sym = str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
+    exch = p[2]
+    entry_eur = float(p[3]) if p[3] is not None else 0.0
+    amount_eur = float(p[4]) if p[4] is not None else 0.0
+    lp = fetch_live_price(sym, exch) or entry_eur
+    qty = (amount_eur / entry_eur) if entry_eur > 0 else 0.0
+    current_val = qty * lp
+    val_speculative += current_val
+    
+    holdings_by_asset[sym] = holdings_by_asset.get(sym, 0.0) + current_val
 
+  # 2. Valorisation de l'ensemble des avoirs sur Exchanges & Wallets froids Exodus
+  for asset, info in all_crypto_balances.items():
+    amt = info["amount"]
+    exch = info["exchange"]
 
-def parse_finary_crypto_data(crypto_data):
-  holdings = []
-  accounts = []
-  if isinstance(crypto_data, dict):
-    res = crypto_data.get("result") or crypto_data.get("data") or crypto_data
-    if isinstance(res, list):
-      accounts = res
-    elif isinstance(res, dict):
-      accounts = (
-          res.get("accounts")
-          or res.get("cryptos")
-          or res.get("result")
-          or []
-      )
-  elif isinstance(crypto_data, list):
-    accounts = crypto_data
-
-  for acc in accounts:
-    if not isinstance(acc, dict):
-      continue
-
-    sub_items = (
-        acc.get("account_cryptos")
-        or acc.get("cryptos")
-        or acc.get("bank_account_cryptos")
-        or acc.get("holdings")
-        or acc.get("user_cryptos")
-        or []
-    )
-
-    if sub_items and isinstance(sub_items, list):
-      for item in sub_items:
-        if not isinstance(item, dict):
-          continue
-        val = 0.0
-        if "current_value" in item and item["current_value"] is not None:
-          val = float(item["current_value"])
-        elif "value" in item and item["value"] is not None:
-          val = float(item["value"])
-        else:
-          qty = float(item.get("quantity", 0) or 0)
-          price = float(item.get("current_price") or item.get("price") or 0)
-          val = qty * price
-
-        if val <= 0:
-          continue
-
-        crypto_obj = (
-            item.get("crypto") if isinstance(item.get("crypto"), dict) else {}
-        )
-        code = (
-            crypto_obj.get("code")
-            or crypto_obj.get("symbol")
-            or item.get("code")
-            or item.get("symbol")
-            or ""
-        )
-        name = crypto_obj.get("name") or item.get("name") or ""
-        holdings.append((code, name, val))
+    if asset in ["USDT", "USDC"]:
+      val_stables_crypto += amt
+      holdings_by_asset[asset] = holdings_by_asset.get(asset, 0.0) + amt
+    elif asset in ["BTC", "ETH"]:
+      lp = fetch_live_price(asset, exch)
+      asset_val = amt * lp
+      val_majors += asset_val
+      holdings_by_asset[asset] = holdings_by_asset.get(asset, 0.0) + asset_val
+    elif asset in speculative_symbols:
+      pass  # Déjà comptabilisé via la BDD SQLite
     else:
-      val = 0.0
-      if "current_value" in acc and acc["current_value"] is not None:
-        val = float(acc["current_value"])
-      elif "balance" in acc and acc["balance"] is not None:
-        val = float(acc["balance"])
+      lp = fetch_live_price(asset, exch)
+      asset_val = amt * lp
+      val_core += asset_val
+      holdings_by_asset[asset] = holdings_by_asset.get(asset, 0.0) + asset_val
 
-      crypto_obj = (
-          acc.get("crypto") if isinstance(acc.get("crypto"), dict) else {}
-      )
-      code = (
-          crypto_obj.get("code")
-          or crypto_obj.get("symbol")
-          or acc.get("code")
-          or acc.get("symbol")
-          or acc.get("name")
-          or ""
-      )
-      name = crypto_obj.get("name") or acc.get("name") or ""
-      if val > 0 and code:
-        holdings.append((code, name, val))
+  cash_data = get_total_verified_cash()
+  total_cash_fiat = cash_data.get("total_cash", 0.0)
+  
+  # Total Liquidités = Stablecoins (USDT/USDC) + Cash Fiat (EUR/USD)
+  total_liquidities = val_stables_crypto + total_cash_fiat
 
-  return holdings
+  total_crypto = val_majors + val_core + val_speculative + total_liquidities
 
+  if total_crypto > 0:
+    pct_majors = (val_majors / total_crypto) * 100.0
+    pct_core = (val_core / total_crypto) * 100.0
+    pct_spec = (val_speculative / total_crypto) * 100.0
+    pct_stables = (total_liquidities / total_crypto) * 100.0
+  else:
+    pct_majors = pct_core = pct_spec = pct_stables = 0.0
 
-def calculate_exact_crypto_categories(crypto_data, current_snap=None):
-  total_btc_eth = 0.0
-  total_core = 0.0
-  total_speculative = 0.0
-
-  snap_total = 0.0
-  if current_snap and "total_crypto" in current_snap:
-    snap_total = float(current_snap.get("total_crypto", 0.0) or 0.0)
-
-  holdings = parse_finary_crypto_data(crypto_data)
-
-  if not holdings and current_snap and "holdings" in current_snap:
-    holdings_dict = current_snap["holdings"]
-    if isinstance(holdings_dict, dict):
-      for k, v in holdings_dict.items():
-        try:
-          val = float(v)
-          if val > 0:
-            holdings.append((str(k), str(k), val))
-        except (ValueError, TypeError):
-          pass
-
-  for sym, nm, val in holdings:
-    cat = categorize_token(sym, nm)
-    if cat == "DOMINANT":
-      total_btc_eth += val
-    elif cat == "CORE":
-      total_core += val
-    else:
-      total_speculative += val
-
-  calculated_total = total_btc_eth + total_core + total_speculative
-  final_total = snap_total if snap_total > 0 else calculated_total
-
-  if (
-      snap_total > 0
-      and calculated_total > 0
-      and abs(calculated_total - snap_total) / snap_total > 0.02
-  ):
-    scale = snap_total / calculated_total
-    total_btc_eth *= scale
-    total_core *= scale
-    total_speculative *= scale
-    final_total = snap_total
+  # Mise en forme claire des plafonds d'arbitrage par actif
+  holdings_lines = []
+  for asset, val_eur in sorted(holdings_by_asset.items(), key=lambda x: x[1], reverse=True):
+    if val_eur >= 0.5:
+      holdings_lines.append(f"• {asset} : {val_eur:.2f} € MAX ARBITRABLE")
 
   return {
-      "total_crypto": final_total,
-      "btc_eth": total_btc_eth,
-      "btc_eth_pct": (
-          (total_btc_eth / final_total * 100) if final_total > 0 else 0.0
-      ),
-      "core": total_core,
-      "core_pct": (
-          (total_core / final_total * 100) if final_total > 0 else 0.0
-      ),
-      "speculative": total_speculative,
-      "speculative_pct": (
-          (total_speculative / final_total * 100) if final_total > 0 else 0.0
-      ),
+      "total_crypto": total_crypto,
+      "btc_eth": val_majors,
+      "btc_eth_pct": pct_majors,
+      "core": val_core,
+      "core_pct": pct_core,
+      "speculative": val_speculative,
+      "speculative_pct": pct_spec,
+      "stables_cash": total_liquidities,
+      "stables_cash_pct": pct_stables,
+      "val_stables_crypto": val_stables_crypto,
+      "total_cash_fiat": total_cash_fiat,
+      "holdings_text": "\n".join(holdings_lines) if holdings_lines else "Aucun actif significatif",
+      "cash_data": cash_data,
   }
 
 
 def generate_crypto_speculative_report():
-  logging.info(
-      "🚀 Démarrage de l'analyse spéculative Crypto v1.8.10 (Anti-blocage"
-      " Timeout)..."
-  )
+  logging.info("🚀 Démarrage de l'analyse spéculative Crypto v2.8 (100% Unifié Dashboard)...")
 
   is_crash, crash_pct = check_circuit_breaker()
   fng = fetch_fear_and_greed_index()
-  cash_data = get_total_verified_cash()
   trades = get_all_trades_history()
   pnl_summary = calculate_pnl(trades)
-
-  open_orders = get_all_open_orders()
-  audit_summary = audit_positions_protection(
-      pnl_summary["open_positions"], open_orders
-  )
-  audit_text = format_audit_telegram_message(audit_summary)
 
   kraken_symbols = get_kraken_spot_symbols()
   okx_symbols = get_okx_spot_symbols()
 
-  session = init_finary_session()
-  from finary_uapi.user_portfolio import (
-      get_portfolio_cryptos,
-      get_portfolio_investments,
-  )
-
-  invest_data = get_portfolio_investments(session)
-  crypto_data = get_portfolio_cryptos(session)
-  current_snap = build_current_snapshot(invest_data, crypto_data)
-
-  cats = calculate_exact_crypto_categories(crypto_data, current_snap)
+  # Moteur unifié direct-exchanges + Exodus + SQLite
+  cats = calculate_unfied_crypto_categories()
   total_crypto = cats["total_crypto"]
   target_budget = total_crypto * SPECULATIVE_PCT
-
-  holdings_exact = parse_finary_crypto_data(crypto_data)
-  holdings_summary_list = [
-      f"• {sym} ({nm}) : {val:.2f} €"
-      for sym, nm, val in holdings_exact
-      if val > 1.0
-  ]
-  holdings_prompt_text = (
-      "\n".join(holdings_summary_list)
-      if holdings_summary_list
-      else "Aucune ligne significative détectée."
-  )
 
   raw_opportunities = (
       [] if is_crash else fetch_coingecko_trending_and_markets()
@@ -477,43 +334,50 @@ def generate_crypto_speculative_report():
       verified_opportunities.append(item)
 
   prompt = f"""Tu es un trader crypto expert, analytique et pédagogue, spécialisé en altcoins et micro-capitalisations.
-Rédige un rapport d'arbitrage quotidien complet et détaillé pour Telegram en appliquant la stratégie Moonbag et les règles v1.8. Le ton doit être professionnel, riche en analyses et argumenté.
+Rédige un rapport d'arbitrage quotidien complet pour Telegram en appliquant la stratégie Moonbag. Le ton doit être professionnel, structuré et rigoureux.
 
 ETAT DU MARCHÉ & CIRCUIT BREAKER :
 - Statut : {"🚨 DEFENSIVE MODE / CRASH DÉTECTÉ" if is_crash else "✅ NORMAL"}
 - Var BTC 24h : {crash_pct:+.2f}%
 
-DONNÉES CHIFFRÉES EXACTES ET PRÉ-CALCULÉES :
-- Valeur totale poche Crypto : {total_crypto:,.2f} €
+DONNÉES CHIFFRÉES UNIFIÉES (EXCHANGES + EXODUS) :
+- Valeur totale du portefeuille : {total_crypto:,.2f} €
 - Enveloppe spéculative cible ({SPECULATIVE_PCT*100:.0f}%) : {target_budget:,.2f} €
 - REPARTITION EXACTE DES ACTIFS :
-  • Dominantes (BTC & ETH) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.2f}%)
-  • Core / Non-spéculatives (SOL, ADA, LINK, AVAX, ATOM, UNI, XRP, TAO, NEAR) : {cats['core']:,.2f} € ({cats['core_pct']:.2f}%)
-  • Spéculatives Actives : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.2f}%)
+  • Majeures (BTC & ETH - Spot + Staking + Exodus) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.2f}%)
+  • Core / Convictions long terme : {cats['core']:,.2f} € ({cats['core_pct']:.2f}%)
+  • Spéculatives Actives (Moonbag BDD) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.2f}%)
+  • Liquidités Totales (Fiat + Stablecoins) : {cats['stables_cash']:,.2f} € ({cats['stables_cash_pct']:.2f}%)
 - INDICE FEAR & GREED DU MARCHÉ : {fng['value']}/100 ({fng['classification']})
-- LIQUIDITÉS CASH RÉELLES EN TEMPS RÉEL :
-  • Total Cash : {cash_data['total_cash']:,.2f} € (ATTENTION : Cash quasi nul, TOUT ACHAT NÉCESSITE UNE VENTE ÉQUIVALENTE !)
+- DETAIL DES LIQUIDITÉS DISPONIBLES EN TEMPS RÉEL :
+  • Stablecoins (USDT + USDC) : {cats['val_stables_crypto']:,.2f} €
+  • Cash Fiat (EUR + USD) : {cats['total_cash_fiat']:,.2f} €
+  • Total Liquidités Immédiates : {cats['stables_cash']:,.2f} €
 
-INVENTAIRE RÉEL ET VALORISÉ DE CHAQUE LIGNE DU PORTEFEUILLE (VALEUR MAXIMALE VENDABLE PAR ACTIF) :
-{holdings_prompt_text}
+PLAFONDS STRICTS D'ARBITRAGE PAR ACTIF DÉTENU (SEUIL MAXIMAL VENDABLE) :
+{cats['holdings_text']}
 
-POSITIONS SUIVIES EN BDD :
+POSITIONS ACTIVES SUIVIES EN BDD SQLITE :
 {json.dumps(pnl_summary['open_positions'], indent=2, ensure_ascii=False)}
 
 OPPORTUNITÉS PRÉ-FILTRÉES (Kraken / OKX) :
 {json.dumps(verified_opportunities, indent=2, ensure_ascii=False)}
 
+RÈGLES IMPÉRATIVES POUR L'ARBITRAGE ET LA VENTE D'ACTIFS :
+1. **UTILISATION PRIORITAIRE DES LIQUIDITÉS** : Si le total des liquidités disponibles ({cats['stables_cash']:,.2f} €) permet de financer un nouvel achat, UTILISER CES LIQUIDITÉS SANS PROPOSER DE VENTE D'ACTIFS.
+2. **PLAFOND STRICT DE VENTE (`sell_symbol`)** : Si une vente est proposée, il est STRICTEMENT INTERDIT de recommander la vente d'un montant supérieur à la valeur réelle détenue listée dans "PLAFONDS STRICTS D'ARBITRAGE PAR ACTIF DÉTENU" (ex: si l'utilisateur possède 1.76 € de TAO, le montant de la vente de TAO ne peut JAMAIS dépasser 1.76 €). Ne jamais inventer ou supposer un solde supérieur.
+3. **SEUIL MINIMUM D'ARBITRAGE** : Ne proposer la vente d'un actif existant que si sa valeur totale disponible est d'au moins 20.00 €.
+
 CONSIGNES DE RÉDACTION DU RAPPORT (clé "report_markdown") :
 1. **Analyse de Marché & Bilan de la Poche Crypto** :
-   - Rédige un paragraphe analytique commentant l'indice Fear & Greed ({fng['value']}/100) et la tendance du BTC ({crash_pct:+.2f}%).
-   - Détaille clairement la répartition de la poche (Montants en € et pourcentages exacts).
-   - Fais le point sur l'enveloppe spéculative par rapport à la cible ({target_budget:,.2f} €).
+   - Rédige un paragraphe commentant l'indice Fear & Greed ({fng['value']}/100) et la tendance du BTC ({crash_pct:+.2f}%).
+   - Détaille la répartition exacte de la poche (Montants en € et pourcentages).
+   - Fais le point sur l'enveloppe spéculative ({cats['speculative']:,.2f} €) par rapport à la cible ({target_budget:,.2f} €).
+   - Mentionne les liquidités totales disponibles ({cats['stables_cash']:,.2f} € - Fiat + Stablecoins).
 
 2. **Opportunités & Plan d'Arbitrage Explicite (RÈGLE CASH-NEUTRAL)** :
-   - Pour chaque opportunité recommandée, **tu dois obligatoirement écrire clairement dans le texte du rapport la ligne d'arbitrage** sous la forme : 
-     `🔄 Arbitrage : Vendre [Montant] € de [Nom de l'actif existant] pour financer l'achat de [Nouveau Token].`
-   - **RÈGLE ABSOLUE** : Le montant de la vente ne doit jamais dépasser la valeur réelle de l'actif disponible dans l'inventaire ci-dessus.
-   - Détailler pour chaque token le plan Moonbag complet :
+   - Si une opportunité est recommandée, écris clairement la ligne d'arbitrage (en utilisant les liquidités ou une vente valide respectant le plafond strict).
+   - Détailler pour chaque token recommandé le plan Moonbag :
      • **Prix d'entrée conseillé**
      • **TP1 (+100% / x2)** : Vente de 50% (Free Ride) + SL Break-Even.
      • **TP2 (+300% / x4)** : Vente de 25%.
@@ -529,7 +393,7 @@ RÉPONSE JSON STRICTE :
       "exchange": "OKX",
       "price": 0.4500,
       "amount_eur": 100.0,
-      "sell_symbol": "TAO",
+      "sell_symbol": "USDT",
       "tp1_price": 0.9000,
       "tp2_price": 1.8000,
       "sl_price": 0.2500,
@@ -544,7 +408,6 @@ RÉPONSE JSON STRICTE :
   report_text = None
   recs = []
 
-  # Fonction d'appel LLM protégée par un ThreadPoolExecutor (timeout strict 15s)
   def call_llm(model_name):
     res = client.models.generate_content(
         model=model_name,
@@ -567,9 +430,7 @@ RÉPONSE JSON STRICTE :
         logging.info(f"✅ Rapport généré avec succès via {mod}")
         break
     except concurrent.futures.TimeoutError:
-      logging.warning(
-          f"⏱️ Timeout dépassé (15s) sur {mod}. Passage au modèle suivant..."
-      )
+      logging.warning(f"⏱️ Timeout dépassé (15s) sur {mod}. Passage au modèle suivant...")
     except Exception as e:
       logging.warning(f"⚠️ Erreur sur {mod} ({e}). Passage au suivant...")
 
@@ -578,7 +439,7 @@ RÉPONSE JSON STRICTE :
     for r in recs:
       price = r.get("price", 0.0)
       sell_info = (
-          f" (via vente {r.get('sell_symbol')})" if r.get("sell_symbol") else ""
+          f" (via {r.get('sell_symbol')})" if r.get("sell_symbol") else ""
       )
       rec_id = add_recommendation(
           symbol=r.get("symbol", "UNKNOWN"),
@@ -592,9 +453,7 @@ RÉPONSE JSON STRICTE :
       )
       inline_keyboard.append([
           {
-              "text": (
-                  f"🔄 Arbitrer : {r.get('symbol')} ({r.get('amount_eur', 0):.0f}€){sell_info}"
-              ),
+              "text": f"🔄 Arbitrer : {r.get('symbol')} ({r.get('amount_eur', 0):.0f}€){sell_info}",
               "callback_data": f"trade_take_{rec_id}",
           },
           {
@@ -604,7 +463,7 @@ RÉPONSE JSON STRICTE :
       ])
 
     header = (
-        "🎯 *RAPPORT CRYPTO SPÉCULATIF (19H) — v1.8.10*\n"
+        "🎯 *RAPPORT CRYPTO SPÉCULATIF (19H) — v2.8*\n"
         f"_Données du {datetime.date.today().strftime('%d/%m/%Y')} | Fear &"
         f" Greed: {fng['value']}/100_\n\n"
     )
@@ -612,11 +471,8 @@ RÉPONSE JSON STRICTE :
     send_telegram_with_inline_buttons(
         header + report_text, inline_keyboard=inline_keyboard
     )
-    send_telegram_with_inline_buttons(audit_text)
   else:
-    logging.error(
-        "❌ Échec critique : tous les modèles LLM ont échoué ou fait un timeout."
-    )
+    logging.error("❌ Échec critique : tous les modèles LLM ont échoué ou fait un timeout.")
 
 
 if __name__ == "__main__":
