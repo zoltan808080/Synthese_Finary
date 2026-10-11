@@ -104,6 +104,75 @@ def set_trade_break_even(rec_id):
   conn.commit()
   conn.close()
 
+
+def merge_duplicate_trades(primary_id, secondary_id):
+  """Consolide deux positions ouvertes du même symbole/exchange en une seule avec PRU pondéré."""
+  conn = sqlite3.connect(DB_PATH)
+  cursor = conn.cursor()
+
+  cursor.execute(
+      """
+        SELECT symbol, exchange, price_entry, amount_eur, tp1_price, tp2_price, sl_price
+        FROM speculative_trades WHERE id = ?
+    """,
+      (primary_id,),
+  )
+  p1 = cursor.fetchone()
+
+  cursor.execute(
+      """
+        SELECT symbol, exchange, price_entry, amount_eur
+        FROM speculative_trades WHERE id = ?
+    """,
+      (secondary_id,),
+  )
+  p2 = cursor.fetchone()
+
+  if not p1 or not p2:
+    conn.close()
+    return False
+
+  sym1, exch1, entry1, amt1, tp1, tp2, sl1 = p1
+  sym2, exch2, entry2, amt2 = p2
+
+  qty1 = (amt1 / entry1) if entry1 > 0 else 0.0
+  qty2 = (amt2 / entry2) if entry2 > 0 else 0.0
+
+  total_qty = qty1 + qty2
+  total_amt = amt1 + amt2
+  weighted_entry = (total_amt / total_qty) if total_qty > 0 else entry1
+
+  new_tp1 = (weighted_entry * 2.0) if (tp1 is None or tp1 <= 0) else tp1
+  new_tp2 = (weighted_entry * 4.0) if (tp2 is None or tp2 <= 0) else tp2
+  new_sl = (weighted_entry * 0.60) if (sl1 is None or sl1 <= 0) else sl1
+
+  # Mise à jour de la ligne principale
+  cursor.execute(
+      """
+        UPDATE speculative_trades
+        SET price_entry = ?, amount_eur = ?, tp1_price = ?, tp2_price = ?, sl_price = ?
+        WHERE id = ?
+    """,
+      (weighted_entry, total_amt, new_tp1, new_tp2, new_sl, primary_id),
+  )
+
+  # Clôture de la ligne secondaire avec marqueur de fusion
+  cursor.execute(
+      """
+        UPDATE speculative_trades
+        SET status = 'CLOSED', step = 'MERGED_INTO_' || ?, closed_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    """,
+      (primary_id, secondary_id),
+  )
+
+  conn.commit()
+  conn.close()
+  return True
+
+
+
+
 def add_recommendation(
     symbol,
     exchange,

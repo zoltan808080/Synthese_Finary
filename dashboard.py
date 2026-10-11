@@ -43,6 +43,24 @@ try:
 except ImportError:
   EXPERT_ENGINE_AVAILABLE = False
 
+
+def send_telegram_notify(text):
+  """Envoie une notification d'information directe sur Telegram lors d'une action Web."""
+  bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+  user_id = os.getenv("TELEGRAM_ALLOWED_USER_ID")
+  if not bot_token or not user_id:
+    return
+  url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+  try:
+    requests.post(
+        url,
+        json={"chat_id": user_id, "text": text, "parse_mode": "Markdown"},
+        timeout=3,
+    )
+  except Exception:
+    pass
+
+
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -480,15 +498,15 @@ with tab_live:
                     """,
               unsafe_allow_html=True,
           )
-
-        st.markdown("---")
+    st.markdown("---")
     st.subheader("⚡ Actions & Gestion Dynamique des Positions")
 
-    act_tab1, act_tab2, act_tab3 = st.tabs(
+    act_tab1, act_tab2, act_tab3, act_tab4 = st.tabs(
         [
             "🔒 Clôture de Position",
             "🛡️ Passage en Break-Even (1-Click)",
-            "✏️ Édition des Niveaux (TP / SL)",
+            "✏️ Édition & Raccourcis SL/TP",
+            "🔀 Consolidation de Doublons",
         ]
     )
 
@@ -508,15 +526,22 @@ with tab_live:
       with c_col2:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔒 Clôturer la position", type="secondary"):
+          close_sym = df_pos[df_pos["ID"] == selected_close_id][
+              "Symbole"
+          ].values[0]
           close_trade(selected_close_id)
+          send_telegram_notify(
+              f"🔒 *POSITION CLÔTURÉE VIA DASHBOARD*\n• **{close_sym}** (ID"
+              f" {selected_close_id}) a été fermée en base de données."
+          )
           st.success(f"Position ID {selected_close_id} clôturée en BDD !")
           st.rerun()
 
     # --- SOUS-ONGLET 2 : BREAK-EVEN 1-CLICK ---
     with act_tab2:
       st.markdown(
-          "**Caler le Stop-Loss sur le Prix d'Entrée** pour éliminer le risque"
-          " sur une position en gain."
+          "**Caler le Stop-Loss sur le Prix d'Entrée** pour éliminer 100% du"
+          " risque sur une position en gain."
       )
       be_col1, be_col2 = st.columns([2, 1])
       with be_col1:
@@ -536,17 +561,24 @@ with tab_live:
         if st.button("🛡️ Passer en Break-Even", type="primary"):
           from db_manager import set_trade_break_even
 
+          be_row = df_pos[df_pos["ID"] == selected_be_id].iloc[0]
           set_trade_break_even(selected_be_id)
+          send_telegram_notify(
+              f"🛡️ *POSITION SÉCURISÉE (BREAK-EVEN)*\n•"
+              f" **{be_row['Symbole']}** (ID {selected_be_id})\n• Nouveau SL"
+              f" calé sur prix d'entrée : *{be_row['Prix Entrée']}*"
+          )
           st.success(
               f"✅ Stop-Loss de la position ID {selected_be_id} ajusté au prix"
               " d'entrée !"
           )
           st.rerun()
 
-    # --- SOUS-ONGLET 3 : ÉDITION MANUELLE TP / SL ---
+    # --- SOUS-ONGLET 3 : ÉDITION MANUELLE & RACCOURCIS SL/TP ---
     with act_tab3:
       st.markdown(
-          "**Ajuster manuellement les paliers de prix (TP1, TP2, Stop-Loss)**"
+          "**Ajuster manuellement ou via les raccourcis (-10%, -15%, -20%) les"
+          " paliers TP / SL**"
       )
       selected_edit_id = st.selectbox(
           "Position à modifier",
@@ -558,11 +590,22 @@ with tab_live:
           key="edit_select",
       )
 
-      # Récupération des données actuelles de la position choisie
       curr_row = df_pos[df_pos["ID"] == selected_edit_id].iloc[0]
       raw_entry = curr_row["Prix Entrée"]
       raw_tp1 = curr_row["TP1"]
       raw_sl = curr_row["Stop-Loss"]
+
+      st.markdown("**⚡ Raccourcis de calcul SL rapide (par rapport au prix d'entrée) :**")
+      r_c1, r_c2, r_c3, r_c4 = st.columns(4)
+      sl_preset = None
+      if r_c1.button("-10% (Resserré)", key="btn_sl_10"):
+        sl_preset = raw_entry * 0.90
+      if r_c2.button("-15% (Standard)", key="btn_sl_15"):
+        sl_preset = raw_entry * 0.85
+      if r_c3.button("-20% (Modéré)", key="btn_sl_20"):
+        sl_preset = raw_entry * 0.80
+      if r_c4.button("-30% (Large)", key="btn_sl_30"):
+        sl_preset = raw_entry * 0.70
 
       e_col1, e_col2, e_col3 = st.columns(3)
       with e_col1:
@@ -578,9 +621,10 @@ with tab_live:
             format="%.4f",
         )
       with e_col3:
+        target_sl = sl_preset if sl_preset is not None else (float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70))
         new_sl = st.number_input(
             f"Nouveau Stop-Loss ({curr_symbol})",
-            value=float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70),
+            value=target_sl,
             format="%.4f",
         )
 
@@ -593,11 +637,64 @@ with tab_live:
             tp2_price=new_tp2 / curr_multiplier,
             sl_price=new_sl / curr_multiplier,
         )
+        send_telegram_notify(
+            f"✏️ *PALIERS MIS À JOUR VIA DASHBOARD*\n•"
+            f" **{curr_row['Symbole']}** (ID {selected_edit_id})\n• Nouveau TP1"
+            f" : {new_tp1:.4f} {curr_symbol}\n• Nouveau SL : {new_sl:.4f}"
+            f" {curr_symbol}"
+        )
         st.success(
             f"✅ Paliers mis à jour pour {curr_row['Symbole']} (ID"
             f" {selected_edit_id}) !"
         )
         st.rerun()
+
+    # --- SOUS-ONGLET 4 : CONSOLIDATION DES DOUBLONS ---
+    with act_tab4:
+      st.markdown(
+          "**Fusionner deux lignes du même actif sur un même exchange** en une"
+          " seule position avec PRU pondéré."
+      )
+
+      # Recherche de doublons dans df_pos
+      duplicates = (
+          df_pos.groupby(["Symbole", "Exchange"])
+          .filter(lambda x: len(x) > 1)
+      )
+
+      if not duplicates.empty:
+        st.warning("⚠️ Doublon(s) de position détecté(s) !")
+        dup_symbols = duplicates["Symbole"].unique()
+
+        for d_sym in dup_symbols:
+          sub_dup = duplicates[duplicates["Symbole"] == d_sym]
+          ids = sub_dup["ID"].tolist()
+          primary_id = ids[0]
+          secondary_id = ids[1]
+
+          st.markdown(
+              f"• **{d_sym} ({sub_dup['Exchange'].values[0]})** : Ligne principale ID **{primary_id}** & Secondaire ID **{secondary_id}**"
+          )
+
+          if st.button(
+              f"🔀 Fusionner les lignes {d_sym} (ID {primary_id} + ID {secondary_id})",
+              key=f"merge_btn_{d_sym}",
+          ):
+            from db_manager import merge_duplicate_trades
+
+            if merge_duplicate_trades(primary_id, secondary_id):
+              send_telegram_notify(
+                  f"🔀 *FUSION DE DOUBLONS EFFECTUÉE*\n• **{d_sym}** : Lignes"
+                  f" ID {secondary_id} fusionnée dans ID {primary_id}.\n•"
+                  " PRU et volumes consolidés avec succès."
+              )
+              st.success(f"✅ Positions {d_sym} fusionnées avec succès !")
+              st.rerun()
+      else:
+        st.info("✅ Aucun doublon de position actuellement dans le portefeuille.")
+
+
+
   else:
     st.info("Aucune position active trouvée.")
 
