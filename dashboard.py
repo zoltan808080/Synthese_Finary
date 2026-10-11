@@ -1,7 +1,7 @@
 import datetime
+import json
 import os
 import subprocess
-import json
 from dotenv import load_dotenv
 from google import genai
 import pandas as pd
@@ -14,7 +14,10 @@ from db_manager import (
     init_db,
     mark_trade_ignored,
     mark_trade_taken,
+    merge_duplicate_trades,
+    set_trade_break_even,
     update_trade_amount,
+    update_trade_levels,
 )
 from exchange_connectors import (
     get_all_exchange_crypto_balances,
@@ -43,6 +46,16 @@ try:
 except ImportError:
   EXPERT_ENGINE_AVAILABLE = False
 
+load_dotenv()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Configuration de la page Streamlit
+st.set_page_config(
+    page_title="Crypto Speculative Monitor & Analytics",
+    page_icon="🚀",
+    layout="wide",
+)
+
 
 def send_telegram_notify(text):
   """Envoie une notification d'information directe sur Telegram lors d'une action Web."""
@@ -59,17 +72,6 @@ def send_telegram_notify(text):
     )
   except Exception:
     pass
-
-
-load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-# Configuration de la page Streamlit
-st.set_page_config(
-    page_title="Crypto Speculative Monitor & Analytics",
-    page_icon="🚀",
-    layout="wide",
-)
 
 
 # --- SYSTÈME DE SÉCURITÉ PAR MOT DE PASSE ---
@@ -191,11 +193,10 @@ st.sidebar.info(
     " exchanges et des wallets froids."
 )
 
-# --- NAVIGATION PAR ONGLETS ---
-tab_live, tab_risk, tab_digest, tab_alerts, tab_ai, tab_monitor, tab_analytics, tab_fiscal = st.tabs(
+# --- NAVIGATION PAR ONGLETS (7 ONSLETS RESTRUCTURÉS) ---
+tab_live, tab_digest, tab_alerts, tab_ai, tab_monitor, tab_analytics, tab_fiscal = st.tabs(
     [
         "📊 Positions Actives (Live)",
-        "🛡️ Risk Management & Sizing",
         "📰 Daily Briefing (19h Pro)",
         "🔔 Centre d'Alertes",
         "🤖 Assistant IA Pro",
@@ -498,6 +499,7 @@ with tab_live:
                     """,
               unsafe_allow_html=True,
           )
+
     st.markdown("---")
     st.subheader("⚡ Actions & Gestion Dynamique des Positions")
 
@@ -559,8 +561,6 @@ with tab_live:
       with be_col2:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🛡️ Passer en Break-Even", type="primary"):
-          from db_manager import set_trade_break_even
-
           be_row = df_pos[df_pos["ID"] == selected_be_id].iloc[0]
           set_trade_break_even(selected_be_id)
           send_telegram_notify(
@@ -629,8 +629,6 @@ with tab_live:
         )
 
       if st.button("💾 Enregistrer les nouveaux paliers"):
-        from db_manager import update_trade_levels
-
         update_trade_levels(
             selected_edit_id,
             tp1_price=new_tp1 / curr_multiplier,
@@ -656,7 +654,6 @@ with tab_live:
           " seule position avec PRU pondéré."
       )
 
-      # Recherche de doublons dans df_pos
       duplicates = (
           df_pos.groupby(["Symbole", "Exchange"])
           .filter(lambda x: len(x) > 1)
@@ -680,8 +677,6 @@ with tab_live:
               f"🔀 Fusionner les lignes {d_sym} (ID {primary_id} + ID {secondary_id})",
               key=f"merge_btn_{d_sym}",
           ):
-            from db_manager import merge_duplicate_trades
-
             if merge_duplicate_trades(primary_id, secondary_id):
               send_telegram_notify(
                   f"🔀 *FUSION DE DOUBLONS EFFECTUÉE*\n• **{d_sym}** : Lignes"
@@ -693,82 +688,11 @@ with tab_live:
       else:
         st.info("✅ Aucun doublon de position actuellement dans le portefeuille.")
 
-
-
   else:
     st.info("Aucune position active trouvée.")
 
 # ==========================================
-# ONGLET 2 : RISK MANAGEMENT & SIZING
-# ==========================================
-with tab_risk:
-  with st.expander("📖 Guide du Risk Management & Sizing"):
-    st.markdown(f"""
-        Pilotage du risque basé sur la **valeur actuelle de marché** de vos actifs :
-        * **Calculateur de Position :** Déterminez exactement combien risquer sur un nouveau trade.
-        * **Ratios de Risque :** Évaluation des paliers Stop-Loss et du ratio R:R.
-        """)
-
-  st.subheader(f"🛡️ Calculateur de Taille de Position & Risque ({curr_symbol})")
-
-  col_rc1, col_rc2 = st.columns(2)
-  with col_rc1:
-    default_cap = 10000.0 * curr_multiplier
-    capital_total_ref = st.number_input(
-        f"Capital global disponible ({curr_symbol})",
-        min_value=100.0,
-        value=default_cap,
-        step=500.0,
-    )
-    risque_max_pct = st.slider(
-        "Risque maximal accepté sur ce trade (% du capital global)",
-        min_value=0.5,
-        max_value=5.0,
-        value=1.0,
-        step=0.5,
-    )
-  with col_rc2:
-    sl_distance_pct = st.slider(
-        "Distance du Stop-Loss d'invalidation (%)",
-        min_value=5.0,
-        max_value=50.0,
-        value=30.0,
-        step=2.5,
-    )
-    tp_target_pct = st.slider(
-        "Objectif de gain visé (TP en %)",
-        min_value=20.0,
-        max_value=300.0,
-        value=100.0,
-        step=10.0,
-    )
-
-  montant_risque = capital_total_ref * (risque_max_pct / 100.0)
-  taille_position_ideale = montant_risque / (sl_distance_pct / 100.0)
-  ratio_risk_reward = tp_target_pct / sl_distance_pct
-
-  st.markdown("---")
-  st.markdown("#### 🎯 Résultats de la Recommandation de Sizing")
-  r_col1, r_col2, r_col3 = st.columns(3)
-  r_col1.metric(
-      f"Montant max à engager ({curr_symbol})",
-      f"{taille_position_ideale:,.2f} {curr_symbol}",
-      delta=f"{(taille_position_ideale/capital_total_ref)*100:.1f}% du capital",
-  )
-  r_col2.metric(
-      f"Perte maximale ({curr_symbol} si SL touché)",
-      f"-{montant_risque:,.2f} {curr_symbol}",
-      delta=f"-{risque_max_pct}% du capital",
-      delta_color="inverse",
-  )
-  r_col3.metric(
-      "Ratio Risque / Rendement (R:R)",
-      f"1 : {ratio_risk_reward:.2f}",
-      delta=("Excellent (>= 2)" if ratio_risk_reward >= 2 else "Attention (< 2)"),
-  )
-
-# ==========================================
-# ONGLET 3 : DAILY BRIEFING PRO (19H)
+# ONGLET 2 : DAILY BRIEFING PRO (19H)
 # ==========================================
 with tab_digest:
   with st.expander("📖 Guide du Daily Briefing Pro (Rapport de 19h)"):
@@ -840,7 +764,7 @@ with tab_digest:
     st.info("Aucune opportunité spéculative active en attente dans la base de données.")
 
 # ==========================================
-# ONGLET 4 : CENTRE D'ALERTES & RAPPROCHEMENT (v2.8 Unifié)
+# ONGLET 3 : CENTRE D'ALERTES & RAPPROCHEMENT
 # ==========================================
 with tab_alerts:
   with st.expander("📖 Guide du Centre d'Alertes & Réconciliation"):
@@ -891,6 +815,7 @@ with tab_alerts:
         if d_type == "GHOST_POSITION":
           if st.button(f"🧹 Purger / Clôturer la ligne fantôme ID {d_id} ({d_sym})", key=f"web_clean_ghost_{d_id}"):
             close_trade(d_id)
+            send_telegram_notify(f"🧹 *LIGNE FANTÔME PURGÉE VIA WEB*\n• **{d_sym}** (ID {d_id}) supprimée.")
             st.success(f"Position ID {d_id} ({d_sym}) clôturée et nettoyée de la base de données avec succès !")
             st.rerun()
 
@@ -899,6 +824,7 @@ with tab_alerts:
           disp_adj_amt = adj_amt * curr_multiplier
           if st.button(f"🔄 Synchroniser le volume ID {d_id} ({d_sym}) -> {disp_adj_amt:,.2f} {curr_symbol}", key=f"web_sync_vol_{d_id}"):
             update_trade_amount(d_id, adj_amt)
+            send_telegram_notify(f"🔄 *VOLUME RESYNCHRONISÉ VIA WEB*\n• **{d_sym}** (ID {d_id}) ajusté à {disp_adj_amt:,.2f} {curr_symbol}.")
             st.success(f"Position ID {d_id} ({d_sym}) resynchronisée avec succès au montant de {disp_adj_amt:,.2f} {curr_symbol} !")
             st.rerun()
 
@@ -907,13 +833,8 @@ with tab_alerts:
           price_eur = disc.get("price", 0.0)
           disp_cost = cost_eur * curr_multiplier
           disp_price = price_eur * curr_multiplier
-          if st.button(
-              f"🎯 Activer la stratégie Moonbag pour {d_sym} ({disp_cost:,.2f}"
-              f" {curr_symbol} @ {disp_price:.4f} {curr_symbol})",
-              key=f"web_add_manual_{d_sym}_{d_exch}",
-          ):
+          if st.button(f"🎯 Activer la stratégie Moonbag pour {d_sym} ({disp_cost:,.2f} {curr_symbol} @ {disp_price:.4f} {curr_symbol})", key=f"web_add_manual_{d_sym}_{d_exch}"):
             from db_manager import add_recommendation, mark_trade_taken
-
             rec_id = add_recommendation(
                 symbol=d_sym,
                 exchange=d_exch,
@@ -925,10 +846,10 @@ with tab_alerts:
                 sl_type="invalidation",
             )
             mark_trade_taken(rec_id)
-            st.success(
-                f"✅ Position {d_sym} intégrée avec succès au cockpit Moonbag !"
-            )
+            send_telegram_notify(f"🎯 *TRADE MANUEL ONBOARDÉ VIA WEB*\n• **{d_sym}** ({disp_cost:,.2f} {curr_symbol} @ {disp_price:.4f} {curr_symbol}) ajouté au cockpit Moonbag.")
+            st.success(f"✅ Position {d_sym} intégrée avec succès au cockpit Moonbag !")
             st.rerun()
+
     else:
       st.success("✅ Parfaite synchronisation : aucune ligne fantôme ni écart significatif détecté.")
   else:
@@ -1044,7 +965,7 @@ with tab_alerts:
       )
 
 # ==========================================
-# ONGLET 5 : ASSISTANT IA PRO
+# ONGLET 4 : ASSISTANT IA PRO
 # ==========================================
 with tab_ai:
   with st.expander("📖 Guide de l'Assistant IA Conversationnel"):
@@ -1059,16 +980,13 @@ with tab_ai:
       "Discutez en direct ou lancez une analyse pré-configurée en 1 clic :"
   )
 
-  # --- BOUTONS DE PROMPTS PRÊTS À L'EMPLOI ---
   st.markdown("##### ⚡ Prompts Rapides & Analyses en 1 Clic")
   col_p1, col_p2, col_p3, col_p4 = st.columns(4)
 
   preset_prompt = None
   preset_context = None
 
-  # -------------------------------------------------------------
-  # PROMPT 1 : RAPPORT SPÉCULATIF LIVE (Équivalent 19h On-Demand)
-  # -------------------------------------------------------------
+  # --- PROMPT 1 : RAPPORT SPÉCULATIF LIVE ---
   with col_p1:
     if st.button("📰 Rapport Spéculatif Live", use_container_width=True):
       with st.spinner("Collecte des données live en direct des APIs..."):
@@ -1086,7 +1004,6 @@ with tab_ai:
         cats = calculate_unfied_crypto_categories()
         open_pos = get_open_positions()
 
-        # Opportunités pré-filtrées
         raw_opps = (
             [] if is_crash else fetch_coingecko_trending_and_markets()
         )
@@ -1145,14 +1062,9 @@ RÈGLES D'ARBITRAGE :
 2. PLAFOND STRICT DE VENTE : Ne jamais dépasser le montant réel d'un actif détenu.
 3. Plan Moonbag pour chaque recommandation : Prix d'entrée, TP1 (x2 / -50%), TP2 (x4 / -25%), TP3 (Moonbag restants 25%), SL d'invalidation (-40% à -50%).
 
-Structure ta réponse avec des titres clairs (##), des listes à puces et du gras pour une lisibilité parfaite sur le dashboard."""
+Structure ta réponse avec des titres clairs (##), des listes à puces et du gras."""
 
-
-
-
-  # -------------------------------------------------------------
-  # PROMPT 2 : AUDIT DE PROTECTION & STOP-LOSS (Sécurité Live)
-  # -------------------------------------------------------------
+  # --- PROMPT 2 : AUDIT DE PROTECTION & SL ---
   with col_p2:
     if st.button("🛡️ Audit de Protection & SL", use_container_width=True):
       with st.spinner("Analyse de la sécurité de vos positions en direct..."):
@@ -1215,11 +1127,11 @@ DÉTAIL DES POSITIONS EN PORTEFEUILLE :
 {json.dumps(pos_audit_data, indent=2, ensure_ascii=False)}
 
 CONSIGNES DE RÉDACTION POUR L'AUDIT :
-1. **Niveau de Risque Global** : Évalue la sécurité générale du portefeuille (Buffer global : {global_buffer:.1f}%).
+1. **Niveau de Risque Global** : Évalue la sécurité générale du portefeuille.
 2. **Positions Sans Protection (CRITIQUE)** : Liste clairement les tokens n'ayant AUCUN Stop-Loss défini (sl_eur = 0) et conseille le niveau d'invalidation technique à ajouter.
 3. **Zone de Danger / SL Frôlé (ATTENTION)** : Identifie les lignes dont le prix actuel est proche du Stop-Loss (distance < 10%).
 4. **Opportunités de Sécurisation (Break-Even / Free Ride)** : Pour les positions où TP1 est atteint ou en fort gain, recommande de remonter le Stop-Loss au prix d'entrée (Break-Even).
-5. **Plan d'Action Immédiat** : Résume en 3 à 5 points à puces les réglages prioritaires à effectuer sur tes exchanges.
+5. **Plan d'Action Immédiat** : Résume en 3 à 5 points à puces les réglages prioritaires à effectuer.
 
 Rédige avec des titres clairs (##), des puces et du gras."""
         else:
@@ -1244,7 +1156,6 @@ Rédige avec des titres clairs (##), des puces et du gras."""
 
   st.markdown("---")
 
-  # --- HISTORIQUE ET GESTION DU CHAT ---
   if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "assistant",
@@ -1272,7 +1183,6 @@ Rédige avec des titres clairs (##), des puces et du gras."""
     with st.chat_message("user"):
       st.markdown(prompt_to_process)
 
-    # Si le contexte spécifique n'a pas été construit par un bouton dédié, on injecte le contexte de base
     if not preset_context:
       current_positions = get_open_positions()
       current_cash = get_total_verified_cash()
@@ -1306,7 +1216,7 @@ Réponds de manière professionnelle, structurée, concrète et percutante."""
         )
 
 # ==========================================
-# ONGLET 6 : MONITORING & SANTÉ APIS
+# ONGLET 5 : MONITORING & SANTÉ APIS
 # ==========================================
 with tab_monitor:
   with st.expander("📖 Guide du Monitoring Technique"):
@@ -1348,7 +1258,7 @@ with tab_monitor:
   st.text_area(f"Dernières lignes de log pour {log_service}", log_output, height=300)
 
 # ==========================================
-# ONGLET 7 : ANALYTICS & WIN RATE
+# ONGLET 6 : ANALYTICS & WIN RATE
 # ==========================================
 with tab_analytics:
   with st.expander("📖 Aide & Légendes des Graphiques d'Analytics"):
@@ -1368,7 +1278,7 @@ with tab_analytics:
     st.line_chart(df_pnl, use_container_width=True)
 
 # ==========================================
-# ONGLET 8 : EXPORT COMPTABLE & FISCAL
+# ONGLET 7 : EXPORT COMPTABLE & FISCAL
 # ==========================================
 with tab_fiscal:
   with st.expander("📖 Guide de l'Assistant Fiscal Avancé"):
