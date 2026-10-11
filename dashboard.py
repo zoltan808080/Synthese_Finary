@@ -833,23 +833,56 @@ with tab_alerts:
           price_eur = disc.get("price", 0.0)
           disp_cost = cost_eur * curr_multiplier
           disp_price = price_eur * curr_multiplier
-          if st.button(f"🎯 Activer la stratégie Moonbag pour {d_sym} ({disp_cost:,.2f} {curr_symbol} @ {disp_price:.4f} {curr_symbol})", key=f"web_add_manual_{d_sym}_{d_exch}"):
-            from db_manager import add_recommendation, mark_trade_taken
-            rec_id = add_recommendation(
-                symbol=d_sym,
-                exchange=d_exch,
-                price=price_eur,
-                amount_eur=cost_eur,
-                tp1_price=price_eur * 2.0,
-                tp2_price=price_eur * 4.0,
-                sl_price=price_eur * 0.60,
-                sl_type="invalidation",
-            )
-            mark_trade_taken(rec_id)
-            send_telegram_notify(f"🎯 *TRADE MANUEL ONBOARDÉ VIA WEB*\n• **{d_sym}** ({disp_cost:,.2f} {curr_symbol} @ {disp_price:.4f} {curr_symbol}) ajouté au cockpit Moonbag.")
-            st.success(f"✅ Position {d_sym} intégrée avec succès au cockpit Moonbag !")
-            st.rerun()
 
+          b_col1, b_col2 = st.columns(2)
+          with b_col1:
+            if st.button(
+                f"🎯 Activer Moonbag ({d_sym} — {disp_cost:,.2f} {curr_symbol})",
+                key=f"web_add_manual_{d_sym}_{d_exch}",
+            ):
+              from db_manager import add_recommendation, mark_trade_taken
+
+              rec_id = add_recommendation(
+                  symbol=d_sym,
+                  exchange=d_exch,
+                  price=price_eur,
+                  amount_eur=cost_eur,
+                  tp1_price=price_eur * 2.0,
+                  tp2_price=price_eur * 4.0,
+                  sl_price=price_eur * 0.60,
+                  sl_type="invalidation",
+              )
+              mark_trade_taken(rec_id)
+              send_telegram_notify(
+                  f"🎯 *TRADE MOONBAG ONBOARDÉ VIA WEB*\n• **{d_sym}**"
+                  f" ({disp_cost:,.2f} {curr_symbol} @ {disp_price:.4f}"
+                  f" {curr_symbol}) ajouté au cockpit."
+              )
+              st.success(
+                  f"✅ Position {d_sym} intégrée avec succès au cockpit"
+                  " Moonbag !"
+              )
+              st.rerun()
+
+          with b_col2:
+            if st.button(
+                f"💎 Conserver en Poche CORE ({d_sym})",
+                key=f"web_core_manual_{d_sym}_{d_exch}",
+            ):
+              from db_manager import mark_manual_trade_core
+
+              mark_manual_trade_core(
+                  d_sym, d_exch, cost_eur, price_eur, reason="CORE"
+              )
+              send_telegram_notify(
+                  f"💎 *TRADE CLASSÉ POCHE CORE VIA WEB*\n• **{d_sym}**"
+                  f" ({disp_cost:,.2f} {curr_symbol}) conservé en investissement"
+                  " long terme."
+              )
+              st.success(
+                  f"✅ Trade {d_sym} classé en Poche CORE (alerte masquée) !"
+              )
+              st.rerun()
     else:
       st.success("✅ Parfaite synchronisation : aucune ligne fantôme ni écart significatif détecté.")
   else:
@@ -1138,21 +1171,71 @@ Rédige avec des titres clairs (##), des puces et du gras."""
           preset_prompt = "Fais un audit de sécurité de mes positions."
           preset_context = "Aucune position active n'est actuellement enregistrée en BDD. Indique à l'utilisateur que son portefeuille spéculatif est totalement liquide et sécurisé."
 
+
+  # --- PROMPT 3 : OPPORTUNITÉS D'ARBITRAGE (Cash-Neutral) ---
   with col_p3:
     if st.button("🔄 Opportunités d'Arbitrage", use_container_width=True):
-      preset_prompt = (
-          "Analyse mes liquidités disponibles (Fiat + Stablecoins) et propose-moi"
-          " les arbitrages ou réallocations les plus pertinents sous la règle"
-          " Cash-Neutral."
-      )
+      with st.spinner("Analyse des liquidités et des gisements d'arbitrage..."):
+        from crypto_speculative_advisor import calculate_unfied_crypto_categories
+        cats = calculate_unfied_crypto_categories()
+        open_pos = get_open_positions()
 
+        preset_prompt = "Analyse mes liquidités disponibles et propose-moi les opportunités d'arbitrage optimales selon la règle Cash-Neutral."
+
+        preset_context = f"""Tu es un trader crypto expert et stratège en allocation d'actifs.
+Analyse la liquidité disponible et propose un plan d'arbitrage sous la règle stricte CASH-NEUTRAL.
+
+DONNÉES DES LIQUIDITÉS ET PLAFONDS :
+- Valeur totale portefeuille : {cats['total_crypto']:,.2f} €
+- Total Liquidités Immédiates (Fiat + Stables) : {cats['stables_cash']:,.2f} € ({cats['stables_cash_pct']:.2f}%)
+  • Stablecoins (USDT/USDC) : {cats['val_stables_crypto']:,.2f} €
+  • Cash Fiat (EUR/USD) : {cats['total_cash_fiat']:,.2f} €
+- Enveloppe spéculative actuelle : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.2f}%)
+
+PLAFONDS STRICTS D'ARBITRAGE PAR ACTIF DÉTENU (SEUIL MAX VENDABLE) :
+{cats['holdings_text']}
+
+POSITIONS ACTIVES EN BDD :
+{open_pos}
+
+RÈGLES STRICTES D'ARBITRAGE :
+1. Si les liquidités ({cats['stables_cash']:,.2f} €) sont suffisantes, financer les opportunités SANS vendre d'actifs existants.
+2. En cas de vente d'un actif, ne JAMAIS dépasser son plafond strict indiqué ci-dessus. Ne pas proposer la vente d'un actif < 20 €.
+3. Chaque recommandation doit comporter son plan Moonbag complet (Entrée, TP1 x2 / 50%, TP2 x4 / 25%, TP3 Moonbag, SL -40% à -50%).
+
+Structure la réponse avec des titres clairs (##), des listes à puces et du gras."""
+
+  # --- PROMPT 4 : BILAN ALLOCATION & CIBLES ---
   with col_p4:
     if st.button("📊 Bilan Allocation & Cibles", use_container_width=True):
-      preset_prompt = (
-          "Analyse ma répartition globale (Majeures vs Core vs Spéculatif vs"
-          " Cash) par rapport à mon objectif de 10% sur le spéculatif. Donne-moi"
-          " ton diagnostic et tes conseils de rééquilibrage."
-      )
+      with st.spinner("Diagnostic d'allocation et calcul des écarts cibles..."):
+        from crypto_speculative_advisor import calculate_unfied_crypto_categories
+        cats = calculate_unfied_crypto_categories()
+
+        target_spec_eur = cats['total_crypto'] * 0.10
+        delta_spec_eur = cats['speculative'] - target_spec_eur
+
+        preset_prompt = "Fais un bilan complet de mon allocation d'actifs par rapport à mes cibles stratégiques et donne-moi tes conseils de rééquilibrage."
+
+        preset_context = f"""Tu es un gestionnaire de portefeuille crypto institutionnel.
+Analyse la répartition globale du portefeuille par rapport aux cibles théoriques et propose un diagnostic de rééquilibrage.
+
+RÉPARTITION ACTUELLE VS CIBLES :
+- Capital Total : {cats['total_crypto']:,.2f} €
+- Majeures (BTC/ETH - Spot + Staking + Exodus) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.2f}%) | Cible idéale : ~50-60%
+- Poche Core (Convictions) : {cats['core']:,.2f} € ({cats['core_pct']:.2f}%) | Cible idéale : ~20-30%
+- Poche Spéculative (Moonbag) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.2f}%) | Cible stricte : 10.0% ({target_spec_eur:,.2f} €)
+- Liquidités & Cash : {cats['stables_cash']:,.2f} € ({cats['stables_cash_pct']:.2f}%) | Cible idéale : ~10-15%
+
+DIAGNOSTIC DE L'ENVELOPPE SPÉCULATIVE :
+- Écart spéculatif par rapport à la cible 10% : {delta_spec_eur:+,.2f} € ({cats['speculative_pct'] - 10.0:+.2f}%)
+
+CONSIGNES D'ANALYSE :
+1. **Diagnostic de la Poche Spéculative** : Indique si l'enveloppe est sous-exposée, alignée ou en sur-exposition par rapport à la cible de 10%.
+2. **Analyse de la Structure Globale** : Évalue l'équilibre entre Majeures, Core, Spéculatif et Cash.
+3. **Recommandations de Rééquilibrage** : Donne des consignes concrètes pour réaligner le portefeuille sans prendre de risques inutiles.
+
+Structure ta réponse avec des titres clairs (##), des listes à puces et du gras."""
 
   st.markdown("---")
 

@@ -3,7 +3,10 @@ import os
 import time
 import requests
 from dotenv import load_dotenv
-from db_manager import get_open_positions
+from db_manager import (
+    get_open_positions,
+    is_manual_trade_ignored,
+)
 from exchange_connectors import (
     get_kraken_crypto_balances,
     get_okx_crypto_balances,
@@ -17,20 +20,18 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID")
 
 
-def send_telegram_alert(text):
-  """Envoie une alerte directe sur Telegram si le bot est configuré."""
-  if not BOT_TOKEN or not ALLOWED_USER_ID:
-    return
-  url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-  payload = {"chat_id": ALLOWED_USER_ID, "text": text, "parse_mode": "HTML"}
+def get_live_eur_usd_rate():
+  """Récupère le taux EUR/USD live pour la conversion automatique des trades USD."""
   try:
-    requests.post(url, json=payload, timeout=5)
-  except Exception as e:
-    logging.error(f"❌ Erreur envoi Telegram alerte : {e}")
+    res = requests.get("https://api.frankfurter.app/latest?from=EUR&to=USD", timeout=2)
+    if res.status_code == 200:
+      return float(res.json().get("rates", {}).get("USD", 1.12))
+  except Exception:
+    pass
+  return 1.12
 
 
 def clean_pair_symbol(pair_str):
-  """Nettoie proprement les paires complexes (ex: XXBTZEUR -> BTC, XETHZEUR -> ETH, ADAEUR -> ADA)."""
   clean = str(pair_str).upper().strip()
   for suffix in ["ZEUR", "ZUSD", "EUR", "USD", "USDT", "USDC"]:
     if clean.endswith(suffix) and len(clean) > len(suffix):
@@ -46,10 +47,6 @@ def clean_pair_symbol(pair_str):
 
 
 def audit_database_vs_exchanges():
-  """Compare les positions 'OPEN' en BDD avec les avoirs réels en AGRÉGEANT les positions
-
-  multiples d'un même token sur un même exchange, et détecte les achats manuels RÉCENTS (< 48h).
-  """
   open_positions = get_open_positions()
 
   kraken_balances = get_kraken_crypto_balances()
@@ -59,7 +56,6 @@ def audit_database_vs_exchanges():
   discrepancies = []
   db_symbols = set()
 
-  # Groupement des positions BDD par (symbole, exchange) pour gérer les entrées multiples
   grouped_positions = {}
   for p in open_positions:
     pos_id = p[0]
@@ -70,44 +66,25 @@ def audit_database_vs_exchanges():
     db_qty = (db_amount_eur / entry_price) if entry_price > 0 else 0.0
 
     db_symbols.add(sym)
-
     clean_exch = "KRAKEN" if "KRAKEN" in exch else ("OKX" if "OKX" in exch else ("MEXC" if "MEXC" in exch else exch))
     key = (sym, clean_exch)
 
     if key not in grouped_positions:
-      grouped_positions[key] = {
-          "total_db_qty": 0.0,
-          "total_db_amount_eur": 0.0,
-          "items": [],
-      }
+      grouped_positions[key] = {"total_db_qty": 0.0, "total_db_amount_eur": 0.0, "items": []}
 
     grouped_positions[key]["total_db_qty"] += db_qty
     grouped_positions[key]["total_db_amount_eur"] += db_amount_eur
-    grouped_positions[key]["items"].append({
-        "id": pos_id,
-        "entry_price": entry_price,
-        "amount_eur": db_amount_eur,
-        "qty": db_qty,
-    })
+    grouped_positions[key]["items"].append({"id": pos_id, "entry_price": entry_price, "amount_eur": db_amount_eur, "qty": db_qty})
 
-  # 1. Contrôle du CUMUL BDD par (symbole, exchange) vs Solde réel sur la plateforme
   for (sym, exch), data in grouped_positions.items():
     total_db_qty = data["total_db_qty"]
     total_db_amount_eur = data["total_db_amount_eur"]
     first_pos_id = data["items"][0]["id"] if data["items"] else None
 
-    target_exchange_dict = {}
-    if exch == "KRAKEN":
-      target_exchange_dict = kraken_balances
-    elif exch == "OKX":
-      target_exchange_dict = okx_balances
-    elif exch == "MEXC":
-      target_exchange_dict = mexc_balances
-
+    target_exchange_dict = kraken_balances if exch == "KRAKEN" else (okx_balances if exch == "OKX" else mexc_balances)
     real_asset_info = target_exchange_dict.get(sym, {})
     real_qty = float(real_asset_info.get("amount", -1.0))
 
-    # Ligne fantôme
     if real_qty == 0.0 or (real_qty == -1.0 and sym not in ["BTC", "ETH"]):
       discrepancies.append({
           "type": "GHOST_POSITION",
@@ -116,10 +93,9 @@ def audit_database_vs_exchanges():
           "exchange": exch,
           "db_amount": total_db_amount_eur,
           "real_amount": 0.0,
-          "desc": f"Ligne fantôme détectée : {sym} ({exch}) est actif en BDD ({total_db_amount_eur:,.2f} €) mais le solde réel sur {exch} est de 0.",
+          "desc": f"Ligne fantôme : {sym} ({exch}) actif en BDD ({total_db_amount_eur:,.2f} €) mais solde réel = 0.",
       })
     elif real_qty > 0.0 and total_db_qty > 0.0:
-      # Écart de volume sur le CUMUL TOTAL des jetons du portefeuille
       diff_ratio = abs(total_db_qty - real_qty) / real_qty
       if diff_ratio > 0.30:
         mean_entry = total_db_amount_eur / total_db_qty if total_db_qty > 0 else 0.0
@@ -132,15 +108,16 @@ def audit_database_vs_exchanges():
             "db_amount": total_db_amount_eur,
             "real_qty": real_qty,
             "adjusted_amount_eur": adjusted_amount,
-            "desc": f"Écart de volume sur {sym} ({exch}) : Total BDD = {total_db_qty:,.2f} tokens ({len(data['items'])} ligne(s)) vs Réel {exch} = {real_qty:,.2f} tokens ({diff_ratio*100:.1f}% d'écart).",
+            "desc": f"Écart de volume sur {sym} ({exch}) : BDD = {total_db_qty:,.2f} tokens vs Réel = {real_qty:,.2f} tokens.",
         })
 
-  # 2. Détection des nouveaux trades manuels RÉCENTS (< 48 heures uniquement)
+  # Détection des nouveaux trades manuels avec CONVERSION EUR AUTOMATIQUE
   try:
     recent_trades = get_all_trades_history()
     now_ts = time.time()
     cutoff_48h = now_ts - (48 * 3600)
     seen_manual_symbols = set()
+    eur_usd_rate = get_live_eur_usd_rate()
 
     for trade in recent_trades:
       trade_time = float(trade.get("time", 0.0))
@@ -148,8 +125,8 @@ def audit_database_vs_exchanges():
         continue
 
       tx_type = str(trade.get("type", "")).lower()
-      pair = str(trade.get("pair", ""))
-      exch = trade.get("exchange", "Unknown")
+      pair = str(trade.get("pair", "")).upper()
+      exch = str(trade.get("exchange", "Unknown")).upper().strip()
       price = float(trade.get("price", 0.0))
       cost = float(trade.get("cost", 0.0))
 
@@ -162,24 +139,31 @@ def audit_database_vs_exchanges():
       ):
         continue
 
-      if tx_type == "buy" and cost >= 15.0:
+      # 1. Calcul des prix en EUR
+      if any(pair.endswith(s) for s in ["USD", "USDT", "USDC", "ZUSD"]):
+        cost_eur = cost / eur_usd_rate
+        price_eur = price / eur_usd_rate
+      else:
+        cost_eur = cost
+        price_eur = price
+
+      # 2. Vérification si le trade a déjà été classé CORE / Ignoré (insensible à la casse & tolérant sur les montants)
+      if is_manual_trade_ignored(clean_sym, exch, cost_eur):
+        continue
+
+      # 3. Ajout si trade d'achat >= 15€
+      if tx_type == "buy" and cost_eur >= 15.0:
         seen_manual_symbols.add(clean_sym)
         discrepancies.append({
             "type": "MANUAL_TRADE_DETECTED",
             "id": None,
             "symbol": clean_sym,
             "exchange": exch,
-            "price": price,
-            "cost": cost,
-            "desc": f"🎯 Nouveau trade manuel récent détecté sur {exch} : Achat de {clean_sym} pour {cost:,.2f} € @ {price:.4f} €.",
+            "price": price_eur,
+            "cost": cost_eur,
+            "desc": f"🎯 Nouveau trade manuel récent détecté sur {exch} : Achat de {clean_sym} pour {cost_eur:,.2f} € @ {price_eur:.4f} €.",
         })
   except Exception as e:
     logging.warning(f"⚠️ Erreur lors de la détection des trades manuels : {e}")
 
   return discrepancies
-
-
-if __name__ == "__main__":
-  logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-  discrepancies = audit_database_vs_exchanges()
-  print(f"Écarts détectés : {len(discrepancies)}")
