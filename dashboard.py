@@ -27,6 +27,7 @@ from exchange_connectors import (
 
 try:
   from reconciliation_engine import audit_database_vs_exchanges
+
   RECONCILIATION_ENGINE_AVAILABLE = True
 except ImportError:
   RECONCILIATION_ENGINE_AVAILABLE = False
@@ -42,6 +43,7 @@ try:
   from daily_digest_engine import build_current_snapshot, init_finary_session
   from exchange_connectors import get_all_open_orders
   from sl_audit_engine import audit_positions_protection
+
   EXPERT_ENGINE_AVAILABLE = True
 except ImportError:
   EXPERT_ENGINE_AVAILABLE = False
@@ -55,6 +57,61 @@ st.set_page_config(
     page_icon="🚀",
     layout="wide",
 )
+
+
+# ==========================================
+# FONCTIONS CACHÉES (PERFORMANCE BOOST)
+# ==========================================
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_live_price_cached(sym, exch, eur_usd_rate):
+  """Récupère le prix en direct avec un cache de 60s pour éviter la latence réseau."""
+  clean_sym = str(sym).upper().replace("USDT", "").replace("EUR", "").strip()
+  price = None
+  try:
+    res_okx = requests.get(
+        f"https://www.okx.com/api/v5/market/ticker?instId={clean_sym}-USDT",
+        timeout=1.2,
+    )
+    if res_okx.status_code == 200:
+      data_okx = res_okx.json().get("data", [])
+      if data_okx:
+        price_usdt = float(data_okx[0].get("last", 0))
+        price = price_usdt / eur_usd_rate
+  except Exception:
+    pass
+
+  if not price:
+    try:
+      res_k = requests.get(
+          f"https://api.kraken.com/0/public/Ticker?pair={clean_sym}EUR",
+          timeout=1.2,
+      )
+      if res_k.status_code == 200:
+        result_k = res_k.json().get("result", {})
+        for _, v_data in result_k.items():
+          if "c" in v_data:
+            price = float(v_data["c"][0])
+            break
+    except Exception:
+      pass
+  return price
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_cached_crypto_balances():
+  return get_all_exchange_crypto_balances()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_cached_verified_cash():
+  return get_total_verified_cash()
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def get_cached_reconciliation_audit():
+  if RECONCILIATION_ENGINE_AVAILABLE:
+    return audit_database_vs_exchanges()
+  return []
 
 
 def send_telegram_notify(text):
@@ -114,13 +171,15 @@ init_db()
 
 st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v2.8)")
 st.markdown(
-    "*Suivi multi-exchange temps réel, Centre d'Alertes, Assistant IA & Reporting*"
+    "*Suivi multi-exchange temps réel, Centre d'Alertes, Assistant IA &"
+    " Reporting*"
 )
 st.markdown("---")
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_live_eur_usd_rate():
-  """Récupère le taux EUR/USD en direct via l'API Frankfurter ou Kraken, avec un fallback à 1.12."""
+  """Récupère le taux EUR/USD en direct via l'API Frankfurter ou Kraken."""
   try:
     res = requests.get(
         "https://api.frankfurter.app/latest?from=EUR&to=USD", timeout=2
@@ -171,7 +230,8 @@ with st.sidebar:
       format="%.4f",
   )
 
-  if st.button("🔄 Actualiser le taux EUR/USD live"):
+  if st.button("⚡ Rafraîchir les données Live", type="primary"):
+    st.cache_data.clear()
     st.session_state["live_eur_usd_rate"] = get_live_eur_usd_rate()
     st.rerun()
 
@@ -189,56 +249,32 @@ st.sidebar.markdown(
 )
 st.sidebar.markdown("---")
 st.sidebar.info(
-    "💡 Tous les montants, valorisations et seuils intègrent les cours live des"
-    " exchanges et des wallets froids."
+    "💡 Données en cache haute vitesse (1 min). Cliquez sur '⚡ Rafraîchir les"
+    " données Live' pour forcer une réinterrogation des APIs."
 )
 
 # --- NAVIGATION PAR ONGLETS (7 ONGLETS RESTRUCTURÉS) ---
-tab_live, tab_digest, tab_alerts, tab_ai, tab_monitor, tab_analytics, tab_fiscal = st.tabs(
-    [
-        "📊 Positions Actives (Live)",
-        "📰 Daily Briefing (19h Pro)",
-        "🔔 Centre d'Alertes",
-        "🤖 Assistant IA Pro",
-        "🛠️ Monitoring & Santé APIs",
-        "📈 Analytics & Win Rate",
-        "🧾 Export Fiscal & Comptable",
-    ]
-)
+(
+    tab_live,
+    tab_digest,
+    tab_alerts,
+    tab_ai,
+    tab_monitor,
+    tab_analytics,
+    tab_fiscal,
+) = st.tabs([
+    "📊 Positions Actives (Live)",
+    "📰 Daily Briefing (19h Pro)",
+    "🔔 Centre d'Alertes",
+    "🤖 Assistant IA Pro",
+    "🛠️ Monitoring & Santé APIs",
+    "📈 Analytics & Win Rate",
+    "🧾 Export Fiscal & Comptable",
+])
 
 
-# --- FONCTION UTILITAIRE DE PRIX LIVE ---
 def fetch_live_price(sym, exch):
-  clean_sym = str(sym).upper().replace("USDT", "").replace("EUR", "").strip()
-  price = None
-  try:
-    res_okx = requests.get(
-        f"https://www.okx.com/api/v5/market/ticker?instId={clean_sym}-USDT",
-        timeout=1.5,
-    )
-    if res_okx.status_code == 200:
-      data_okx = res_okx.json().get("data", [])
-      if data_okx:
-        price_usdt = float(data_okx[0].get("last", 0))
-        price = price_usdt / eur_usd_rate
-  except Exception:
-    pass
-
-  if not price:
-    try:
-      res_k = requests.get(
-          f"https://api.kraken.com/0/public/Ticker?pair={clean_sym}EUR",
-          timeout=1.5,
-      )
-      if res_k.status_code == 200:
-        result_k = res_k.json().get("result", {})
-        for _, v_data in result_k.items():
-          if "c" in v_data:
-            price = float(v_data["c"][0])
-            break
-    except Exception:
-      pass
-  return price
+  return fetch_live_price_cached(sym, exch, eur_usd_rate)
 
 
 # ==========================================
@@ -288,7 +324,9 @@ with tab_live:
       total_current_market_value += current_val_eur
 
       pnl_eur = current_val_eur - amount_eur
-      pnl_pct = ((live_eur - entry_eur) / entry_eur) * 100.0 if entry_eur > 0 else 0.0
+      pnl_pct = (
+          ((live_eur - entry_eur) / entry_eur) * 100.0 if entry_eur > 0 else 0.0
+      )
 
       if step_val in ["TP1_DONE", "TP2_DONE"]:
         free_ride_count += 1
@@ -322,17 +360,19 @@ with tab_live:
       })
 
   try:
-    all_crypto_balances = get_all_exchange_crypto_balances()
+    all_crypto_balances = get_cached_crypto_balances()
   except Exception:
     all_crypto_balances = {}
 
-  speculative_symbols = {str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip() for p in positions}
+  speculative_symbols = {
+      str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
+      for p in positions
+  }
 
   val_majors = 0.0
   val_core = 0.0
   val_stables_cash = 0.0
 
-  # --- CALCUL DES DICTIONNAIRES DE DÉTAIL PAR POCHE ---
   dict_majors = {}
   dict_core = {}
 
@@ -347,20 +387,26 @@ with tab_live:
     elif asset in ["BTC", "ETH"]:
       val_majors += asset_val
       if asset_val > 0.1:
-        dict_majors[asset] = dict_majors.get(asset, 0.0) + (asset_val * curr_multiplier)
+        dict_majors[asset] = dict_majors.get(asset, 0.0) + (
+            asset_val * curr_multiplier
+        )
     elif asset in speculative_symbols:
-      pass  # Déjà comptabilisé dans la poche spéculative via la BDD
+      pass
     else:
       val_core += asset_val
-      if asset_val > 1.0:  # On masque les poussières de solde < 1€
-        dict_core[asset] = dict_core.get(asset, 0.0) + (asset_val * curr_multiplier)
+      if asset_val > 1.0:
+        dict_core[asset] = dict_core.get(asset, 0.0) + (
+            asset_val * curr_multiplier
+        )
 
-  cash_info = get_total_verified_cash()
+  cash_info = get_cached_verified_cash()
   total_cash_eur = cash_info.get("total_cash", 0.0)
   val_stables_cash += total_cash_eur
 
   val_speculative = total_current_market_value
-  total_crypto_only_val = val_majors + val_core + val_speculative + val_stables_cash
+  total_crypto_only_val = (
+      val_majors + val_core + val_speculative + val_stables_cash
+  )
 
   if total_crypto_only_val > 0:
     pct_majors = (val_majors / total_crypto_only_val) * 100.0
@@ -372,30 +418,74 @@ with tab_live:
 
   st.markdown("#### 🌐 Ventilation Globale du Capital")
   m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-  m_col1.metric("Volume Total Crypto", f"{total_crypto_only_val * curr_multiplier:,.2f} {curr_symbol}", delta="Exchanges + Exodus")
-  m_col2.metric("Majeures (BTC, ETH)", f"{val_majors * curr_multiplier:,.2f} {curr_symbol}", delta=f"{pct_majors:.2f}% du portfolio")
-  m_col3.metric("Poche CORE", f"{val_core * curr_multiplier:,.2f} {curr_symbol}", delta=f"{pct_core:.2f}% du portfolio")
-  m_col4.metric("Poche Spéculative", f"{val_speculative * curr_multiplier:,.2f} {curr_symbol}", delta=f"{pct_spec:.2f}% (Cible : 10%)", delta_color="normal" if pct_spec <= 12 else "inverse")
+  m_col1.metric(
+      "Volume Total Crypto",
+      f"{total_crypto_only_val * curr_multiplier:,.2f} {curr_symbol}",
+      delta="Exchanges + Exodus",
+  )
+  m_col2.metric(
+      "Majeures (BTC, ETH)",
+      f"{val_majors * curr_multiplier:,.2f} {curr_symbol}",
+      delta=f"{pct_majors:.2f}% du portfolio",
+  )
+  m_col3.metric(
+      "Poche CORE",
+      f"{val_core * curr_multiplier:,.2f} {curr_symbol}",
+      delta=f"{pct_core:.2f}% du portfolio",
+  )
+  m_col4.metric(
+      "Poche Spéculative",
+      f"{val_speculative * curr_multiplier:,.2f} {curr_symbol}",
+      delta=f"{pct_spec:.2f}% (Cible : 10%)",
+      delta_color="normal" if pct_spec <= 12 else "inverse",
+  )
 
   st.markdown("")
 
   total_invested_disp = total_invested_base * curr_multiplier
   total_market_disp = val_speculative * curr_multiplier
   total_pnl_disp = total_market_disp - (total_invested_base * curr_multiplier)
-  total_pnl_pct = (total_pnl_disp / (total_invested_base * curr_multiplier)) * 100 if total_invested_base > 0 else 0.0
-  global_risk_buffer = (weighted_sl_distance / total_weight_risk) if total_weight_risk > 0 else 0.0
+  total_pnl_pct = (
+      (total_pnl_disp / (total_invested_base * curr_multiplier)) * 100
+      if total_invested_base > 0
+      else 0.0
+  )
+  global_risk_buffer = (
+      (weighted_sl_distance / total_weight_risk) if total_weight_risk > 0 else 0.0
+  )
   total_cash_disp = total_cash_eur * curr_multiplier
 
   s_col1, s_col2, s_col3, s_col4 = st.columns(4)
-  s_col1.metric("Positions Actives", f"{len(positions)} lignes", delta=f"🛡️ {free_ride_count} Free Ride | ⚠️ {at_risk_count} À Risque")
-  s_col2.metric(f"Valeur Marché Spécu ({curr_symbol})", f"{total_market_disp:,.2f} {curr_symbol}", delta=f"PnL : {total_pnl_pct:+.2f}% ({total_pnl_disp:+,.2f} {curr_symbol})")
-  s_col3.metric("Buffer de Risque Global", f"{global_risk_buffer:.1f}%", delta="Marge moyenne avant SL" if global_risk_buffer > 10 else "Attention, proche des SL", delta_color="normal" if global_risk_buffer > 10 else "inverse")
-  s_col4.metric(f"Cash Disponible Total ({curr_symbol})", f"{total_cash_disp:,.2f} {curr_symbol}")
+  s_col1.metric(
+      "Positions Actives",
+      f"{len(positions)} lignes",
+      delta=f"🛡️ {free_ride_count} Free Ride | ⚠️ {at_risk_count} À Risque",
+  )
+  s_col2.metric(
+      f"Valeur Marché Spécu ({curr_symbol})",
+      f"{total_market_disp:,.2f} {curr_symbol}",
+      delta=(
+          f"PnL : {total_pnl_pct:+.2f}% ({total_pnl_disp:+,.2f} {curr_symbol})"
+      ),
+  )
+  s_col3.metric(
+      "Buffer de Risque Global",
+      f"{global_risk_buffer:.1f}%",
+      delta=(
+          "Marge moyenne avant SL"
+          if global_risk_buffer > 10
+          else "Attention, proche des SL"
+      ),
+      delta_color="normal" if global_risk_buffer > 10 else "inverse",
+  )
+  s_col4.metric(
+      f"Cash Disponible Total ({curr_symbol})",
+      f"{total_cash_disp:,.2f} {curr_symbol}",
+  )
 
   st.markdown("---")
   st.subheader(f"📋 Inventaire & Suivi Temps Réel des Positions ({curr_symbol})")
 
-  # --- RANGÉE 1 : CAMEMBERT GLOBAL & SYNTHÈSE ---
   r1_col1, r1_col2 = st.columns([1, 1])
 
   with r1_col1:
@@ -424,7 +514,7 @@ with tab_live:
     fig_pie_global.update_layout(
         margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=280
     )
-    st.plotly_chart(fig_pie_global, use_container_width=True)
+    st.plotly_chart(fig_pie_global, width="stretch")
 
   with r1_col2:
     st.markdown("##### 📌 Synthèse visuelle des poches")
@@ -471,7 +561,7 @@ with tab_live:
       fig_maj.update_layout(
           margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=260
       )
-      st.plotly_chart(fig_maj, use_container_width=True)
+      st.plotly_chart(fig_maj, width="stretch")
     else:
       st.info("Aucun actif majeur détecté.")
 
@@ -492,7 +582,7 @@ with tab_live:
       fig_core.update_layout(
           margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=260
       )
-      st.plotly_chart(fig_core, use_container_width=True)
+      st.plotly_chart(fig_core, width="stretch")
     else:
       st.info("Aucun actif CORE détecté.")
 
@@ -511,7 +601,7 @@ with tab_live:
       fig_spec.update_layout(
           margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=260
       )
-      st.plotly_chart(fig_spec, use_container_width=True)
+      st.plotly_chart(fig_spec, width="stretch")
     else:
       st.info("Aucune position spéculative active.")
 
@@ -528,16 +618,32 @@ with tab_live:
 
     if view_mode.startswith("🖥️"):
       df_display = df_pos.copy()
-      df_display["Prix Entrée"] = df_display["Prix Entrée"].apply(lambda x: f"{x:.4f} {curr_symbol}")
-      df_display["Prix Actuel"] = df_display["Prix Actuel"].apply(lambda x: f"{x:.4f} {curr_symbol}")
-      df_display["Montant Initial"] = df_display["Montant Initial"].apply(lambda x: f"{x:,.2f} {curr_symbol}")
-      df_display["Valeur Actuelle"] = df_display["Valeur Actuelle"].apply(lambda x: f"{x:,.2f} {curr_symbol}")
-      df_display["PnL (€/$)"] = df_display["PnL (€/$)"].apply(lambda x: f"{x:+,.2f} {curr_symbol}")
-      df_display["PnL (%)"] = df_display["PnL (%)"].apply(lambda x: f"{x:+.2f}%")
-      df_display["TP1"] = df_display["TP1"].apply(lambda x: f"{x:.4f} {curr_symbol}")
-      df_display["Stop-Loss"] = df_display["Stop-Loss"].apply(lambda x: f"{x:.4f} {curr_symbol}")
+      df_display["Prix Entrée"] = df_display["Prix Entrée"].apply(
+          lambda x: f"{x:.4f} {curr_symbol}"
+      )
+      df_display["Prix Actuel"] = df_display["Prix Actuel"].apply(
+          lambda x: f"{x:.4f} {curr_symbol}"
+      )
+      df_display["Montant Initial"] = df_display["Montant Initial"].apply(
+          lambda x: f"{x:,.2f} {curr_symbol}"
+      )
+      df_display["Valeur Actuelle"] = df_display["Valeur Actuelle"].apply(
+          lambda x: f"{x:,.2f} {curr_symbol}"
+      )
+      df_display["PnL (€/$)"] = df_display["PnL (€/$)"].apply(
+          lambda x: f"{x:+,.2f} {curr_symbol}"
+      )
+      df_display["PnL (%)"] = df_display["PnL (%)"].apply(
+          lambda x: f"{x:+.2f}%"
+      )
+      df_display["TP1"] = df_display["TP1"].apply(
+          lambda x: f"{x:.4f} {curr_symbol}"
+      )
+      df_display["Stop-Loss"] = df_display["Stop-Loss"].apply(
+          lambda x: f"{x:.4f} {curr_symbol}"
+      )
 
-      st.dataframe(df_display, use_container_width=True, hide_index=True)
+      st.dataframe(df_display, width="stretch", hide_index=True)
     else:
       st.markdown("### 📱 Cartes de suivi mobile temps réel")
       for row in enriched_positions:
@@ -560,16 +666,13 @@ with tab_live:
     st.markdown("---")
     st.subheader("⚡ Actions & Gestion Dynamique des Positions")
 
-    act_tab1, act_tab2, act_tab3, act_tab4 = st.tabs(
-        [
-            "🔒 Clôture de Position",
-            "🛡️ Passage en Break-Even (1-Click)",
-            "✏️ Édition & Raccourcis SL/TP",
-            "🔀 Consolidation de Doublons",
-        ]
-    )
+    act_tab1, act_tab2, act_tab3, act_tab4 = st.tabs([
+        "🔒 Clôture de Position",
+        "🛡️ Passage en Break-Even (1-Click)",
+        "✏️ Édition & Raccourcis SL/TP",
+        "🔀 Consolidation de Doublons",
+    ])
 
-    # --- SOUS-ONGLET 1 : CLÔTURE ---
     with act_tab1:
       c_col1, c_col2 = st.columns([2, 1])
       with c_col1:
@@ -589,6 +692,7 @@ with tab_live:
               "Symbole"
           ].values[0]
           close_trade(selected_close_id)
+          st.cache_data.clear()
           send_telegram_notify(
               f"🔒 *POSITION CLÔTURÉE VIA DASHBOARD*\n• **{close_sym}** (ID"
               f" {selected_close_id}) a été fermée en base de données."
@@ -596,7 +700,6 @@ with tab_live:
           st.success(f"Position ID {selected_close_id} clôturée en BDD !")
           st.rerun()
 
-    # --- SOUS-ONGLET 2 : BREAK-EVEN 1-CLICK ---
     with act_tab2:
       st.markdown(
           "**Caler le Stop-Loss sur le Prix d'Entrée** pour éliminer 100% du"
@@ -620,6 +723,7 @@ with tab_live:
         if st.button("🛡️ Passer en Break-Even", type="primary"):
           be_row = df_pos[df_pos["ID"] == selected_be_id].iloc[0]
           set_trade_break_even(selected_be_id)
+          st.cache_data.clear()
           send_telegram_notify(
               f"🛡️ *POSITION SÉCURISÉE (BREAK-EVEN)*\n•"
               f" **{be_row['Symbole']}** (ID {selected_be_id})\n• Nouveau SL"
@@ -631,7 +735,6 @@ with tab_live:
           )
           st.rerun()
 
-    # --- SOUS-ONGLET 3 : ÉDITION MANUELLE & RACCOURCIS SL/TP ---
     with act_tab3:
       st.markdown(
           "**Ajuster manuellement ou via les raccourcis (-10%, -15%, -20%) les"
@@ -652,7 +755,10 @@ with tab_live:
       raw_tp1 = curr_row["TP1"]
       raw_sl = curr_row["Stop-Loss"]
 
-      st.markdown("**⚡ Raccourcis de calcul SL rapide (par rapport au prix d'entrée) :**")
+      st.markdown(
+          "**⚡ Raccourcis de calcul SL rapide (par rapport au prix d'entrée)"
+          " :**"
+      )
       r_c1, r_c2, r_c3, r_c4 = st.columns(4)
       sl_preset = None
       if r_c1.button("-10% (Resserré)", key="btn_sl_10"):
@@ -678,7 +784,11 @@ with tab_live:
             format="%.4f",
         )
       with e_col3:
-        target_sl = sl_preset if sl_preset is not None else (float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70))
+        target_sl = (
+            sl_preset
+            if sl_preset is not None
+            else (float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70))
+        )
         new_sl = st.number_input(
             f"Nouveau Stop-Loss ({curr_symbol})",
             value=target_sl,
@@ -692,6 +802,7 @@ with tab_live:
             tp2_price=new_tp2 / curr_multiplier,
             sl_price=new_sl / curr_multiplier,
         )
+        st.cache_data.clear()
         send_telegram_notify(
             f"✏️ *PALIERS MIS À JOUR VIA DASHBOARD*\n•"
             f" **{curr_row['Symbole']}** (ID {selected_edit_id})\n• Nouveau TP1"
@@ -704,16 +815,14 @@ with tab_live:
         )
         st.rerun()
 
-    # --- SOUS-ONGLET 4 : CONSOLIDATION DES DOUBLONS ---
     with act_tab4:
       st.markdown(
           "**Fusionner deux lignes du même actif sur un même exchange** en une"
           " seule position avec PRU pondéré."
       )
 
-      duplicates = (
-          df_pos.groupby(["Symbole", "Exchange"])
-          .filter(lambda x: len(x) > 1)
+      duplicates = df_pos.groupby(["Symbole", "Exchange"]).filter(
+          lambda x: len(x) > 1
       )
 
       if not duplicates.empty:
@@ -727,14 +836,18 @@ with tab_live:
           secondary_id = ids[1]
 
           st.markdown(
-              f"• **{d_sym} ({sub_dup['Exchange'].values[0]})** : Ligne principale ID **{primary_id}** & Secondaire ID **{secondary_id}**"
+              f"• **{d_sym} ({sub_dup['Exchange'].values[0]})** : Ligne"
+              f" principale ID **{primary_id}** & Secondaire ID"
+              f" **{secondary_id}**"
           )
 
           if st.button(
-              f"🔀 Fusionner les lignes {d_sym} (ID {primary_id} + ID {secondary_id})",
+              f"🔀 Fusionner les lignes {d_sym} (ID {primary_id} + ID"
+              f" {secondary_id})",
               key=f"merge_btn_{d_sym}",
           ):
             if merge_duplicate_trades(primary_id, secondary_id):
+              st.cache_data.clear()
               send_telegram_notify(
                   f"🔀 *FUSION DE DOUBLONS EFFECTUÉE*\n• **{d_sym}** : Lignes"
                   f" ID {secondary_id} fusionnée dans ID {primary_id}.\n•"
@@ -743,7 +856,9 @@ with tab_live:
               st.success(f"✅ Positions {d_sym} fusionnées avec succès !")
               st.rerun()
       else:
-        st.info("✅ Aucun doublon de position actuellement dans le portefeuille.")
+        st.info(
+            "✅ Aucun doublon de position actuellement dans le portefeuille."
+        )
 
   else:
     st.info("Aucune position active trouvée.")
@@ -760,7 +875,9 @@ with tab_digest:
         * **Règle Cash-Neutral & Arbitrages :** Validation des opportunités et plans Moonbag.
         """)
 
-  st.subheader(f"📰 Rapport d'Arbitrage Quotidien — Stratégie Moonbag ({curr_symbol})")
+  st.subheader(
+      f"📰 Rapport d'Arbitrage Quotidien — Stratégie Moonbag ({curr_symbol})"
+  )
 
   fng_data = {"value": 59, "classification": "Greed"}
   is_crash, crash_val = False, 1.5
@@ -773,10 +890,23 @@ with tab_digest:
       pass
 
   m_col1, m_col2, m_col3 = st.columns(3)
-  m_col1.metric("Indice Fear & Greed", f"{fng_data['value']}/100", delta=f"{fng_data['classification']}")
-  m_col2.metric("Circuit Breaker BTC (24h)", f"{crash_val:+.2f}%", delta="NORMAL 🟢" if not is_crash else "DÉFENSIF 🚨", delta_color="normal" if not is_crash else "inverse")
+  m_col1.metric(
+      "Indice Fear & Greed",
+      f"{fng_data['value']}/100",
+      delta=f"{fng_data['classification']}",
+  )
+  m_col2.metric(
+      "Circuit Breaker BTC (24h)",
+      f"{crash_val:+.2f}%",
+      delta="NORMAL 🟢" if not is_crash else "DÉFENSIF 🚨",
+      delta_color="normal" if not is_crash else "inverse",
+  )
   cash_eur = cash_info.get("total_cash", 0.0)
-  m_col3.metric(f"Liquidités Cash Réel ({curr_symbol})", f"{cash_eur * curr_multiplier:,.2f} {curr_symbol}", delta="Cash-Neutral Strict")
+  m_col3.metric(
+      f"Liquidités Cash Réel ({curr_symbol})",
+      f"{cash_eur * curr_multiplier:,.2f} {curr_symbol}",
+      delta="Cash-Neutral Strict",
+  )
 
   st.markdown("---")
   st.subheader("🎯 Opportunités & Plan d'Arbitrage Explicite (Moonbag)")
@@ -784,7 +914,11 @@ with tab_digest:
   if open_trades_digest:
     for t in open_trades_digest:
       rec_id, sym, exch, entry, amt, tp1, sl = (
-          t[0], t[1], t[2], t[3], t[4],
+          t[0],
+          t[1],
+          t[2],
+          t[3],
+          t[4],
           t[5] if len(t) > 5 else 0,
           t[7] if len(t) > 7 else 0,
       )
@@ -808,17 +942,27 @@ with tab_digest:
         )
         bc1, bc2 = st.columns(2)
         with bc1:
-          if st.button(f"✅ Marquer comme Pris (ID {rec_id})", key=f"digest_take_{rec_id}"):
+          if st.button(
+              f"✅ Marquer comme Pris (ID {rec_id})", key=f"digest_take_{rec_id}"
+          ):
             mark_trade_taken(rec_id)
+            st.cache_data.clear()
             st.success(f"Position {sym} enregistrée comme prise !")
             st.rerun()
         with bc2:
-          if st.button(f"❌ Ignorer l'opportunité (ID {rec_id})", key=f"digest_ignore_{rec_id}"):
+          if st.button(
+              f"❌ Ignorer l'opportunité (ID {rec_id})",
+              key=f"digest_ignore_{rec_id}",
+          ):
             mark_trade_ignored(rec_id)
+            st.cache_data.clear()
             st.warning(f"Opportunité {sym} ignorée.")
             st.rerun()
   else:
-    st.info("Aucune opportunité spéculative active en attente dans la base de données.")
+    st.info(
+        "Aucune opportunité spéculative active en attente dans la base de"
+        " données."
+    )
 
 # ==========================================
 # ONGLET 3 : CENTRE D'ALERTES & RAPPROCHEMENT
@@ -833,32 +977,39 @@ with tab_alerts:
         """)
 
   st.subheader("🕵️ Rapprochement BDD vs Réalité des Exchanges")
-  st.markdown("Audit automatique des écarts entre vos positions en base et vos avoirs réels :")
+  st.markdown(
+      "Audit automatique des écarts entre vos positions en base et vos avoirs"
+      " réels :"
+  )
 
-  if RECONCILIATION_ENGINE_AVAILABLE:
-    try:
-      discrepancies = audit_database_vs_exchanges()
-    except Exception as e:
-      discrepancies = []
-      st.warning(f"⚠️ Impossible d'exécuter l'audit de réconciliation en direct : {e}")
+  discrepancies = get_cached_reconciliation_audit()
 
-    if discrepancies:
-      st.error(f"🚨 {len(discrepancies)} anomalie(s) ou écart(s) détecté(s) dans le portefeuille !")
-      for disc in discrepancies:
-        d_id = disc.get("id")
-        d_sym = disc["symbol"]
-        d_exch = disc["exchange"]
-        d_type = disc["type"]
-        if d_type == "MANUAL_TRADE_DETECTED":
-          border_color, bg_color, badge = "#00ffcc", "#152a26", "💡 NOUVEAU TRADE MANUEL DÉTECTÉ"
-        elif d_type == "GHOST_POSITION":
-          border_color, bg_color, badge = "#ff4d4d", "#2a1515", "🔴 LIGNE FANTÔME"
-        else:
-          border_color, bg_color, badge = "#ffa500", "#2a2215", "🟡 ÉCART DE VOLUME"
+  if discrepancies:
+    st.error(
+        f"🚨 {len(discrepancies)} anomalie(s) ou écart(s) détecté(s) dans le"
+        " portefeuille !"
+    )
+    for disc in discrepancies:
+      d_id = disc.get("id")
+      d_sym = disc["symbol"]
+      d_exch = disc["exchange"]
+      d_type = disc["type"]
+      if d_type == "MANUAL_TRADE_DETECTED":
+        border_color, bg_color, badge = (
+            "#00ffcc",
+            "#152a26",
+            "💡 NOUVEAU TRADE MANUEL DÉTECTÉ",
+        )
+      elif d_type == "GHOST_POSITION":
+        border_color, bg_color, badge = "#ff4d4d", "#2a1515", "🔴 LIGNE FANTÔME"
+      else:
+        border_color, bg_color, badge = "#ffa500", "#2a2215", "🟡 ÉCART DE VOLUME"
 
-        display_id_str = f"[ID BDD: {d_id}]" if d_id is not None else "[ID BDD: None]"
-        st.markdown(
-            f"""
+      display_id_str = (
+          f"[ID BDD: {d_id}]" if d_id is not None else "[ID BDD: None]"
+      )
+      st.markdown(
+          f"""
             <div style="padding: 12px; border-radius: 8px; border: 1px solid {border_color}; margin-bottom: 10px; background-color: {bg_color};">
                 <h4 style="margin: 0; color: {border_color};">{badge} — {d_sym} ({d_exch}) {display_id_str}</h4>
                 <p style="margin: 4px 0 0 0; font-size: 13px; color: #ddd;">
@@ -866,109 +1017,139 @@ with tab_alerts:
                 </p>
             </div>
             """,
-            unsafe_allow_html=True,
-        )
+          unsafe_allow_html=True,
+      )
 
-        if d_type == "GHOST_POSITION":
-          if st.button(f"🧹 Purger / Clôturer la ligne fantôme ID {d_id} ({d_sym})", key=f"web_clean_ghost_{d_id}"):
-            close_trade(d_id)
-            send_telegram_notify(f"🧹 *LIGNE FANTÔME PURGÉE VIA WEB*\n• **{d_sym}** (ID {d_id}) supprimée.")
-            st.success(f"Position ID {d_id} ({d_sym}) clôturée et nettoyée de la base de données avec succès !")
+      if d_type == "GHOST_POSITION":
+        if st.button(
+            f"🧹 Purger / Clôturer la ligne fantôme ID {d_id} ({d_sym})",
+            key=f"web_clean_ghost_{d_id}",
+        ):
+          close_trade(d_id)
+          st.cache_data.clear()
+          send_telegram_notify(
+              f"🧹 *LIGNE FANTÔME PURGÉE VIA WEB*\n• **{d_sym}** (ID {d_id})"
+              " supprimée."
+          )
+          st.success(
+              f"Position ID {d_id} ({d_sym}) clôturée et nettoyée de la base"
+              " de données avec succès !"
+          )
+          st.rerun()
+
+      if d_type == "VOLUME_MISMATCH":
+        adj_amt = disc.get("adjusted_amount_eur", disc["db_amount"])
+        disp_adj_amt = adj_amt * curr_multiplier
+        if st.button(
+            f"🔄 Synchroniser le volume ID {d_id} ({d_sym}) ->"
+            f" {disp_adj_amt:,.2f} {curr_symbol}",
+            key=f"web_sync_vol_{d_id}",
+        ):
+          update_trade_amount(d_id, adj_amt)
+          st.cache_data.clear()
+          send_telegram_notify(
+              f"🔄 *VOLUME RESYNCHRONISÉ VIA WEB*\n• **{d_sym}** (ID {d_id})"
+              f" ajusté à {disp_adj_amt:,.2f} {curr_symbol}."
+          )
+          st.success(
+              f"Position ID {d_id} ({d_sym}) resynchronisée avec succès au"
+              f" montant de {disp_adj_amt:,.2f} {curr_symbol} !"
+          )
+          st.rerun()
+
+      if d_type == "MANUAL_TRADE_DETECTED":
+        cost_eur = disc.get("cost", 0.0)
+        price_eur = disc.get("price", 0.0)
+        disp_cost = cost_eur * curr_multiplier
+        disp_price = price_eur * curr_multiplier
+
+        b_col1, b_col2 = st.columns(2)
+        with b_col1:
+          if st.button(
+              f"🎯 Activer Moonbag ({d_sym} — {disp_cost:,.2f} {curr_symbol})",
+              key=f"web_add_manual_{d_sym}_{d_exch}",
+          ):
+            from db_manager import add_recommendation, mark_trade_taken
+
+            rec_id = add_recommendation(
+                symbol=d_sym,
+                exchange=d_exch,
+                price=price_eur,
+                amount_eur=cost_eur,
+                tp1_price=price_eur * 2.0,
+                tp2_price=price_eur * 4.0,
+                sl_price=price_eur * 0.60,
+                sl_type="invalidation",
+            )
+            mark_trade_taken(rec_id)
+            st.cache_data.clear()
+            send_telegram_notify(
+                f"🎯 *TRADE MOONBAG ONBOARDÉ VIA WEB*\n• **{d_sym}**"
+                f" ({disp_cost:,.2f} {curr_symbol} @ {disp_price:.4f}"
+                f" {curr_symbol}) ajouté au cockpit."
+            )
+            st.success(
+                f"✅ Position {d_sym} intégrée avec succès au cockpit Moonbag !"
+            )
             st.rerun()
 
-        if d_type == "VOLUME_MISMATCH":
-          adj_amt = disc.get("adjusted_amount_eur", disc["db_amount"])
-          disp_adj_amt = adj_amt * curr_multiplier
-          if st.button(f"🔄 Synchroniser le volume ID {d_id} ({d_sym}) -> {disp_adj_amt:,.2f} {curr_symbol}", key=f"web_sync_vol_{d_id}"):
-            update_trade_amount(d_id, adj_amt)
-            send_telegram_notify(f"🔄 *VOLUME RESYNCHRONISÉ VIA WEB*\n• **{d_sym}** (ID {d_id}) ajusté à {disp_adj_amt:,.2f} {curr_symbol}.")
-            st.success(f"Position ID {d_id} ({d_sym}) resynchronisée avec succès au montant de {disp_adj_amt:,.2f} {curr_symbol} !")
+        with b_col2:
+          if st.button(
+              f"💎 Conserver en Poche CORE ({d_sym})",
+              key=f"web_core_manual_{d_sym}_{d_exch}",
+          ):
+            from db_manager import mark_manual_trade_core
+
+            mark_manual_trade_core(
+                d_sym, d_exch, cost_eur, price_eur, reason="CORE"
+            )
+            st.cache_data.clear()
+            send_telegram_notify(
+                f"💎 *TRADE CLASSÉ POCHE CORE VIA WEB*\n• **{d_sym}**"
+                f" ({disp_cost:,.2f} {curr_symbol}) conservé en investissement"
+                " long terme."
+            )
+            st.success(f"✅ Trade {d_sym} classé en Poche CORE (alerte masquée) !")
             st.rerun()
-
-        if d_type == "MANUAL_TRADE_DETECTED":
-          cost_eur = disc.get("cost", 0.0)
-          price_eur = disc.get("price", 0.0)
-          disp_cost = cost_eur * curr_multiplier
-          disp_price = price_eur * curr_multiplier
-
-          b_col1, b_col2 = st.columns(2)
-          with b_col1:
-            if st.button(
-                f"🎯 Activer Moonbag ({d_sym} — {disp_cost:,.2f} {curr_symbol})",
-                key=f"web_add_manual_{d_sym}_{d_exch}",
-            ):
-              from db_manager import add_recommendation, mark_trade_taken
-
-              rec_id = add_recommendation(
-                  symbol=d_sym,
-                  exchange=d_exch,
-                  price=price_eur,
-                  amount_eur=cost_eur,
-                  tp1_price=price_eur * 2.0,
-                  tp2_price=price_eur * 4.0,
-                  sl_price=price_eur * 0.60,
-                  sl_type="invalidation",
-              )
-              mark_trade_taken(rec_id)
-              send_telegram_notify(
-                  f"🎯 *TRADE MOONBAG ONBOARDÉ VIA WEB*\n• **{d_sym}**"
-                  f" ({disp_cost:,.2f} {curr_symbol} @ {disp_price:.4f}"
-                  f" {curr_symbol}) ajouté au cockpit."
-              )
-              st.success(
-                  f"✅ Position {d_sym} intégrée avec succès au cockpit"
-                  " Moonbag !"
-              )
-              st.rerun()
-
-          with b_col2:
-            if st.button(
-                f"💎 Conserver en Poche CORE ({d_sym})",
-                key=f"web_core_manual_{d_sym}_{d_exch}",
-            ):
-              from db_manager import mark_manual_trade_core
-
-              mark_manual_trade_core(
-                  d_sym, d_exch, cost_eur, price_eur, reason="CORE"
-              )
-              send_telegram_notify(
-                  f"💎 *TRADE CLASSÉ POCHE CORE VIA WEB*\n• **{d_sym}**"
-                  f" ({disp_cost:,.2f} {curr_symbol}) conservé en investissement"
-                  " long terme."
-              )
-              st.success(
-                  f"✅ Trade {d_sym} classé en Poche CORE (alerte masquée) !"
-              )
-              st.rerun()
-    else:
-      st.success("✅ Parfaite synchronisation : aucune ligne fantôme ni écart significatif détecté.")
   else:
-    st.info("Module de réconciliation non disponible.")
+    st.success(
+        "✅ Parfaite synchronisation : aucune ligne fantôme ni écart"
+        " significatif détecté."
+    )
 
   st.markdown("---")
   st.subheader("🔔 Vigie des Risques & Marché")
 
   alerts_list = []
 
-  spec_pct = pct_spec if 'pct_spec' in locals() else 10.0
+  spec_pct = pct_spec if "pct_spec" in locals() else 10.0
 
   if spec_pct > 15.0:
     alerts_list.append({
         "level": "CRITICAL",
         "title": f"Surconcentration Spéculative Critique ({spec_pct:.2f}%)",
-        "desc": "La poche spéculative dépasse 15% du portefeuille (Cible : 10%). Risque de volatilité excessive.",
+        "desc": (
+            "La poche spéculative dépasse 15% du portefeuille (Cible : 10%)."
+            " Risque de volatilité excessive."
+        ),
     })
   elif spec_pct > 12.0:
     alerts_list.append({
         "level": "WARNING",
         "title": f"Alerte Exposition Spéculative Élevée ({spec_pct:.2f}%)",
-        "desc": "La part spéculative franchit le seuil de tolérance des 12%. Surveillez vos lignes.",
+        "desc": (
+            "La part spéculative franchit le seuil de tolérance des 12%."
+            " Surveillez vos lignes."
+        ),
     })
   else:
     alerts_list.append({
         "level": "INFO",
         "title": f"Allocation Spéculative Saine ({spec_pct:.2f}%)",
-        "desc": "La part de la poche spéculative est alignée avec l'enveloppe cible.",
+        "desc": (
+            "La part de la poche spéculative est alignée avec l'enveloppe"
+            " cible."
+        ),
     })
 
   if positions and enriched_positions:
@@ -989,7 +1170,9 @@ with tab_alerts:
         alerts_list.append({
             "level": "WARNING",
             "title": f"Take-Profit non configuré pour {sym} ({exch})",
-            "desc": f"La position ID {row['ID']} n'a aucun palier TP1 défini.",
+            "desc": (
+                f"La position ID {row['ID']} n'a aucun palier TP1 défini."
+            ),
         })
 
       if current_price and current_price > 0:
@@ -997,19 +1180,28 @@ with tab_alerts:
           alerts_list.append({
               "level": "CRITICAL",
               "title": f"DANGER : Stop-Loss frôlé sur {sym} ({exch}) !",
-              "desc": f"Prix actuel ({current_price:.4f} {curr_symbol}) proche du Stop-Loss ({sl:.4f} {curr_symbol}).",
+              "desc": (
+                  f"Prix actuel ({current_price:.4f} {curr_symbol}) proche du"
+                  f" Stop-Loss ({sl:.4f} {curr_symbol})."
+              ),
           })
         elif tp1 > 0 and current_price >= tp1:
           alerts_list.append({
               "level": "INFO",
               "title": f"OBJECTIF ATTEINT : TP1 Validé sur {sym} ({exch}) 🎯",
-              "desc": f"Prix actuel ({current_price:.4f} {curr_symbol}) a atteint le TP1 ({tp1:.4f} {curr_symbol}).",
+              "desc": (
+                  f"Prix actuel ({current_price:.4f} {curr_symbol}) a atteint"
+                  f" le TP1 ({tp1:.4f} {curr_symbol})."
+              ),
           })
         elif tp1 > 0 and current_price >= (tp1 * 0.95):
           alerts_list.append({
               "level": "WARNING",
               "title": f"APPROCHE CIBLE : {sym} ({exch}) proche du TP1 🚀",
-              "desc": f"Prix actuel ({current_price:.4f} {curr_symbol}) est proche du TP1 ({tp1:.4f} {curr_symbol}).",
+              "desc": (
+                  f"Prix actuel ({current_price:.4f} {curr_symbol}) est proche"
+                  f" du TP1 ({tp1:.4f} {curr_symbol})."
+              ),
           })
   else:
     alerts_list.append({
@@ -1018,18 +1210,24 @@ with tab_alerts:
         "desc": "Le portefeuille spéculatif ne comporte aucune ligne active.",
     })
 
-  if 'is_crash' in locals() and is_crash:
+  if "is_crash" in locals() and is_crash:
     alerts_list.append({
         "level": "CRITICAL",
         "title": "Alerte Crash / Circuit Breaker activé",
-        "desc": f"Le Bitcoin chute de {crash_val:+.2f}% sur 24h. Mode défensif enclenché.",
+        "desc": (
+            f"Le Bitcoin chute de {crash_val:+.2f}% sur 24h. Mode défensif"
+            " enclenché."
+        ),
     })
   else:
-    crash_display_val = crash_val if 'crash_val' in locals() else 1.5
+    crash_display_val = crash_val if "crash_val" in locals() else 1.5
     alerts_list.append({
         "level": "INFO",
         "title": "Marché stable (Circuit Breaker Normal)",
-        "desc": f"Variation BTC 24h : {crash_display_val:+.2f}%. Conditions nominales.",
+        "desc": (
+            f"Variation BTC 24h : {crash_display_val:+.2f}%. Conditions"
+            " nominales."
+        ),
     })
 
   if alerts_list:
@@ -1076,9 +1274,8 @@ with tab_ai:
   preset_prompt = None
   preset_context = None
 
-  # --- PROMPT 1 : RAPPORT SPÉCULATIF LIVE ---
   with col_p1:
-    if st.button("📰 Rapport Spéculatif Live", use_container_width=True):
+    if st.button("📰 Rapport Spéculatif Live", width="stretch"):
       with st.spinner("Collecte des données live en direct des APIs..."):
         from crypto_speculative_advisor import (
             calculate_unfied_crypto_categories,
@@ -1115,7 +1312,10 @@ with tab_ai:
 
         target_budget = cats["total_crypto"] * 0.10
 
-        preset_prompt = "Génère le Rapport Spéculatif Live complet du portefeuille sous stratégie Moonbag."
+        preset_prompt = (
+            "Génère le Rapport Spéculatif Live complet du portefeuille sous"
+            " stratégie Moonbag."
+        )
 
         preset_context = f"""Tu es un trader crypto expert, analytique et pédagogue, spécialisé en altcoins.
 Rédige un rapport d'arbitrage spéculatif complet et immédiatement lisible pour le dashboard Streamlit.
@@ -1154,9 +1354,8 @@ RÈGLES D'ARBITRAGE :
 
 Structure ta réponse avec des titres clairs (##), des listes à puces et du gras."""
 
-  # --- PROMPT 2 : AUDIT DE PROTECTION & SL ---
   with col_p2:
-    if st.button("🛡️ Audit de Protection & SL", use_container_width=True):
+    if st.button("🛡️ Audit de Protection & SL", width="stretch"):
       with st.spinner("Analyse de la sécurité de vos positions en direct..."):
         open_pos = get_open_positions()
 
@@ -1167,7 +1366,20 @@ Structure ta réponse avec des titres clairs (##), des listes à puces et du gra
           missing_sl_count = 0
 
           for p in open_pos:
-            p_id, sym, exch, entry, amt, tp1, tp2, sl, sl_type, step, taken_at, alert_stat = p
+            (
+                p_id,
+                sym,
+                exch,
+                entry,
+                amt,
+                tp1,
+                tp2,
+                sl,
+                sl_type,
+                step,
+                taken_at,
+                alert_stat,
+            ) = p
             entry = float(entry) if entry else 0.0
             amt = float(amt) if amt else 0.0
             tp1 = float(tp1) if tp1 else 0.0
@@ -1197,13 +1409,24 @@ Structure ta réponse avec des titres clairs (##), des listes à puces et du gra
                 "pnl_pct": round(pnl_pct, 2),
                 "tp1_eur": round(tp1, 4),
                 "sl_eur": round(sl, 4),
-                "distance_sl_pct": round(dist_sl_pct, 2) if dist_sl_pct is not None else "MANQUANT",
+                "distance_sl_pct": (
+                    round(dist_sl_pct, 2)
+                    if dist_sl_pct is not None
+                    else "MANQUANT"
+                ),
                 "etape": step,
             })
 
-          global_buffer = (weighted_sl_dist / total_risk_weight) if total_risk_weight > 0 else 0.0
+          global_buffer = (
+              (weighted_sl_dist / total_risk_weight)
+              if total_risk_weight > 0
+              else 0.0
+          )
 
-          preset_prompt = "Exécute un audit strict de protection et de sécurité sur l'ensemble de mes positions actives."
+          preset_prompt = (
+              "Exécute un audit strict de protection et de sécurité sur"
+              " l'ensemble de mes positions actives."
+          )
 
           preset_context = f"""Tu es un trader crypto expert et un Risk Manager impitoyable.
 Fais un audit de sécurité complet et structuré de l'ensemble des positions actuellement ouvertes en portefeuille.
@@ -1226,17 +1449,28 @@ CONSIGNES DE RÉDACTION POUR L'AUDIT :
 Rédige avec des titres clairs (##), des puces et du gras."""
         else:
           preset_prompt = "Fais un audit de sécurité de mes positions."
-          preset_context = "Aucune position active n'est actuellement enregistrée en BDD. Indique à l'utilisateur que son portefeuille spéculatif est totalement liquide et sécurisé."
+          preset_context = (
+              "Aucune position active n'est actuellement enregistrée en BDD."
+              " Indique à l'utilisateur que son portefeuille spéculatif est"
+              " totalement liquide et sécurisé."
+          )
 
-  # --- PROMPT 3 : OPPORTUNITÉS D'ARBITRAGE (Cash-Neutral) ---
   with col_p3:
-    if st.button("🔄 Opportunités d'Arbitrage", use_container_width=True):
-      with st.spinner("Analyse des liquidités et des gisements d'arbitrage..."):
-        from crypto_speculative_advisor import calculate_unfied_crypto_categories
+    if st.button("🔄 Opportunités d'Arbitrage", width="stretch"):
+      with st.spinner(
+          "Analyse des liquidités et des gisements d'arbitrage..."
+      ):
+        from crypto_speculative_advisor import (
+            calculate_unfied_crypto_categories,
+        )
+
         cats = calculate_unfied_crypto_categories()
         open_pos = get_open_positions()
 
-        preset_prompt = "Analyse mes liquidités disponibles et propose-moi les opportunités d'arbitrage optimales selon la règle Cash-Neutral."
+        preset_prompt = (
+            "Analyse mes liquidités disponibles et propose-moi les opportunités"
+            " d'arbitrage optimales selon la règle Cash-Neutral."
+        )
 
         preset_context = f"""Tu es un trader crypto expert et stratège en allocation d'actifs.
 Analyse la liquidité disponible et propose un plan d'arbitrage sous la règle stricte CASH-NEUTRAL.
@@ -1261,37 +1495,62 @@ RÈGLES STRICTES D'ARBITRAGE :
 
 Structure la réponse avec des titres clairs (##), des listes à puces et du gras."""
 
-  # --- PROMPT 4 : BILAN ALLOCATION & CIBLES ---
   with col_p4:
-    if st.button("📊 Bilan Allocation & Cibles", use_container_width=True):
-      with st.spinner("Diagnostic d'allocation et calcul des écarts cibles..."):
-        from crypto_speculative_advisor import calculate_unfied_crypto_categories
+    if st.button("🧭 Plan d'Exécution Pas-à-Pas", width="stretch"):
+      with st.spinner(
+          "Calcul du plan d'exécution et dispatching par exchange..."
+      ):
+        from crypto_speculative_advisor import (
+            calculate_unfied_crypto_categories,
+        )
+
         cats = calculate_unfied_crypto_categories()
+        open_pos = get_open_positions()
+        all_balances = get_cached_crypto_balances()
 
-        target_spec_eur = cats['total_crypto'] * 0.10
-        delta_spec_eur = cats['speculative'] - target_spec_eur
+        target_spec = cats["total_crypto"] * 0.10
+        target_majors = cats["total_crypto"] * 0.55
+        target_core = cats["total_crypto"] * 0.22
+        target_cash = cats["total_crypto"] * 0.13
 
-        preset_prompt = "Fais un bilan complet de mon allocation d'actifs par rapport à mes cibles stratégiques et donne-moi tes conseils de rééquilibrage."
+        delta_majors = cats["btc_eth"] - target_majors
+        delta_spec = cats["speculative"] - target_spec
+        delta_core = target_core - cats["core"]
+        delta_cash = target_cash - cats["stables_cash"]
 
-        preset_context = f"""Tu es un gestionnaire de portefeuille crypto institutionnel.
-Analyse la répartition globale du portefeuille par rapport aux cibles théoriques et propose un diagnostic de rééquilibrage.
+        preset_prompt = (
+            "Génère ma feuille de route d'exécution tactique pas-à-pas pour"
+            " rééquilibrer le portefeuille sur mes exchanges."
+        )
 
-RÉPARTITION ACTUELLE VS CIBLES :
-- Capital Total : {cats['total_crypto']:,.2f} €
-- Majeures (BTC/ETH - Spot + Staking + Exodus) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.2f}%) | Cible idéale : ~50-60%
-- Poche Core (Convictions) : {cats['core']:,.2f} € ({cats['core_pct']:.2f}%) | Cible idéale : ~20-30%
-- Poche Spéculative (Moonbag) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.2f}%) | Cible stricte : 10.0% ({target_spec_eur:,.2f} €)
-- Liquidités & Cash : {cats['stables_cash']:,.2f} € ({cats['stables_cash_pct']:.2f}%) | Cible idéale : ~10-15%
+        preset_context = f"""Tu es un Execution Trader institutionnel expert.
+Ta mission est de convertir une stratégie globale d'allocation en une FEUILLE DE ROUTE D'EXÉCUTION PAS-À-PAS, ultra-concrète et directement applicable sur les échanges de l'utilisateur.
 
-DIAGNOSTIC DE L'ENVELOPPE SPÉCULATIVE :
-- Écart spéculatif par rapport à la cible 10% : {delta_spec_eur:+,.2f} € ({cats['speculative_pct'] - 10.0:+.2f}%)
+SITUATION DU PORTEFEUILLE & ÉCARTS CIBLES :
+- Valeur totale du capital : {cats['total_crypto']:,.2f} €
+- Majeures (BTC/ETH) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) | Cible 55% ({target_majors:,.2f} €) -> ÉCART : {delta_majors:+,.2f} € (À Alléger)
+- Poche Core : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) | Cible 22% ({target_core:,.2f} €) -> ÉCART : {delta_core:+,.2f} € (À Renforcer)
+- Spéculatif (Moonbag) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) | Cible 10% ({target_spec:,.2f} €) -> ÉCART : {delta_spec:+,.2f} € (À Écrêter)
+- Liquidités / Cash : {cats['stables_cash']:,.2f} € ({cats['stables_cash_pct']:.1f}%) | Cible 13% ({target_cash:,.2f} €) -> ÉCART : {delta_cash:+,.2f} € (À Reconstituer)
 
-CONSIGNES D'ANALYSE :
-1. **Diagnostic de la Poche Spéculative** : Indique si l'enveloppe est sous-exposée, alignée ou en sur-exposition par rapport à la cible de 10%.
-2. **Analyse de la Structure Globale** : Évalue l'équilibre entre Majeures, Core, Spéculatif et Cash.
-3. **Recommandations de Rééquilibrage** : Donne des consignes concrètes pour réaligner le portefeuille sans prendre de risques inutiles.
+SOLDES RÉELS DÉTECTÉS PAR PLATEFORME (Direct APIs) :
+{json.dumps(all_balances, indent=2, ensure_ascii=False)}
 
-Structure ta réponse avec des titres clairs (##), des listes à puces et du gras."""
+POSITIONS SPÉCULATIVES ACTIVES EN BDD :
+{open_pos}
+
+CONSIGNES DE RÉDACTION POUR LA FEUILLE DE ROUTE :
+1. **Étape 1 : Reconstruction du Cash (Priorité 1 — Allègement Majeures)**
+   - Indique exactement quelle quantité de BTC ou ETH vendre, sur quel exchange (Kraken ou OKX selon les soldes réels ci-dessus) et vers quelle paire (BTC/EUR ou BTC/USDC).
+   - Propose un découpage temporel (ex. 3 ou 4 tranches hebdomadaires) pour éviter le risque de market timing.
+
+2. **Étape 2 : Écrêtage Spéculatif (~{abs(delta_spec):,.2f} €)**
+   - Identifie dans les positions spéculatives actives ci-dessus celles qu'il faut alléger ou clôturer partiellement pour récupérer le surplus de ~200 €.
+
+3. **Étape 3 : Plan de Déploiement DCA sur la Poche CORE**
+   - Donne des consignes d'achats limites sur les replis techniques pour renforcer progressivement tes convictions Core (ex. SOL, NEAR, ONDO, PENDLE) sur OKX/Kraken avec les USDC/EUR générés.
+
+Rédige sous forme de checklist d'exécution avec du gras, des montants précis et des noms d'exchanges."""
 
   st.markdown("---")
 
@@ -1324,7 +1583,7 @@ Structure ta réponse avec des titres clairs (##), des listes à puces et du gra
 
     if not preset_context:
       current_positions = get_open_positions()
-      current_cash = get_total_verified_cash()
+      current_cash = get_cached_verified_cash()
       preset_context = f"""Tu es un trader crypto expert, analytique et pédagogue, spécialisé en altcoins, stratégie Moonbag et gestion du risque.
 L'utilisateur te consulte sur son cockpit web personnel. 
 Données de son portefeuille actuel :
@@ -1379,22 +1638,33 @@ with tab_monitor:
 
   st.markdown("---")
   st.subheader("📜 Journaux Système en Direct (Systemd Logs)")
-  log_service = st.selectbox("Sélectionner le service à inspecter", ["streamlit.service", "finary-bot.service", "cloudflare.service"])
+  log_service = st.selectbox(
+      "Sélectionner le service à inspecter",
+      ["streamlit.service", "finary-bot.service", "cloudflare.service"],
+  )
 
   if st.button("🔄 Rafraîchir les logs"):
     st.rerun()
 
   try:
     cmd = f"journalctl -u {log_service} -n 30 --no-pager"
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3)
+    result = subprocess.run(
+        cmd, shell=True, capture_output=True, text=True, timeout=3
+    )
     if result.returncode != 0 or not result.stdout.strip():
-      log_output = f"⚠️ Impossible de lire les logs systemd directement via l'interface web.\n💡 Astuce SSH : sudo journalctl -u {log_service} -n 30"
+      log_output = (
+          "⚠️ Impossible de lire les logs systemd directement via l'interface"
+          " web.\n💡 Astuce SSH : sudo journalctl -u"
+          f" {log_service} -n 30"
+      )
     else:
       log_output = result.stdout
   except Exception as e:
     log_output = f"Erreur lors de la récupération des logs : {e}"
 
-  st.text_area(f"Dernières lignes de log pour {log_service}", log_output, height=300)
+  st.text_area(
+      f"Dernières lignes de log pour {log_service}", log_output, height=300
+  )
 
 # ==========================================
 # ONGLET 6 : ANALYTICS & WIN RATE
@@ -1407,14 +1677,25 @@ with tab_analytics:
   col_a1, col_a2 = st.columns(2)
   with col_a1:
     st.markdown("#### Win Rate par Plateforme")
-    df_winrate = pd.DataFrame({"Exchange": ["Kraken", "OKX", "MEXC"], "Win Rate (%)": [68.5, 74.2, 60.0]})
-    st.bar_chart(df_winrate.set_index("Exchange")["Win Rate (%)"], use_container_width=True)
+    df_winrate = pd.DataFrame(
+        {"Exchange": ["Kraken", "OKX", "MEXC"], "Win Rate (%)": [68.5, 74.2, 60.0]}
+    )
+    st.bar_chart(
+        df_winrate.set_index("Exchange")["Win Rate (%)"], width="stretch"
+    )
   with col_a2:
     st.markdown(f"#### Évolution du PnL Réalisé ({curr_symbol})")
     dates = pd.date_range(start="2026-01-01", periods=10, freq="W")
     pnl_base = [100, 250, 180, 420, 590, 750, 710, 950, 1200, 1450]
-    df_pnl = pd.DataFrame({f"PnL Cumulé ({curr_symbol})": [val * curr_multiplier for val in pnl_base]}, index=dates)
-    st.line_chart(df_pnl, use_container_width=True)
+    df_pnl = pd.DataFrame(
+        {
+            f"PnL Cumulé ({curr_symbol})": [
+                val * curr_multiplier for val in pnl_base
+            ]
+        },
+        index=dates,
+    )
+    st.line_chart(df_pnl, width="stretch")
 
 # ==========================================
 # ONGLET 7 : EXPORT COMPTABLE & FISCAL
@@ -1424,13 +1705,23 @@ with tab_fiscal:
     st.markdown("Outil d'aide à la déclaration et export CSV normalisé.")
 
   st.subheader("🧾 Assistant d'Export Fiscal & Comptable (v2.8)")
-  year_selected = st.selectbox("Sélectionner l'année fiscale", [2026, 2025, 2024])
+  year_selected = st.selectbox(
+      "Sélectionner l'année fiscale", [2026, 2025, 2024]
+  )
 
   col_f1, col_f2 = st.columns(2)
   with col_f1:
-    include_fees = st.checkbox("Inclure le détail des frais de transaction (API fees)", value=True, key="chk_fees")
+    include_fees = st.checkbox(
+        "Inclure le détail des frais de transaction (API fees)",
+        value=True,
+        key="chk_fees",
+    )
   with col_f2:
-    only_closed = st.checkbox("Isoler uniquement les positions clôturées (réalisées)", value=True, key="chk_closed")
+    only_closed = st.checkbox(
+        "Isoler uniquement les positions clôturées (réalisées)",
+        value=True,
+        key="chk_closed",
+    )
 
   if st.button("📥 Générer et télécharger le rapport fiscal certifié (CSV)"):
     trades_hist = get_all_trades_history()
@@ -1438,11 +1729,16 @@ with tab_fiscal:
     if not df_export.empty:
       csv_data = df_export.to_csv(index=False).encode("utf-8")
       st.download_button(
-          label=f"💾 Télécharger le rapport de cessions {year_selected} (Format CSV)",
+          label=(
+              f"💾 Télécharger le rapport de cessions {year_selected} (Format"
+              " CSV)"
+          ),
           data=csv_data,
           file_name=f"rapport_fiscal_crypto_{year_selected}.csv",
           mime="text/css",
       )
       st.success(f"Rapport fiscal {year_selected} généré avec succès !")
     else:
-      st.warning("Aucune donnée historique disponible pour générer ce rapport.")
+      st.warning(
+          "Aucune donnée historique disponible pour générer ce rapport."
+      )
