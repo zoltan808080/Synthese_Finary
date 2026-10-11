@@ -193,7 +193,7 @@ st.sidebar.info(
     " exchanges et des wallets froids."
 )
 
-# --- NAVIGATION PAR ONGLETS (7 ONSLETS RESTRUCTURÉS) ---
+# --- NAVIGATION PAR ONGLETS (7 ONGLETS RESTRUCTURÉS) ---
 tab_live, tab_digest, tab_alerts, tab_ai, tab_monitor, tab_analytics, tab_fiscal = st.tabs(
     [
         "📊 Positions Actives (Live)",
@@ -332,6 +332,10 @@ with tab_live:
   val_core = 0.0
   val_stables_cash = 0.0
 
+  # --- CALCUL DES DICTIONNAIRES DE DÉTAIL PAR POCHE ---
+  dict_majors = {}
+  dict_core = {}
+
   for asset, info in all_crypto_balances.items():
     amt = info["amount"]
     exch = info["exchange"]
@@ -342,10 +346,14 @@ with tab_live:
       val_stables_cash += amt
     elif asset in ["BTC", "ETH"]:
       val_majors += asset_val
+      if asset_val > 0.1:
+        dict_majors[asset] = dict_majors.get(asset, 0.0) + (asset_val * curr_multiplier)
     elif asset in speculative_symbols:
-      pass
+      pass  # Déjà comptabilisé dans la poche spéculative via la BDD
     else:
       val_core += asset_val
+      if asset_val > 1.0:  # On masque les poussières de solde < 1€
+        dict_core[asset] = dict_core.get(asset, 0.0) + (asset_val * curr_multiplier)
 
   cash_info = get_total_verified_cash()
   total_cash_eur = cash_info.get("total_cash", 0.0)
@@ -387,9 +395,10 @@ with tab_live:
   st.markdown("---")
   st.subheader(f"📋 Inventaire & Suivi Temps Réel des Positions ({curr_symbol})")
 
-  col_pie1, col_pie2, col_table_info = st.columns([1, 1, 1])
+  # --- RANGÉE 1 : CAMEMBERT GLOBAL & SYNTHÈSE ---
+  r1_col1, r1_col2 = st.columns([1, 1])
 
-  with col_pie1:
+  with r1_col1:
     labels_global = [
         "Majeures (BTC/ETH)",
         "Poche CORE",
@@ -407,39 +416,17 @@ with tab_live:
     fig_pie_global = px.pie(
         names=labels_global,
         values=values_global,
-        title="Répartition Globale par Poche",
+        title="🌐 Allocation Globale du Portefeuille",
         color_discrete_sequence=colors_global,
         hole=0.4,
     )
     fig_pie_global.update_traces(textposition="inside", textinfo="percent+label")
     fig_pie_global.update_layout(
-        margin=dict(t=30, b=10, l=10, r=10),
-        showlegend=False,
-        height=300,
+        margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=280
     )
     st.plotly_chart(fig_pie_global, use_container_width=True)
 
-  with col_pie2:
-    if enriched_positions:
-      df_spec_pie = pd.DataFrame(enriched_positions)
-      fig_pie_spec = px.pie(
-          df_spec_pie,
-          names="Symbole",
-          values="Valeur Actuelle",
-          title="Zoom Poche Spéculative (Moonbag)",
-          hole=0.4,
-      )
-      fig_pie_spec.update_traces(textposition="inside", textinfo="percent+label")
-      fig_pie_spec.update_layout(
-          margin=dict(t=30, b=10, l=10, r=10),
-          showlegend=False,
-          height=300,
-      )
-      st.plotly_chart(fig_pie_spec, use_container_width=True)
-    else:
-      st.info("Aucune position spéculative active.")
-
-  with col_table_info:
+  with r1_col2:
     st.markdown("##### 📌 Synthèse visuelle des poches")
     st.write(
         f"• **Majeures (BTC/ETH) :** {val_majors * curr_multiplier:,.2f}"
@@ -450,13 +437,83 @@ with tab_live:
         f" {curr_symbol} ({pct_core:.1f}%)"
     )
     st.write(
-        f"• **Spéculatif (Moonbag) :** {val_speculative * curr_multiplier:,.2f}"
-        f" {curr_symbol} ({pct_spec:.1f}%)"
+        f"• **Spéculatif (Moonbag) :**"
+        f" {val_speculative * curr_multiplier:,.2f} {curr_symbol}"
+        f" ({pct_spec:.1f}%)"
     )
     st.write(
         f"• **Stables & Cash :** {val_stables_cash * curr_multiplier:,.2f}"
         f" {curr_symbol} ({pct_stables:.1f}%)"
     )
+    st.info(
+        "💡 Les trois camemberts ci-dessous détaillent la composition exacte"
+        " de chaque poche d'actifs."
+    )
+
+  st.markdown("---")
+  st.subheader("🔍 Zooms Détaillés par Poche d'Actifs")
+  z_col1, z_col2, z_col3 = st.columns(3)
+
+  # 1. Zoom Majeures
+  with z_col1:
+    if dict_majors:
+      df_majors = pd.DataFrame(
+          list(dict_majors.items()), columns=["Actif", "Valeur"]
+      )
+      fig_maj = px.pie(
+          df_majors,
+          names="Actif",
+          values="Valeur",
+          title="🏛️ Majeures (BTC vs ETH)",
+          hole=0.4,
+      )
+      fig_maj.update_traces(textposition="inside", textinfo="percent+label")
+      fig_maj.update_layout(
+          margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=260
+      )
+      st.plotly_chart(fig_maj, use_container_width=True)
+    else:
+      st.info("Aucun actif majeur détecté.")
+
+  # 2. Zoom Poche CORE
+  with z_col2:
+    if dict_core:
+      df_core_pie = pd.DataFrame(
+          list(dict_core.items()), columns=["Actif", "Valeur"]
+      )
+      fig_core = px.pie(
+          df_core_pie,
+          names="Actif",
+          values="Valeur",
+          title="💎 Poche CORE (Long Terme)",
+          hole=0.4,
+      )
+      fig_core.update_traces(textposition="inside", textinfo="percent+label")
+      fig_core.update_layout(
+          margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=260
+      )
+      st.plotly_chart(fig_core, use_container_width=True)
+    else:
+      st.info("Aucun actif CORE détecté.")
+
+  # 3. Zoom Poche Spéculative
+  with z_col3:
+    if enriched_positions:
+      df_spec_pie = pd.DataFrame(enriched_positions)
+      fig_spec = px.pie(
+          df_spec_pie,
+          names="Symbole",
+          values="Valeur Actuelle",
+          title="🚀 Spéculatif (Moonbag BDD)",
+          hole=0.4,
+      )
+      fig_spec.update_traces(textposition="inside", textinfo="percent+label")
+      fig_spec.update_layout(
+          margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=260
+      )
+      st.plotly_chart(fig_spec, use_container_width=True)
+    else:
+      st.info("Aucune position spéculative active.")
 
   st.markdown("---")
 
@@ -1170,7 +1227,6 @@ Rédige avec des titres clairs (##), des puces et du gras."""
         else:
           preset_prompt = "Fais un audit de sécurité de mes positions."
           preset_context = "Aucune position active n'est actuellement enregistrée en BDD. Indique à l'utilisateur que son portefeuille spéculatif est totalement liquide et sécurisé."
-
 
   # --- PROMPT 3 : OPPORTUNITÉS D'ARBITRAGE (Cash-Neutral) ---
   with col_p3:
