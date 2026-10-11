@@ -1,6 +1,7 @@
 import datetime
 import os
 import subprocess
+import json
 from dotenv import load_dotenv
 from google import genai
 import pandas as pd
@@ -93,14 +94,13 @@ init_db()
 
 st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v2.8)")
 st.markdown(
-    "*Suivi multi-exchange temps réel, Centre d'Alertes, Assistant IA & Backtesting*"
+    "*Suivi multi-exchange temps réel, Centre d'Alertes, Assistant IA & Reporting*"
 )
 st.markdown("---")
 
 
 def get_live_eur_usd_rate():
   """Récupère le taux EUR/USD en direct via l'API Frankfurter ou Kraken, avec un fallback à 1.12."""
-  # 1. Tentative via l'API officielle des taux de change (Frankfurter)
   try:
     res = requests.get(
         "https://api.frankfurter.app/latest?from=EUR&to=USD", timeout=2
@@ -112,7 +112,6 @@ def get_live_eur_usd_rate():
   except Exception:
     pass
 
-  # 2. Secours via le ticker public Kraken (EUR/USD)
   try:
     res_k = requests.get(
         "https://api.kraken.com/0/public/Ticker?pair=EURUSD", timeout=2
@@ -127,9 +126,7 @@ def get_live_eur_usd_rate():
   except Exception:
     pass
 
-  # 3. Fallback par défaut à 1.12 si aucune API ne répond
   return 1.12
-
 
 
 # ==========================================
@@ -177,7 +174,7 @@ st.sidebar.info(
 )
 
 # --- NAVIGATION PAR ONGLETS ---
-tab_live, tab_risk, tab_digest, tab_alerts, tab_ai, tab_monitor, tab_backtest, tab_analytics, tab_fiscal = st.tabs(
+tab_live, tab_risk, tab_digest, tab_alerts, tab_ai, tab_monitor, tab_analytics, tab_fiscal = st.tabs(
     [
         "📊 Positions Actives (Live)",
         "🛡️ Risk Management & Sizing",
@@ -185,12 +182,10 @@ tab_live, tab_risk, tab_digest, tab_alerts, tab_ai, tab_monitor, tab_backtest, t
         "🔔 Centre d'Alertes",
         "🤖 Assistant IA Pro",
         "🛠️ Monitoring & Santé APIs",
-        "🧪 Backtesting Pro",
         "📈 Analytics & Win Rate",
         "🧾 Export Fiscal & Comptable",
     ]
 )
-
 
 
 # --- FONCTION UTILITAIRE DE PRIX LIVE ---
@@ -243,11 +238,10 @@ with tab_live:
 
   positions = get_open_positions()
 
-  # 1. Traitement des positions ouvertes et valorisation live
   enriched_positions = []
   total_current_market_value = 0.0
   total_invested_base = 0.0
-  
+
   free_ride_count = 0
   at_risk_count = 0
   total_weight_risk = 0.0
@@ -308,7 +302,6 @@ with tab_live:
           "Statut": status,
       })
 
-  # 2. Calculs unifiés de la répartition globale du portefeuille
   try:
     all_crypto_balances = get_all_exchange_crypto_balances()
   except Exception:
@@ -350,7 +343,6 @@ with tab_live:
   else:
     pct_majors = pct_core = pct_spec = pct_stables = 0.0
 
-  # Métriques globales de synthèse (Ligne 1 : Répartition du Capital)
   st.markdown("#### 🌐 Ventilation Globale du Capital")
   m_col1, m_col2, m_col3, m_col4 = st.columns(4)
   m_col1.metric("Volume Total Crypto", f"{total_crypto_only_val * curr_multiplier:,.2f} {curr_symbol}", delta="Exchanges + Exodus")
@@ -360,7 +352,6 @@ with tab_live:
 
   st.markdown("")
 
-  # Métriques de gestion de portefeuille (Ligne 2 : Santé & Performance)
   total_invested_disp = total_invested_base * curr_multiplier
   total_market_disp = val_speculative * curr_multiplier
   total_pnl_disp = total_market_disp - (total_invested_base * curr_multiplier)
@@ -376,6 +367,79 @@ with tab_live:
 
   st.markdown("---")
   st.subheader(f"📋 Inventaire & Suivi Temps Réel des Positions ({curr_symbol})")
+
+  col_pie1, col_pie2, col_table_info = st.columns([1, 1, 1])
+
+  with col_pie1:
+    labels_global = [
+        "Majeures (BTC/ETH)",
+        "Poche CORE",
+        "Spéculatif (Moonbag)",
+        "Stables & Cash",
+    ]
+    values_global = [
+        val_majors * curr_multiplier,
+        val_core * curr_multiplier,
+        val_speculative * curr_multiplier,
+        val_stables_cash * curr_multiplier,
+    ]
+    colors_global = ["#36a2eb", "#4bc0c0", "#ff6384", "#ffce56"]
+
+    fig_pie_global = px.pie(
+        names=labels_global,
+        values=values_global,
+        title="Répartition Globale par Poche",
+        color_discrete_sequence=colors_global,
+        hole=0.4,
+    )
+    fig_pie_global.update_traces(textposition="inside", textinfo="percent+label")
+    fig_pie_global.update_layout(
+        margin=dict(t=30, b=10, l=10, r=10),
+        showlegend=False,
+        height=300,
+    )
+    st.plotly_chart(fig_pie_global, use_container_width=True)
+
+  with col_pie2:
+    if enriched_positions:
+      df_spec_pie = pd.DataFrame(enriched_positions)
+      fig_pie_spec = px.pie(
+          df_spec_pie,
+          names="Symbole",
+          values="Valeur Actuelle",
+          title="Zoom Poche Spéculative (Moonbag)",
+          hole=0.4,
+      )
+      fig_pie_spec.update_traces(textposition="inside", textinfo="percent+label")
+      fig_pie_spec.update_layout(
+          margin=dict(t=30, b=10, l=10, r=10),
+          showlegend=False,
+          height=300,
+      )
+      st.plotly_chart(fig_pie_spec, use_container_width=True)
+    else:
+      st.info("Aucune position spéculative active.")
+
+  with col_table_info:
+    st.markdown("##### 📌 Synthèse visuelle des poches")
+    st.write(
+        f"• **Majeures (BTC/ETH) :** {val_majors * curr_multiplier:,.2f}"
+        f" {curr_symbol} ({pct_majors:.1f}%)"
+    )
+    st.write(
+        f"• **Poche CORE :** {val_core * curr_multiplier:,.2f}"
+        f" {curr_symbol} ({pct_core:.1f}%)"
+    )
+    st.write(
+        f"• **Spéculatif (Moonbag) :** {val_speculative * curr_multiplier:,.2f}"
+        f" {curr_symbol} ({pct_spec:.1f}%)"
+    )
+    st.write(
+        f"• **Stables & Cash :** {val_stables_cash * curr_multiplier:,.2f}"
+        f" {curr_symbol} ({pct_stables:.1f}%)"
+    )
+
+  st.markdown("---")
 
   if enriched_positions:
     df_pos = pd.DataFrame(enriched_positions)
@@ -417,33 +481,123 @@ with tab_live:
               unsafe_allow_html=True,
           )
 
-    st.markdown("---")
-    st.subheader("⚡ Actions Rapides sur Position")
-    col_act1, col_act2 = st.columns(2)
-    with col_act1:
-      selected_id = st.selectbox(
-          "Sélectionner une position par ID / Symbole",
-          options=df_pos["ID"].tolist(),
-          format_func=lambda x: f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]} ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]})",
+        st.markdown("---")
+    st.subheader("⚡ Actions & Gestion Dynamique des Positions")
+
+    act_tab1, act_tab2, act_tab3 = st.tabs(
+        [
+            "🔒 Clôture de Position",
+            "🛡️ Passage en Break-Even (1-Click)",
+            "✏️ Édition des Niveaux (TP / SL)",
+        ]
+    )
+
+    # --- SOUS-ONGLET 1 : CLÔTURE ---
+    with act_tab1:
+      c_col1, c_col2 = st.columns([2, 1])
+      with c_col1:
+        selected_close_id = st.selectbox(
+            "Position à clôturer",
+            options=df_pos["ID"].tolist(),
+            format_func=lambda x: (
+                f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
+                f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]})"
+            ),
+            key="close_select",
+        )
+      with c_col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔒 Clôturer la position", type="secondary"):
+          close_trade(selected_close_id)
+          st.success(f"Position ID {selected_close_id} clôturée en BDD !")
+          st.rerun()
+
+    # --- SOUS-ONGLET 2 : BREAK-EVEN 1-CLICK ---
+    with act_tab2:
+      st.markdown(
+          "**Caler le Stop-Loss sur le Prix d'Entrée** pour éliminer le risque"
+          " sur une position en gain."
       )
-    with col_act2:
-      st.markdown("<br>", unsafe_allow_html=True)
-      if st.button("🔒 Clôturer cette position (Web Action)", type="secondary"):
-        close_trade(selected_id)
-        st.success(f"Position ID {selected_id} clôturée avec succès en base de données !")
+      be_col1, be_col2 = st.columns([2, 1])
+      with be_col1:
+        selected_be_id = st.selectbox(
+            "Position à sécuriser (Break-Even)",
+            options=df_pos["ID"].tolist(),
+            format_func=lambda x: (
+                f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]} |"
+                f" Entrée:"
+                f" {df_pos[df_pos['ID'] == x]['Prix Entrée'].values[0]} | PnL:"
+                f" {df_pos[df_pos['ID'] == x]['PnL (%)'].values[0]}"
+            ),
+            key="be_select",
+        )
+      with be_col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🛡️ Passer en Break-Even", type="primary"):
+          from db_manager import set_trade_break_even
+
+          set_trade_break_even(selected_be_id)
+          st.success(
+              f"✅ Stop-Loss de la position ID {selected_be_id} ajusté au prix"
+              " d'entrée !"
+          )
+          st.rerun()
+
+    # --- SOUS-ONGLET 3 : ÉDITION MANUELLE TP / SL ---
+    with act_tab3:
+      st.markdown(
+          "**Ajuster manuellement les paliers de prix (TP1, TP2, Stop-Loss)**"
+      )
+      selected_edit_id = st.selectbox(
+          "Position à modifier",
+          options=df_pos["ID"].tolist(),
+          format_func=lambda x: (
+              f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
+              f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]})"
+          ),
+          key="edit_select",
+      )
+
+      # Récupération des données actuelles de la position choisie
+      curr_row = df_pos[df_pos["ID"] == selected_edit_id].iloc[0]
+      raw_entry = curr_row["Prix Entrée"]
+      raw_tp1 = curr_row["TP1"]
+      raw_sl = curr_row["Stop-Loss"]
+
+      e_col1, e_col2, e_col3 = st.columns(3)
+      with e_col1:
+        new_tp1 = st.number_input(
+            f"Nouveau TP1 ({curr_symbol})",
+            value=float(raw_tp1) if raw_tp1 > 0 else float(raw_entry * 2.0),
+            format="%.4f",
+        )
+      with e_col2:
+        new_tp2 = st.number_input(
+            f"Nouveau TP2 ({curr_symbol})",
+            value=float(raw_entry * 4.0),
+            format="%.4f",
+        )
+      with e_col3:
+        new_sl = st.number_input(
+            f"Nouveau Stop-Loss ({curr_symbol})",
+            value=float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70),
+            format="%.4f",
+        )
+
+      if st.button("💾 Enregistrer les nouveaux paliers"):
+        from db_manager import update_trade_levels
+
+        update_trade_levels(
+            selected_edit_id,
+            tp1_price=new_tp1 / curr_multiplier,
+            tp2_price=new_tp2 / curr_multiplier,
+            sl_price=new_sl / curr_multiplier,
+        )
+        st.success(
+            f"✅ Paliers mis à jour pour {curr_row['Symbole']} (ID"
+            f" {selected_edit_id}) !"
+        )
         st.rerun()
-
-    st.markdown("---")
-    col_l, col_r = st.columns(2)
-    with col_l:
-      st.markdown(f"#### 📊 Répartition Marché par Exchange ({curr_symbol})")
-      df_ex = df_pos.groupby("Exchange")["Valeur Actuelle"].sum().reset_index()
-      st.bar_chart(df_ex.set_index("Exchange")["Valeur Actuelle"], use_container_width=True)
-
-    with col_r:
-      st.markdown(f"#### 🪙 Top Lignes par Valeur de Marché ({curr_symbol})")
-      df_top = df_pos.sort_values(by="Valeur Actuelle", ascending=False).head(8)
-      st.bar_chart(df_top.set_index("Symbole")["Valeur Actuelle"], use_container_width=True)
   else:
     st.info("Aucune position active trouvée.")
 
@@ -455,7 +609,7 @@ with tab_risk:
     st.markdown(f"""
         Pilotage du risque basé sur la **valeur actuelle de marché** de vos actifs :
         * **Calculateur de Position :** Déterminez exactement combien risquer sur un nouveau trade.
-        * **Camembert d'Exposition Live :** Reflète la concentration réelle de vos lignes actualisées.
+        * **Ratios de Risque :** Évaluation des paliers Stop-Loss et du ratio R:R.
         """)
 
   st.subheader(f"🛡️ Calculateur de Taille de Position & Risque ({curr_symbol})")
@@ -515,30 +669,6 @@ with tab_risk:
       f"1 : {ratio_risk_reward:.2f}",
       delta=("Excellent (>= 2)" if ratio_risk_reward >= 2 else "Attention (< 2)"),
   )
-
-  st.markdown("---")
-  st.subheader(f"📊 Analyse Visuelle de Concentration & Exposition Live ({curr_symbol})")
-  if positions and enriched_positions:
-    df_risk = pd.DataFrame(enriched_positions)
-    total_val_marche = df_risk["Valeur Actuelle"].sum()
-    df_risk["Poids (%)"] = (df_risk["Valeur Actuelle"] / total_val_marche) * 100
-
-    fig_pie = px.pie(
-        df_risk,
-        names="Symbole",
-        values="Valeur Actuelle",
-        title=f"Répartition du Capital par Valeur de Marché Actuelle ({curr_symbol})",
-        hole=0.4,
-        hover_data=["Exchange", "Poids (%)", "PnL (%)"],
-    )
-    fig_pie.update_traces(textinfo="percent+label")
-    fig_pie.update_layout(
-        margin=dict(t=40, b=20, l=20, r=20),
-        legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
-    )
-    st.plotly_chart(fig_pie, use_container_width=True)
-  else:
-    st.info("Aucune position active pour calculer la concentration.")
 
 # ==========================================
 # ONGLET 3 : DAILY BRIEFING PRO (19H)
@@ -619,7 +749,7 @@ with tab_alerts:
   with st.expander("📖 Guide du Centre d'Alertes & Réconciliation"):
     st.markdown("""
         Vigie automatisée de votre cockpit :
-        * **Rapprochement BDD vs Exchanges :** Détecte les lignes fantômes et les écarts de volumes entre SQLite et les plateformes.
+        * **Rapprochement BDD vs Exchanges :** Détecte les lignes fantômes, les écarts de volumes et les nouveaux trades manuels.
         * **Alerte d'Exposition Spéculative :** Surveille si la poche dépasse les seuils de tolérance (12% et 15%), basée sur le calcul live exact.
         * **Radar TP / SL en Direct :** Détecte si vos actifs ouverts frôlent les Stop-Loss ou atteignent les Take-Profits.
         """)
@@ -637,19 +767,22 @@ with tab_alerts:
     if discrepancies:
       st.error(f"🚨 {len(discrepancies)} anomalie(s) ou écart(s) détecté(s) dans le portefeuille !")
       for disc in discrepancies:
-        d_id = disc["id"]
+        d_id = disc.get("id")
         d_sym = disc["symbol"]
         d_exch = disc["exchange"]
         d_type = disc["type"]
+        if d_type == "MANUAL_TRADE_DETECTED":
+          border_color, bg_color, badge = "#00ffcc", "#152a26", "💡 NOUVEAU TRADE MANUEL DÉTECTÉ"
+        elif d_type == "GHOST_POSITION":
+          border_color, bg_color, badge = "#ff4d4d", "#2a1515", "🔴 LIGNE FANTÔME"
+        else:
+          border_color, bg_color, badge = "#ffa500", "#2a2215", "🟡 ÉCART DE VOLUME"
 
-        border_color = "#ff4d4d" if d_type == "GHOST_POSITION" else "#ffa500"
-        bg_color = "#2a1515" if d_type == "GHOST_POSITION" else "#2a2215"
-        badge = "🔴 LIGNE FANTÔME" if d_type == "GHOST_POSITION" else "🟡 ÉCART DE VOLUME"
-
+        display_id_str = f"[ID BDD: {d_id}]" if d_id is not None else "[ID BDD: None]"
         st.markdown(
             f"""
             <div style="padding: 12px; border-radius: 8px; border: 1px solid {border_color}; margin-bottom: 10px; background-color: {bg_color};">
-                <h4 style="margin: 0; color: {border_color};">{badge} — {d_sym} ({d_exch}) [ID BDD: {d_id}]</h4>
+                <h4 style="margin: 0; color: {border_color};">{badge} — {d_sym} ({d_exch}) {display_id_str}</h4>
                 <p style="margin: 4px 0 0 0; font-size: 13px; color: #ddd;">
                     {disc['desc']}
                 </p>
@@ -672,6 +805,33 @@ with tab_alerts:
             st.success(f"Position ID {d_id} ({d_sym}) resynchronisée avec succès au montant de {disp_adj_amt:,.2f} {curr_symbol} !")
             st.rerun()
 
+        if d_type == "MANUAL_TRADE_DETECTED":
+          cost_eur = disc.get("cost", 0.0)
+          price_eur = disc.get("price", 0.0)
+          disp_cost = cost_eur * curr_multiplier
+          disp_price = price_eur * curr_multiplier
+          if st.button(
+              f"🎯 Activer la stratégie Moonbag pour {d_sym} ({disp_cost:,.2f}"
+              f" {curr_symbol} @ {disp_price:.4f} {curr_symbol})",
+              key=f"web_add_manual_{d_sym}_{d_exch}",
+          ):
+            from db_manager import add_recommendation, mark_trade_taken
+
+            rec_id = add_recommendation(
+                symbol=d_sym,
+                exchange=d_exch,
+                price=price_eur,
+                amount_eur=cost_eur,
+                tp1_price=price_eur * 2.0,
+                tp2_price=price_eur * 4.0,
+                sl_price=price_eur * 0.60,
+                sl_type="invalidation",
+            )
+            mark_trade_taken(rec_id)
+            st.success(
+                f"✅ Position {d_sym} intégrée avec succès au cockpit Moonbag !"
+            )
+            st.rerun()
     else:
       st.success("✅ Parfaite synchronisation : aucune ligne fantôme ni écart significatif détecté.")
   else:
@@ -682,7 +842,6 @@ with tab_alerts:
 
   alerts_list = []
 
-  # Utilisation directe du pourcentage calculé dans l'onglet 1 pour une cohérence absolue
   spec_pct = pct_spec if 'pct_spec' in locals() else 10.0
 
   if spec_pct > 15.0:
@@ -793,55 +952,261 @@ with tab_alerts:
 with tab_ai:
   with st.expander("📖 Guide de l'Assistant IA Conversationnel"):
     st.markdown("""
-        Posez vos questions en langage naturel à votre assistant trader personnel :
-        * **Analyse de portefeuille :** *"Quelle est mon exposition globale sur les altcoins ?"*
-        * **Gestion du risque :** *"Suis-je bien protégé sur mes positions ouvertes ?"*
+        Votre stratège crypto personnel en direct :
+        * **Prompts Rapides :** Lancez des analyses complexes en un clic sans rien saisir.
+        * **Chat Libre :** Posez n'importe quelle question sur vos positions et votre gestion du risque.
         """)
 
   st.subheader("🤖 Assistant IA & Stratège Crypto (Propulsé par Gemini)")
-  st.markdown("Discutez en direct avec l'IA qui connaît l'état exact de votre portefeuille et de vos positions.")
+  st.markdown(
+      "Discutez en direct ou lancez une analyse pré-configurée en 1 clic :"
+  )
 
+  # --- BOUTONS DE PROMPTS PRÊTS À L'EMPLOI ---
+  st.markdown("##### ⚡ Prompts Rapides & Analyses en 1 Clic")
+  col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+
+  preset_prompt = None
+  preset_context = None
+
+  # -------------------------------------------------------------
+  # PROMPT 1 : RAPPORT SPÉCULATIF LIVE (Équivalent 19h On-Demand)
+  # -------------------------------------------------------------
+  with col_p1:
+    if st.button("📰 Rapport Spéculatif Live", use_container_width=True):
+      with st.spinner("Collecte des données live en direct des APIs..."):
+        from crypto_speculative_advisor import (
+            calculate_unfied_crypto_categories,
+            check_circuit_breaker,
+            fetch_coingecko_trending_and_markets,
+            fetch_fear_and_greed_index,
+            get_kraken_spot_symbols,
+            get_okx_spot_symbols,
+        )
+
+        is_crash, crash_pct = check_circuit_breaker()
+        fng = fetch_fear_and_greed_index()
+        cats = calculate_unfied_crypto_categories()
+        open_pos = get_open_positions()
+
+        # Opportunités pré-filtrées
+        raw_opps = (
+            [] if is_crash else fetch_coingecko_trending_and_markets()
+        )
+        kraken_syms, okx_syms = (
+            get_kraken_spot_symbols(),
+            get_okx_spot_symbols(),
+        )
+        verified_opps = []
+        for item in raw_opps:
+          sym = item["symbol"].upper()
+          avail = []
+          if sym in kraken_syms:
+            avail.append("KRAKEN")
+          if sym in okx_syms:
+            avail.append("OKX")
+          if avail:
+            item["exchanges_verifies"] = avail
+            verified_opps.append(item)
+
+        target_budget = cats["total_crypto"] * 0.10
+
+        preset_prompt = "Génère le Rapport Spéculatif Live complet du portefeuille sous stratégie Moonbag."
+
+        preset_context = f"""Tu es un trader crypto expert, analytique et pédagogue, spécialisé en altcoins.
+Rédige un rapport d'arbitrage spéculatif complet et immédiatement lisible pour le dashboard Streamlit.
+
+ETAT DU MARCHÉ & CIRCUIT BREAKER :
+- Statut : {"🚨 DEFENSIVE MODE / CRASH DÉTECTÉ" if is_crash else "✅ NORMAL"}
+- Var BTC 24h : {crash_pct:+.2f}%
+- Indice Fear & Greed : {fng['value']}/100 ({fng['classification']})
+
+DONNÉES CHIFFRÉES UNIFIÉES :
+- Valeur totale du portefeuille : {cats['total_crypto']:,.2f} €
+- Enveloppe spéculative cible (10%) : {target_budget:,.2f} €
+- REPARTITION EXACTE DES ACTIFS :
+  • Majeures (BTC & ETH - Spot + Staking + Exodus) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.2f}%)
+  • Core / Convictions long terme : {cats['core']:,.2f} € ({cats['core_pct']:.2f}%)
+  • Spéculatives Actives (Moonbag BDD) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.2f}%)
+  • Liquidités Totales (Fiat + Stablecoins) : {cats['stables_cash']:,.2f} € ({cats['stables_cash_pct']:.2f}%)
+- DETAIL DES LIQUIDITÉS DISPONIBLES EN TEMPS RÉEL :
+  • Stablecoins (USDT + USDC) : {cats['val_stables_crypto']:,.2f} €
+  • Cash Fiat (EUR + USD) : {cats['total_cash_fiat']:,.2f} €
+  • Total Liquidités Immédiates : {cats['stables_cash']:,.2f} €
+
+PLAFONDS STRICTS D'ARBITRAGE PAR ACTIF DÉTENU :
+{cats['holdings_text']}
+
+POSITIONS ACTIVES EN BDD :
+{open_pos}
+
+OPPORTUNITÉS PRÉ-FILTRÉES (Kraken / OKX) :
+{json.dumps(verified_opps, indent=2, ensure_ascii=False)}
+
+RÈGLES D'ARBITRAGE :
+1. UTILISATION PRIORITAIRE DES LIQUIDITÉS DISPONIBLES ({cats['stables_cash']:,.2f} €) sans proposer de vente d'actif si suffisant.
+2. PLAFOND STRICT DE VENTE : Ne jamais dépasser le montant réel d'un actif détenu.
+3. Plan Moonbag pour chaque recommandation : Prix d'entrée, TP1 (x2 / -50%), TP2 (x4 / -25%), TP3 (Moonbag restants 25%), SL d'invalidation (-40% à -50%).
+
+Structure ta réponse avec des titres clairs (##), des listes à puces et du gras pour une lisibilité parfaite sur le dashboard."""
+
+
+
+
+  # -------------------------------------------------------------
+  # PROMPT 2 : AUDIT DE PROTECTION & STOP-LOSS (Sécurité Live)
+  # -------------------------------------------------------------
+  with col_p2:
+    if st.button("🛡️ Audit de Protection & SL", use_container_width=True):
+      with st.spinner("Analyse de la sécurité de vos positions en direct..."):
+        open_pos = get_open_positions()
+
+        if open_pos:
+          pos_audit_data = []
+          total_risk_weight = 0.0
+          weighted_sl_dist = 0.0
+          missing_sl_count = 0
+
+          for p in open_pos:
+            p_id, sym, exch, entry, amt, tp1, tp2, sl, sl_type, step, taken_at, alert_stat = p
+            entry = float(entry) if entry else 0.0
+            amt = float(amt) if amt else 0.0
+            tp1 = float(tp1) if tp1 else 0.0
+            sl = float(sl) if sl else 0.0
+
+            lp = fetch_live_price(sym, exch) or entry
+            qty = (amt / entry) if entry > 0 else 0.0
+            curr_val = qty * lp
+            pnl_pct = ((lp - entry) / entry) * 100.0 if entry > 0 else 0.0
+
+            if sl > 0 and lp > 0:
+              dist_sl_pct = ((lp - sl) / lp) * 100.0
+              if dist_sl_pct > 0:
+                weighted_sl_dist += dist_sl_pct * curr_val
+                total_risk_weight += curr_val
+            else:
+              dist_sl_pct = None
+              missing_sl_count += 1
+
+            pos_audit_data.append({
+                "id": p_id,
+                "symbole": sym,
+                "exchange": exch,
+                "prix_entree_eur": round(entry, 4),
+                "prix_actuel_eur": round(lp, 4),
+                "valeur_actuelle_eur": round(curr_val, 2),
+                "pnl_pct": round(pnl_pct, 2),
+                "tp1_eur": round(tp1, 4),
+                "sl_eur": round(sl, 4),
+                "distance_sl_pct": round(dist_sl_pct, 2) if dist_sl_pct is not None else "MANQUANT",
+                "etape": step,
+            })
+
+          global_buffer = (weighted_sl_dist / total_risk_weight) if total_risk_weight > 0 else 0.0
+
+          preset_prompt = "Exécute un audit strict de protection et de sécurité sur l'ensemble de mes positions actives."
+
+          preset_context = f"""Tu es un trader crypto expert et un Risk Manager impitoyable.
+Fais un audit de sécurité complet et structuré de l'ensemble des positions actuellement ouvertes en portefeuille.
+
+SYNTHÈSE DE LA PROTECTION GLOBALE :
+- Nombre de positions actives : {len(open_pos)}
+- Buffer de risque moyen global : {global_buffer:.1f}% (Marge avant déclenchement des SL)
+- Nombre de positions sans Stop-Loss : {missing_sl_count}
+
+DÉTAIL DES POSITIONS EN PORTEFEUILLE :
+{json.dumps(pos_audit_data, indent=2, ensure_ascii=False)}
+
+CONSIGNES DE RÉDACTION POUR L'AUDIT :
+1. **Niveau de Risque Global** : Évalue la sécurité générale du portefeuille (Buffer global : {global_buffer:.1f}%).
+2. **Positions Sans Protection (CRITIQUE)** : Liste clairement les tokens n'ayant AUCUN Stop-Loss défini (sl_eur = 0) et conseille le niveau d'invalidation technique à ajouter.
+3. **Zone de Danger / SL Frôlé (ATTENTION)** : Identifie les lignes dont le prix actuel est proche du Stop-Loss (distance < 10%).
+4. **Opportunités de Sécurisation (Break-Even / Free Ride)** : Pour les positions où TP1 est atteint ou en fort gain, recommande de remonter le Stop-Loss au prix d'entrée (Break-Even).
+5. **Plan d'Action Immédiat** : Résume en 3 à 5 points à puces les réglages prioritaires à effectuer sur tes exchanges.
+
+Rédige avec des titres clairs (##), des puces et du gras."""
+        else:
+          preset_prompt = "Fais un audit de sécurité de mes positions."
+          preset_context = "Aucune position active n'est actuellement enregistrée en BDD. Indique à l'utilisateur que son portefeuille spéculatif est totalement liquide et sécurisé."
+
+  with col_p3:
+    if st.button("🔄 Opportunités d'Arbitrage", use_container_width=True):
+      preset_prompt = (
+          "Analyse mes liquidités disponibles (Fiat + Stablecoins) et propose-moi"
+          " les arbitrages ou réallocations les plus pertinents sous la règle"
+          " Cash-Neutral."
+      )
+
+  with col_p4:
+    if st.button("📊 Bilan Allocation & Cibles", use_container_width=True):
+      preset_prompt = (
+          "Analyse ma répartition globale (Majeures vs Core vs Spéculatif vs"
+          " Cash) par rapport à mon objectif de 10% sur le spéculatif. Donne-moi"
+          " ton diagnostic et tes conseils de rééquilibrage."
+      )
+
+  st.markdown("---")
+
+  # --- HISTORIQUE ET GESTION DU CHAT ---
   if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "assistant",
-        "content": "Bonjour ! Je suis ton assistant trader expert. Interroge-moi sur tes positions, ton exposition au risque ou ta stratégie Moonbag.",
+        "content": (
+            "Bonjour ! Je suis ton assistant trader expert. Sélectionne une"
+            " analyse rapide ci-dessus ou pose-moi directement ta question."
+        ),
     }]
 
   for message in st.session_state.messages:
     with st.chat_message(message["role"]):
       st.markdown(message["content"])
 
-  if prompt := st.chat_input("Ex: Analyse mes risques actuels ou donne-moi ton avis sur mon allocation..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
+  user_input = st.chat_input(
+      "Ex: Analyse mes risques actuels ou donne-moi ton avis sur mon"
+      " allocation..."
+  )
+
+  prompt_to_process = user_input or preset_prompt
+
+  if prompt_to_process:
+    st.session_state.messages.append(
+        {"role": "user", "content": prompt_to_process}
+    )
     with st.chat_message("user"):
-      st.markdown(prompt)
+      st.markdown(prompt_to_process)
 
-    current_positions = get_open_positions()
-    current_cash = get_total_verified_cash()
+    # Si le contexte spécifique n'a pas été construit par un bouton dédié, on injecte le contexte de base
+    if not preset_context:
+      current_positions = get_open_positions()
+      current_cash = get_total_verified_cash()
+      preset_context = f"""Tu es un trader crypto expert, analytique et pédagogue, spécialisé en altcoins, stratégie Moonbag et gestion du risque.
+L'utilisateur te consulte sur son cockpit web personnel. 
+Données de son portefeuille actuel :
+- Positions ouvertes en BDD : {current_positions}
+- Cash & Liquidités : {current_cash}
+- Devise active : {curr_label}
 
-    system_context = f"""Tu es un trader crypto expert, analytique et pédagogue, spécialisé en altcoins et gestion du risque.
-    L'utilisateur te consulte sur son cockpit web personnel. 
-    Voici les données exactes de son portefeuille actuel :
-    - Positions ouvertes en BDD : {current_positions}
-    - Cash disponible : {current_cash}
-    - Devise d'affichage active sur le web : {curr_label}
-
-    Réponds de manière professionnelle, structurée, concise et percutante en tant que trader pro."""
+Réponds de manière professionnelle, structurée, concrète et percutante."""
 
     with st.chat_message("assistant"):
-      with st.spinner("Analyse de tes ressources et génération de la réponse..."):
+      with st.spinner("Analyse des marchés et génération du rapport..."):
         try:
           client = genai.Client(api_key=GEMINI_API_KEY)
           response = client.models.generate_content(
               model="gemini-3.7-flash",
-              contents=f"{system_context}\n\nQuestion actuelle de l'utilisateur : {prompt}",
+              contents=(
+                  f"{preset_context}\n\nDemande de l'utilisateur :"
+                  f" {prompt_to_process}"
+              ),
           )
           answer = response.text
         except Exception as e:
           answer = f"⚠️ Erreur lors de la communication avec l'API Gemini : {e}"
 
         st.markdown(answer)
-        st.session_state.messages.append({"role": "assistant", "content": answer})
+        st.session_state.messages.append(
+            {"role": "assistant", "content": answer}
+        )
 
 # ==========================================
 # ONGLET 6 : MONITORING & SANTÉ APIS
@@ -886,44 +1251,7 @@ with tab_monitor:
   st.text_area(f"Dernières lignes de log pour {log_service}", log_output, height=300)
 
 # ==========================================
-# ONGLET 7 : BACKTESTING PRO & SCÉNARIOS
-# ==========================================
-with tab_backtest:
-  with st.expander("📖 Guide du Backtesting Pro & Règles Moonbag"):
-    st.markdown(f"Simulateur stratégique avancé (Unité : **{curr_symbol}**)")
-
-  st.subheader("🧪 Simulateur & Backtesting Pro des Règles de Sortie")
-  col_bt1, col_bt2, col_bt3 = st.columns(3)
-  with col_bt1:
-    sim_tp1 = st.slider("Palier TP1 (Sécurisation partielle)", 1.5, 3.5, 2.0, 0.1)
-  with col_bt2:
-    sim_sl = st.slider("Niveau de Stop-Loss testé (%)", -60, -20, -40, 5)
-  with col_bt3:
-    sim_moonbag_ratio = st.slider("Part conservée en Moonbag au TP1 (%)", 10, 50, 30, 10)
-
-  if st.button("🚀 Exécuter la simulation stratégique"):
-    trades_hist = get_all_trades_history()
-    st.success(f"Backtesting Pro exécuté avec succès sur {len(trades_hist)} transactions !")
-
-    m_col1, m_col2, m_col3 = st.columns(3)
-    m_col1.metric("Rendement Global Simulé", "+34.2 %", delta="+9.4% vs Stratégie Base")
-    m_col2.metric("Win Rate Ajusté", "72.4 %", delta="+3.1 %")
-    m_col3.metric("Drawdown Max Historique", "-18.5 %", delta="Sécurisé", delta_color="inverse")
-
-    dates_bt = pd.date_range(start="2026-01-01", periods=12, freq="M")
-    base_val = 1000 * curr_multiplier
-    opt_val = 1000 * curr_multiplier
-    df_sim = pd.DataFrame(
-        {
-            f"Stratégie Actuelle ({curr_symbol})": [base_val, base_val * 1.15, base_val * 1.10, base_val * 1.30, base_val * 1.45, base_val * 1.40, base_val * 1.60, base_val * 1.75, base_val * 1.90, base_val * 1.85, base_val * 2.10, base_val * 2.35],
-            f"Stratégie Optimisée Pro ({curr_symbol})": [opt_val, opt_val * 1.20, opt_val * 1.18, opt_val * 1.42, opt_val * 1.60, opt_val * 1.59, opt_val * 1.85, opt_val * 2.05, opt_val * 2.25, opt_val * 2.20, opt_val * 2.55, opt_val * 2.90],
-        },
-        index=dates_bt,
-    )
-    st.line_chart(df_sim, use_container_width=True)
-
-# ==========================================
-# ONGLET 8 : ANALYTICS & WIN RATE
+# ONGLET 7 : ANALYTICS & WIN RATE
 # ==========================================
 with tab_analytics:
   with st.expander("📖 Aide & Légendes des Graphiques d'Analytics"):
@@ -943,7 +1271,7 @@ with tab_analytics:
     st.line_chart(df_pnl, use_container_width=True)
 
 # ==========================================
-# ONGLET 9 : EXPORT COMPTABLE & FISCAL
+# ONGLET 8 : EXPORT COMPTABLE & FISCAL
 # ==========================================
 with tab_fiscal:
   with st.expander("📖 Guide de l'Assistant Fiscal Avancé"):

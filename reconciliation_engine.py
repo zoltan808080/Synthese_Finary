@@ -35,7 +35,7 @@ def clean_pair_symbol(pair_str):
   for suffix in ["ZEUR", "ZUSD", "EUR", "USD", "USDT", "USDC"]:
     if clean.endswith(suffix) and len(clean) > len(suffix):
       clean = clean[:-len(suffix)]
-  
+
   if clean in ["XXBT", "XBT", "XXBTZ", "XBTZ"]:
     return "BTC"
   if clean in ["XETH", "XETHZ"]:
@@ -46,7 +46,10 @@ def clean_pair_symbol(pair_str):
 
 
 def audit_database_vs_exchanges():
-  """Compare les positions 'OPEN' en BDD avec les avoirs réels et détecte les achats manuels RÉCENTS (< 48h)."""
+  """Compare les positions 'OPEN' en BDD avec les avoirs réels en AGRÉGEANT les positions
+
+  multiples d'un même token sur un même exchange, et détecte les achats manuels RÉCENTS (< 48h).
+  """
   open_positions = get_open_positions()
 
   kraken_balances = get_kraken_crypto_balances()
@@ -56,64 +59,91 @@ def audit_database_vs_exchanges():
   discrepancies = []
   db_symbols = set()
 
-  # 1. Contrôle des positions ouvertes en BDD vs Réalité par exchange
+  # Groupement des positions BDD par (symbole, exchange) pour gérer les entrées multiples
+  grouped_positions = {}
   for p in open_positions:
     pos_id = p[0]
     sym = clean_pair_symbol(p[1])
     exch = str(p[2]).upper().strip()
     db_amount_eur = float(p[4]) if p[4] is not None else 0.0
     entry_price = float(p[3]) if p[3] is not None else 0.0
-
-    db_symbols.add(sym)
     db_qty = (db_amount_eur / entry_price) if entry_price > 0 else 0.0
 
+    db_symbols.add(sym)
+
+    clean_exch = "KRAKEN" if "KRAKEN" in exch else ("OKX" if "OKX" in exch else ("MEXC" if "MEXC" in exch else exch))
+    key = (sym, clean_exch)
+
+    if key not in grouped_positions:
+      grouped_positions[key] = {
+          "total_db_qty": 0.0,
+          "total_db_amount_eur": 0.0,
+          "items": [],
+      }
+
+    grouped_positions[key]["total_db_qty"] += db_qty
+    grouped_positions[key]["total_db_amount_eur"] += db_amount_eur
+    grouped_positions[key]["items"].append({
+        "id": pos_id,
+        "entry_price": entry_price,
+        "amount_eur": db_amount_eur,
+        "qty": db_qty,
+    })
+
+  # 1. Contrôle du CUMUL BDD par (symbole, exchange) vs Solde réel sur la plateforme
+  for (sym, exch), data in grouped_positions.items():
+    total_db_qty = data["total_db_qty"]
+    total_db_amount_eur = data["total_db_amount_eur"]
+    first_pos_id = data["items"][0]["id"] if data["items"] else None
+
     target_exchange_dict = {}
-    if "KRAKEN" in exch:
+    if exch == "KRAKEN":
       target_exchange_dict = kraken_balances
-    elif "OKX" in exch:
+    elif exch == "OKX":
       target_exchange_dict = okx_balances
-    elif "MEXC" in exch:
+    elif exch == "MEXC":
       target_exchange_dict = mexc_balances
 
     real_asset_info = target_exchange_dict.get(sym, {})
     real_qty = float(real_asset_info.get("amount", -1.0))
 
+    # Ligne fantôme
     if real_qty == 0.0 or (real_qty == -1.0 and sym not in ["BTC", "ETH"]):
       discrepancies.append({
           "type": "GHOST_POSITION",
-          "id": pos_id,
+          "id": first_pos_id,
           "symbol": sym,
           "exchange": exch,
-          "db_amount": db_amount_eur,
+          "db_amount": total_db_amount_eur,
           "real_amount": 0.0,
-          "desc": f"Ligne fantôme détectée : {sym} ({exch}) est actif en BDD ({db_amount_eur:,.2f} €) mais le solde réel sur {exch} est de 0.",
+          "desc": f"Ligne fantôme détectée : {sym} ({exch}) est actif en BDD ({total_db_amount_eur:,.2f} €) mais le solde réel sur {exch} est de 0.",
       })
-    elif real_qty > 0.0 and db_qty > 0.0:
-      diff_ratio = abs(db_qty - real_qty) / real_qty
+    elif real_qty > 0.0 and total_db_qty > 0.0:
+      # Écart de volume sur le CUMUL TOTAL des jetons du portefeuille
+      diff_ratio = abs(total_db_qty - real_qty) / real_qty
       if diff_ratio > 0.30:
-        adjusted_amount = real_qty * entry_price
+        mean_entry = total_db_amount_eur / total_db_qty if total_db_qty > 0 else 0.0
+        adjusted_amount = real_qty * mean_entry
         discrepancies.append({
             "type": "VOLUME_MISMATCH",
-            "id": pos_id,
+            "id": first_pos_id,
             "symbol": sym,
             "exchange": exch,
-            "db_amount": db_amount_eur,
+            "db_amount": total_db_amount_eur,
             "real_qty": real_qty,
             "adjusted_amount_eur": adjusted_amount,
-            "desc": f"Écart de volume sur {sym} ({exch}) : BDD = {db_qty:,.2f} tokens vs Réel {exch} = {real_qty:,.2f} tokens ({diff_ratio*100:.1f}% d'écart).",
+            "desc": f"Écart de volume sur {sym} ({exch}) : Total BDD = {total_db_qty:,.2f} tokens ({len(data['items'])} ligne(s)) vs Réel {exch} = {real_qty:,.2f} tokens ({diff_ratio*100:.1f}% d'écart).",
         })
 
   # 2. Détection des nouveaux trades manuels RÉCENTS (< 48 heures uniquement)
   try:
     recent_trades = get_all_trades_history()
     now_ts = time.time()
-    cutoff_48h = now_ts - (48 * 3600)  # Seuls les trades des dernières 48h
+    cutoff_48h = now_ts - (48 * 3600)
     seen_manual_symbols = set()
 
     for trade in recent_trades:
       trade_time = float(trade.get("time", 0.0))
-      
-      # Ignorer les trades de plus de 48h
       if trade_time < cutoff_48h:
         continue
 
@@ -125,7 +155,6 @@ def audit_database_vs_exchanges():
 
       clean_sym = clean_pair_symbol(pair)
 
-      # Ignorer Majeures, Stablecoins, tokens déjà en BDD ou déjà vus
       if (
           clean_sym in ["BTC", "ETH", "USDT", "USDC", "EUR", "USD"]
           or clean_sym in db_symbols

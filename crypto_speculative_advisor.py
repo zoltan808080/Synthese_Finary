@@ -403,7 +403,7 @@ RÉPONSE JSON STRICTE :
 }}"""
 
   client = genai.Client(api_key=GEMINI_API_KEY)
-  modeles = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash-lite"]
+  modeles = ["gemini-3.8-flash", "gemini-3.7-flash","gemini-3.6-flash","gemini-3.5-flash-lite"]
 
   report_text = None
   recs = []
@@ -418,10 +418,10 @@ RÉPONSE JSON STRICTE :
 
   for mod in modeles:
     try:
-      logging.info(f"🔄 Tentative appel LLM avec {mod} (Timeout 15s)...")
+      logging.info(f"🔄 Tentative appel LLM avec {mod} (Timeout45s)...")
       with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(call_llm, mod)
-        raw_response = future.result(timeout=15)
+        raw_response = future.result(timeout=45)
 
       if raw_response:
         data = parse_llm_json(raw_text=raw_response)
@@ -430,7 +430,7 @@ RÉPONSE JSON STRICTE :
         logging.info(f"✅ Rapport généré avec succès via {mod}")
         break
     except concurrent.futures.TimeoutError:
-      logging.warning(f"⏱️ Timeout dépassé (15s) sur {mod}. Passage au modèle suivant...")
+      logging.warning(f"⏱️ Timeout dépassé (45s) sur {mod}. Passage au modèle suivant...")
     except Exception as e:
       logging.warning(f"⚠️ Erreur sur {mod} ({e}). Passage au suivant...")
 

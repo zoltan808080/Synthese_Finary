@@ -64,6 +64,46 @@ def init_db():
   conn.close()
 
 
+def update_trade_levels(rec_id, tp1_price=None, tp2_price=None, sl_price=None):
+  """Met à jour dynamiquement les paliers TP1, TP2 et SL d'une position."""
+  conn = sqlite3.connect(DB_PATH)
+  cursor = conn.cursor()
+  fields = []
+  params = []
+
+  if tp1_price is not None:
+    fields.append("tp1_price = ?")
+    params.append(tp1_price)
+  if tp2_price is not None:
+    fields.append("tp2_price = ?")
+    params.append(tp2_price)
+  if sl_price is not None:
+    fields.append("sl_price = ?")
+    params.append(sl_price)
+
+  if fields:
+    params.append(rec_id)
+    query = f"UPDATE speculative_trades SET {', '.join(fields)} WHERE id = ?"
+    cursor.execute(query, tuple(params))
+    conn.commit()
+  conn.close()
+
+
+def set_trade_break_even(rec_id):
+  """Passe le Stop-Loss d'une position exactement sur son prix d'entrée."""
+  conn = sqlite3.connect(DB_PATH)
+  cursor = conn.cursor()
+  cursor.execute(
+      """
+        UPDATE speculative_trades
+        SET sl_price = price_entry, alert_status = 'BE_SET'
+        WHERE id = ?
+    """,
+      (rec_id,),
+  )
+  conn.commit()
+  conn.close()
+
 def add_recommendation(
     symbol,
     exchange,
