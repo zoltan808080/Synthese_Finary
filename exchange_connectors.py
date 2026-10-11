@@ -15,50 +15,60 @@ load_dotenv()
 # --- EXODUS WALLETS (Cold Wallets) ---
 
 def get_exodus_wallet_balances():
-  """Récupère les soldes BTC et ETH des wallets froids Exodus configurés dans .env."""
+  """Récupère les soldes BTC et ETH des wallets froids Exodus via des RPC haute disponibilité."""
   balances = {}
   btc_address = os.getenv("EXODUS_BTC_ADDRESS")
   eth_address = os.getenv("EXODUS_ETH_ADDRESS")
-  headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+  headers = {"User-Agent": "Mozilla/5.0"}
 
-  # 1. Vérification du solde BTC via Blockstream API publique
+  # 1. Solde BTC via Mempool.space (avec fallback Blockstream)
   if btc_address:
-    try:
-      res = requests.get(
-          f"https://blockstream.info/api/address/{btc_address.strip()}",
-          headers=headers,
-          timeout=8,
-      )
-      if res.status_code == 200:
-        data = res.json()
-        chain_stats = data.get("chain_stats", {})
-        satoshis = chain_stats.get("funded_txo_sum", 0) - chain_stats.get("spent_txo_sum", 0)
-        btc_amt = satoshis / 100000000.0
-        if btc_amt > 0:
-          balances["BTC"] = {"exchange": "Exodus", "amount": btc_amt}
-    except Exception as e:
-      logging.warning(f"⚠️ Erreur lecture wallet Exodus BTC : {e}")
+    clean_btc = btc_address.strip()
+    for api_url in [
+        f"https://mempool.space/api/address/{clean_btc}",
+        f"https://blockstream.info/api/address/{clean_btc}",
+    ]:
+      try:
+        res = requests.get(api_url, headers=headers, timeout=4)
+        if res.status_code == 200:
+          stats = res.json().get("chain_stats", {})
+          sats = stats.get("funded_txo_sum", 0) - stats.get("spent_txo_sum", 0)
+          btc_amt = sats / 1e8
+          if btc_amt > 0:
+            balances["BTC"] = {"exchange": "Exodus", "amount": btc_amt}
+            break
+      except Exception:
+        continue
 
-  # 2. Vérification du solde ETH via Blockscout API publique
+  # 2. Solde ETH via RPC Ethereum direct (Cloudflare RPC + PublicNode)
   if eth_address:
-    try:
-      res = requests.get(
-          f"https://eth.blockscout.com/api?module=account&action=balance&address={eth_address.strip()}",
-          headers=headers,
-          timeout=8,
-      )
-      if res.status_code == 200:
-        data = res.json()
-        if str(data.get("status")) == "1" or "result" in data:
-          wei = float(data.get("result", 0))
-          eth_amt = wei / 1e18
-          if eth_amt > 0:
-            balances["ETH"] = {"exchange": "Exodus", "amount": eth_amt}
-    except Exception as e:
-      logging.warning(f"⚠️ Erreur lecture wallet Exodus ETH : {e}")
+    clean_eth = eth_address.strip()
+    rpc_endpoints = [
+        "https://cloudflare-eth.com",
+        "https://ethereum-rpc.publicnode.com",
+    ]
+    payload = {
+        "jsonrpc": "2.0",
+        "method": "eth_getBalance",
+        "params": [clean_eth, "latest"],
+        "id": 1,
+    }
+
+    for rpc_url in rpc_endpoints:
+      try:
+        res = requests.post(rpc_url, json=payload, timeout=4)
+        if res.status_code == 200:
+          hex_bal = res.json().get("result")
+          if hex_bal and str(hex_bal).startswith("0x"):
+            wei = int(hex_bal, 16)
+            eth_amt = wei / 1e18
+            if eth_amt > 0:
+              balances["ETH"] = {"exchange": "Exodus", "amount": eth_amt}
+              break
+      except Exception:
+        continue
 
   return balances
-
 
 # --- KRAKEN HELPER ---
 def _get_kraken_signature(url_path, data, secret):
