@@ -48,6 +48,30 @@ try:
 except ImportError:
   EXPERT_ENGINE_AVAILABLE = False
 
+
+# Import du nouveau module RSI
+try:
+  from rsi_engine import build_rsi_heatmap_dataframe
+
+  RSI_ENGINE_AVAILABLE = True
+except ImportError:
+  RSI_ENGINE_AVAILABLE = False
+
+
+def color_rsi(val):
+  """Applique un dégradé de couleur style Coinglass sur les cellules RSI."""
+  if isinstance(val, (int, float)):
+    if val <= 30:
+      return "background-color: #1e4620; color: #00ff66; font-weight: bold"  # Vert vif (survendu)
+    elif val >= 70:
+      return "background-color: #4a1c1c; color: #ff4d4d; font-weight: bold"  # Rouge vif (suracheté)
+    elif val <= 40:
+      return "background-color: #1a3322; color: #88ffaa"
+    elif val >= 60:
+      return "background-color: #331a1a; color: #ffaaaa"
+  return ""
+
+
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -1118,6 +1142,53 @@ with tab_alerts:
     )
 
   st.markdown("---")
+  st.subheader("🔥 Heatmap RSI Multi-Timeframe (Screener v2.9)")
+  st.markdown(
+      "Cartographie en temps réel du RSI (15m, 1h, 4h, 1D) sur vos actifs et"
+      " positions actives :"
+  )
+
+  if RSI_ENGINE_AVAILABLE:
+    # Liste des tokens actifs + watchlist
+    tracked_symbols = list(
+        {p["Symbole"] for p in enriched_positions}
+        | {"BTC", "ETH", "SOL", "NEAR", "ONDO", "PENDLE", "SUI", "AVAX"}
+    )
+
+    if st.button("🔄 Actualiser la Heatmap RSI"):
+      st.cache_data.clear()
+      st.rerun()
+
+    @st.cache_data(ttl=120, show_spinner="Calcul des indicateurs RSI...")
+    def get_cached_rsi_matrix(symbols):
+      return build_rsi_heatmap_dataframe(symbols)
+
+    df_rsi = get_cached_rsi_matrix(tracked_symbols)
+
+    if not df_rsi.empty:
+      styled_df = df_rsi.style.map(color_rsi, subset=["15m", "1h", "4h", "1d"])
+      st.dataframe(styled_df, width="stretch", hide_index=True)
+
+      # Alerte automatique sur survente extrême
+      survendu_list = df_rsi[df_rsi["15m"] <= 30]["Actif"].tolist()
+      surachete_list = df_rsi[df_rsi["4h"] >= 75]["Actif"].tolist()
+
+      if survendu_list:
+        st.success(
+          f"💡 **Opportunité de rebond court terme (RSI 15m ≤ 30)** : {', '.join(survendu_list)}"
+        )
+      if surachete_list:
+        st.warning(
+          f"⚠️ **Zone de surachat / Prise de profit recommandée (RSI 4h ≥ 75)** : {', '.join(surachete_list)}"
+        )
+  else:
+    st.info("Module RSI Engine non disponible.")
+
+
+
+
+
+  st.markdown("---")
   st.subheader("🔔 Vigie des Risques & Marché")
 
   alerts_list = []
@@ -1274,9 +1345,10 @@ with tab_ai:
   preset_prompt = None
   preset_context = None
 
+# --- PROMPT 1 : RAPPORT SPÉCULATIF & COÛT D'OPPORTUNITÉ ---
   with col_p1:
-    if st.button("📰 Rapport Spéculatif Live", width="stretch"):
-      with st.spinner("Collecte des données live en direct des APIs..."):
+    if st.button("📰 Rapport & Évaluation Spéculative", width="stretch"):
+      with st.spinner("Analyse impartiale des opportunités et des coûts d'opportunité..."):
         from crypto_speculative_advisor import (
             calculate_unfied_crypto_categories,
             check_circuit_breaker,
@@ -1291,68 +1363,60 @@ with tab_ai:
         cats = calculate_unfied_crypto_categories()
         open_pos = get_open_positions()
 
-        raw_opps = (
-            [] if is_crash else fetch_coingecko_trending_and_markets()
-        )
-        kraken_syms, okx_syms = (
-            get_kraken_spot_symbols(),
-            get_okx_spot_symbols(),
-        )
+        # Récupération des opportunités marché
+        raw_opps = [] if is_crash else fetch_coingecko_trending_and_markets()
+        kraken_syms, okx_syms = get_kraken_spot_symbols(), get_okx_spot_symbols()
         verified_opps = []
         for item in raw_opps:
           sym = item["symbol"].upper()
           avail = []
-          if sym in kraken_syms:
-            avail.append("KRAKEN")
-          if sym in okx_syms:
-            avail.append("OKX")
+          if sym in kraken_syms: avail.append("KRAKEN")
+          if sym in okx_syms: avail.append("OKX")
           if avail:
             item["exchanges_verifies"] = avail
             verified_opps.append(item)
 
+        # Screener RSI Global
+        rsi_context_str = "Non disponible"
+        if RSI_ENGINE_AVAILABLE:
+          try:
+            # On inclut à la fois tes tokens actuels ET des pépites clés du marché
+            current_syms = [p[1] for p in open_pos] if open_pos else []
+            market_syms = ["SOL", "NEAR", "ONDO", "PENDLE", "SUI", "AVAX", "LINK", "APT", "FET", "INJ", "TIA", "RENDER"]
+            combined_syms = list(set(current_syms + market_syms))
+            
+            df_rsi_prompt = build_rsi_heatmap_dataframe(combined_syms)
+            rsi_context_str = df_rsi_prompt.to_string(index=False)
+          except Exception:
+            pass
+
         target_budget = cats["total_crypto"] * 0.10
 
-        preset_prompt = (
-            "Génère le Rapport Spéculatif Live complet du portefeuille sous"
-            " stratégie Moonbag."
-        )
+        preset_prompt = "Analyse la pertinence spéculative globale de mon portefeuille face aux opportunités actuelles du marché."
 
-        preset_context = f"""Tu es un trader crypto expert, analytique et pédagogue, spécialisé en altcoins.
-Rédige un rapport d'arbitrage spéculatif complet et immédiatement lisible pour le dashboard Streamlit.
+        preset_context = f"""Tu es un stratège et trader crypto institutionnel.
+Ta mission est d'effectuer une ANALYSE DU COÛT D'OPPORTUNITÉ neutre et sans parti pris entre mes positions spéculatives actuelles et les opportunités globales du marché.
 
-ETAT DU MARCHÉ & CIRCUIT BREAKER :
-- Statut : {"🚨 DEFENSIVE MODE / CRASH DÉTECTÉ" if is_crash else "✅ NORMAL"}
-- Var BTC 24h : {crash_pct:+.2f}%
-- Indice Fear & Greed : {fng['value']}/100 ({fng['classification']})
+ÉTAT DU MARCHÉ & INDICATEURS :
+- Statut Circuit Breaker : {"🚨 DEFENSIVE MODE" if is_crash else "✅ NORMAL"}
+- Var BTC 24h : {crash_pct:+.2f}% | Fear & Greed : {fng['value']}/100 ({fng['classification']})
 
-DONNÉES CHIFFRÉES UNIFIÉES :
-- Valeur totale du portefeuille : {cats['total_crypto']:,.2f} €
-- Enveloppe spéculative cible (10%) : {target_budget:,.2f} €
-- REPARTITION EXACTE DES ACTIFS :
-  • Majeures (BTC & ETH - Spot + Staking + Exodus) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.2f}%)
-  • Core / Convictions long terme : {cats['core']:,.2f} € ({cats['core_pct']:.2f}%)
-  • Spéculatives Actives (Moonbag BDD) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.2f}%)
-  • Liquidités Totales (Fiat + Stablecoins) : {cats['stables_cash']:,.2f} € ({cats['stables_cash_pct']:.2f}%)
-- DETAIL DES LIQUIDITÉS DISPONIBLES EN TEMPS RÉEL :
-  • Stablecoins (USDT + USDC) : {cats['val_stables_crypto']:,.2f} €
-  • Cash Fiat (EUR + USD) : {cats['total_cash_fiat']:,.2f} €
-  • Total Liquidités Immédiates : {cats['stables_cash']:,.2f} €
+SITUATION DU PORTEFEUILLE :
+- Capital Total : {cats['total_crypto']:,.2f} €
+- Liquidités Immédiates (Fiat + Stables) : {cats['stables_cash']:,.2f} €
+- Positions Spéculatives Actives en BDD : {open_pos}
 
-PLAFONDS STRICTS D'ARBITRAGE PAR ACTIF DÉTENU :
-{cats['holdings_text']}
+MATRICE DE MARCHÉ ET SCREENER RSI MULTI-TIMEFRAME :
+{rsi_context_str}
 
-POSITIONS ACTIVES EN BDD :
-{open_pos}
+CONSIGNES STRICTES D'ANALYSE IMPARTIALE :
+1. **Évalue la qualité spéculative de mes positions actuelles** : Ont-elles encore du momentum ? Leur RSI est-il favorable ou suracheté ? La thèse est-elle toujours valide ?
+2. **Compare avec le reste du marché** : Y a-t-il d'autres actifs sur Kraken/OKX ayant un meilleur setup spéculatif (ex: RSI 15m/1h survendu avec tendance 4h haussière) ?
+3. **Recommandations d'Arbitrage Précises** :
+   - NE FORCE PAS la recommandation d'un nouveau token si mes positions actuelles sont déjà les plus performantes.
+   - N'HÉSITE PAS à recommander la clôture/allègement d'un de mes tokens 'mous' ou trop exposés pour pivoter vers un actif à meilleur potentiel spéculatif (ou vers le Cash).
+   - Pour toute opportunité retenue, fournis le plan Moonbag complet (Exchange, Entrée, TP1 x2, TP2 x4, SL -35% à -45%)."""
 
-OPPORTUNITÉS PRÉ-FILTRÉES (Kraken / OKX) :
-{json.dumps(verified_opps, indent=2, ensure_ascii=False)}
-
-RÈGLES D'ARBITRAGE :
-1. UTILISATION PRIORITAIRE DES LIQUIDITÉS DISPONIBLES ({cats['stables_cash']:,.2f} €) sans proposer de vente d'actif si suffisant.
-2. PLAFOND STRICT DE VENTE : Ne jamais dépasser le montant réel d'un actif détenu.
-3. Plan Moonbag pour chaque recommandation : Prix d'entrée, TP1 (x2 / -50%), TP2 (x4 / -25%), TP3 (Moonbag restants 25%), SL d'invalidation (-40% à -50%).
-
-Structure ta réponse avec des titres clairs (##), des listes à puces et du gras."""
 
   with col_p2:
     if st.button("🛡️ Audit de Protection & SL", width="stretch"):
@@ -1455,45 +1519,29 @@ Rédige avec des titres clairs (##), des puces et du gras."""
               " totalement liquide et sécurisé."
           )
 
+  # --- PROMPT 3 : ARBITRAGE & REBALANCEMENT ---
   with col_p3:
-    if st.button("🔄 Opportunités d'Arbitrage", width="stretch"):
-      with st.spinner(
-          "Analyse des liquidités et des gisements d'arbitrage..."
-      ):
-        from crypto_speculative_advisor import (
-            calculate_unfied_crypto_categories,
-        )
-
+    if st.button("🔄 Arbitrages & Arbitrages Tactiques", width="stretch"):
+      with st.spinner("Analyse des arbitrages tactiques sous règle Cash-Neutral..."):
+        from crypto_speculative_advisor import calculate_unfied_crypto_categories
         cats = calculate_unfied_crypto_categories()
         open_pos = get_open_positions()
 
-        preset_prompt = (
-            "Analyse mes liquidités disponibles et propose-moi les opportunités"
-            " d'arbitrage optimales selon la règle Cash-Neutral."
-        )
+        preset_prompt = "Quels sont les arbitrages spéculatifs les plus pertinents à effectuer aujourd'hui ?"
 
-        preset_context = f"""Tu es un trader crypto expert et stratège en allocation d'actifs.
-Analyse la liquidité disponible et propose un plan d'arbitrage sous la règle stricte CASH-NEUTRAL.
+        preset_context = f"""Tu es un gérant de portefeuille crypto focalisé sur le rendement asymétrique.
+Analyse les meilleures rotations de capital possibles entre mes positions actuelles, les liquidités et le marché.
 
-DONNÉES DES LIQUIDITÉS ET PLAFONDS :
-- Valeur totale portefeuille : {cats['total_crypto']:,.2f} €
-- Total Liquidités Immédiates (Fiat + Stables) : {cats['stables_cash']:,.2f} € ({cats['stables_cash_pct']:.2f}%)
-  • Stablecoins (USDT/USDC) : {cats['val_stables_crypto']:,.2f} €
-  • Cash Fiat (EUR/USD) : {cats['total_cash_fiat']:,.2f} €
-- Enveloppe spéculative actuelle : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.2f}%)
+DONNÉES PORTEFEUILLE :
+- Liquidités Immédiates : {cats['stables_cash']:,.2f} €
+- Positions Spéculatives Actives : {open_pos}
 
-PLAFONDS STRICTS D'ARBITRAGE PAR ACTIF DÉTENU (SEUIL MAX VENDABLE) :
-{cats['holdings_text']}
-
-POSITIONS ACTIVES EN BDD :
-{open_pos}
-
-RÈGLES STRICTES D'ARBITRAGE :
-1. Si les liquidités ({cats['stables_cash']:,.2f} €) sont suffisantes, financer les opportunités SANS vendre d'actifs existants.
-2. En cas de vente d'un actif, ne JAMAIS dépasser son plafond strict indiqué ci-dessus. Ne pas proposer la vente d'un actif < 20 €.
-3. Chaque recommandation doit comporter son plan Moonbag complet (Entrée, TP1 x2 / 50%, TP2 x4 / 25%, TP3 Moonbag, SL -40% à -50%).
-
-Structure la réponse avec des titres clairs (##), des listes à puces et du gras."""
+CONSIGNES D'ARBITRAGE :
+1. Détermine si le meilleur moove est :
+   a) De conserver/sécuriser nos positions actuelles (ex: remonter SL en Break-Even).
+   b) D'écrêter les gains d'un token en surachat pour renforcer la poche Cash.
+   c) De faire un arbitrage (vendre un actif essoufflé pour en acheter un avec un meilleur setup RSI/momentum).
+2. Fournis des consignes concrètes et chiffrées par exchange."""
 
   with col_p4:
     if st.button("🧭 Plan d'Exécution Pas-à-Pas", width="stretch"):
@@ -1523,6 +1571,13 @@ Structure la réponse avec des titres clairs (##), des listes à puces et du gra
             " rééquilibrer le portefeuille sur mes exchanges."
         )
 
+        # Injection du rapport RSI dans le prompt IA
+        if RSI_ENGINE_AVAILABLE:
+          rsi_summary_text = df_rsi.to_string(index=False)
+        else:
+          rsi_summary_text = "Non disponible"
+
+
         preset_context = f"""Tu es un Execution Trader institutionnel expert.
 Ta mission est de convertir une stratégie globale d'allocation en une FEUILLE DE ROUTE D'EXÉCUTION PAS-À-PAS, ultra-concrète et directement applicable sur les échanges de l'utilisateur.
 
@@ -1551,6 +1606,14 @@ CONSIGNES DE RÉDACTION POUR LA FEUILLE DE ROUTE :
    - Donne des consignes d'achats limites sur les replis techniques pour renforcer progressivement tes convictions Core (ex. SOL, NEAR, ONDO, PENDLE) sur OKX/Kraken avec les USDC/EUR générés.
 
 Rédige sous forme de checklist d'exécution avec du gras, des montants précis et des noms d'exchanges."""
+
+        # Ajout au preset_context de Gemini :
+        preset_context += f"\n\nDONNÉES RSI MULTI-TIMEFRAME (COINGLASS HEATMAP) :\n{rsi_summary_text}\n"
+        preset_context += (
+    "\nCONSIGNE RISQUE RSI : Ne jamais recommander d'achat sur un actif dont le"
+    " RSI 4h est > 70. Privilégier les entrées sur des tokens dont le RSI 15m"
+    " sort de zone de survente (< 35)."
+        )
 
   st.markdown("---")
 
