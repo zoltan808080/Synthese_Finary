@@ -26,6 +26,14 @@ from exchange_connectors import (
     get_total_verified_cash,
 )
 
+# Import du moteur Microstructure (Funding & Open Interest)
+try:
+  from funding_oi_engine import get_funding_oi_summary
+
+  FUNDING_ENGINE_AVAILABLE = True
+except ImportError:
+  FUNDING_ENGINE_AVAILABLE = False
+
 try:
   from reconciliation_engine import audit_database_vs_exchanges
 
@@ -50,7 +58,7 @@ except ImportError:
   EXPERT_ENGINE_AVAILABLE = False
 
 
-# Import du nouveau module RSI
+# Import du moteur RSI
 try:
   from rsi_engine import build_rsi_heatmap_dataframe
 
@@ -66,9 +74,7 @@ def call_gemini_with_fallback(
     models=None,
     max_retries_per_model=1,
 ):
-  """Exécute une requête Gemini avec bascule automatique sur les modèles de secours (Fallback Pattern) en cas de 503/429 ou d'indisponibilité.
-
-  """
+  """Exécute une requête Gemini avec bascule automatique sur les modèles de secours (Fallback Pattern) en cas de 503/429 ou d'indisponibilité."""
   if models is None:
     models = [
         "gemini-3.8-flash",
@@ -84,7 +90,6 @@ def call_gemini_with_fallback(
   for model_name in models:
     for attempt in range(max_retries_per_model + 1):
       try:
-        # Séparation propre du system instruction si fourni
         contents = (
             f"{system_instruction}\n\nDemande utilisateur :\n{prompt_text}"
             if system_instruction
@@ -103,12 +108,10 @@ def call_gemini_with_fallback(
         last_error = e
         err_str = str(e)
 
-        # Si erreur 503 (Surcharge) ou 429 (Rate Limit), temporiser légèrement puis essayer le modèle suivant
         if "503" in err_str or "429" in err_str or "UNAVAILABLE" in err_str:
           time.sleep(1.0)
-          break  # Passer directement au modèle suivant de la liste
+          break
 
-        # Pour les autres types d'erreurs (404, paramètre invalide), passer immédiatement au suivant
         break
 
   raise Exception(
@@ -119,9 +122,9 @@ def color_rsi(val):
   """Applique un dégradé de couleur style Coinglass sur les cellules RSI."""
   if isinstance(val, (int, float)):
     if val <= 30:
-      return "background-color: #1e4620; color: #00ff66; font-weight: bold"  # Vert vif (survendu)
+      return "background-color: #1e4620; color: #00ff66; font-weight: bold"
     elif val >= 70:
-      return "background-color: #4a1c1c; color: #ff4d4d; font-weight: bold"  # Rouge vif (suracheté)
+      return "background-color: #4a1c1c; color: #ff4d4d; font-weight: bold"
     elif val <= 40:
       return "background-color: #1a3322; color: #88ffaa"
     elif val >= 60:
@@ -250,10 +253,9 @@ if not check_password():
 
 init_db()
 
-st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v2.8)")
+st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.0)")
 st.markdown(
-    "*Suivi multi-exchange temps réel, Centre d'Alertes, Assistant IA &"
-    " Reporting*"
+    "*Suivi multi-exchange temps réel, Microstructure, Journal FIFO, Assistant IA & Reporting*"
 )
 st.markdown("---")
 
@@ -334,9 +336,10 @@ st.sidebar.info(
     " données Live' pour forcer une réinterrogation des APIs."
 )
 
-# --- NAVIGATION PAR ONGLETS (7 ONGLETS RESTRUCTURÉS) ---
+# --- NAVIGATION PAR ONGLETS ---
 (
     tab_live,
+    tab_micro,
     tab_digest,
     tab_alerts,
     tab_ai,
@@ -344,6 +347,7 @@ st.sidebar.info(
     tab_fiscal,
 ) = st.tabs([
     "📊 Positions Actives (Live)",
+    "🔥 Microstructure & Dérivés",
     "📰 Daily Briefing (19h Pro)",
     "🔔 Centre d'Alertes",
     "🤖 Assistant IA Pro",
@@ -698,7 +702,6 @@ with tab_live:
     if view_mode.startswith("🖥️"):
       df_display = df_pos.copy()
 
-      # Ajout d'une colonne calculant la marge de sécurité avant SL (%)
       df_display["Marge SL"] = df_display.apply(
           lambda r: (
               ((r["Prix Actuel"] - r["Stop-Loss"]) / r["Prix Actuel"]) * 100.0
@@ -708,7 +711,6 @@ with tab_live:
           axis=1,
       )
 
-      # Fonctions de stylage conditionnel Pandas
       def style_pnl(val):
         if pd.isna(val):
           return ""
@@ -731,7 +733,6 @@ with tab_live:
         tp1 = row["TP1"]
         statut = row["Statut"]
 
-        # Stylage de la colonne Stop-Loss & Marge SL
         sl_idx = row.index.get_loc("Stop-Loss")
         marge_idx = row.index.get_loc("Marge SL")
         if sl > 0 and price > 0:
@@ -743,7 +744,7 @@ with tab_live:
             styles[marge_idx] = (
                 "background-color: #5c1d1d; color: #ff3333; font-weight: bold;"
             )
-          elif sl_dist_pct <= 5.0:  # Proche du SL (< 5%)
+          elif sl_dist_pct <= 5.0:
             styles[sl_idx] = (
                 "background-color: #52321e; color: #ffa500; font-weight: bold;"
             )
@@ -751,19 +752,17 @@ with tab_live:
                 "background-color: #52321e; color: #ffa500; font-weight: bold;"
             )
 
-        # Stylage de la colonne TP1
         if tp1 > 0 and price > 0:
           tp_idx = row.index.get_loc("TP1")
           if price >= tp1:
             styles[tp_idx] = (
                 "background-color: #1e4620; color: #00ff66; font-weight: bold;"
             )
-          elif price >= (tp1 * 0.90):  # Proche du TP1 (à moins de 10%)
+          elif price >= (tp1 * 0.90):
             styles[tp_idx] = (
                 "background-color: #2a4d30; color: #88ffaa; font-weight: bold;"
             )
 
-        # Stylage de la colonne Statut
         stat_idx = row.index.get_loc("Statut")
         if "FREE RIDE" in str(statut):
           styles[stat_idx] = (
@@ -778,7 +777,6 @@ with tab_live:
 
         return styles
 
-      # Application du stylage et du formatage de devises
       styler = df_display.style.apply(style_tp_sl, axis=1)
       styler = styler.map(style_pnl, subset=["PnL (€/$)", "PnL (%)"])
 
@@ -1015,84 +1013,231 @@ with tab_live:
     st.info("Aucune position active trouvée.")
 
   # --- HISTORIQUE & JOURNAL DES POSITIONS CLÔTURÉES ---
-st.markdown("---")
-with st.expander(
-    "📋 Journal & Historique des Positions Clôturées", expanded=False
-):
-  from db_manager import get_closed_trades_history
+  st.markdown("---")
+  with st.expander(
+      "📋 Journal & Historique des Positions Clôturées", expanded=False
+  ):
+    from db_manager import get_closed_trades_history
 
-  closed_history = get_closed_trades_history()
+    closed_history = get_closed_trades_history()
 
-  if not closed_history:
-    st.info(
-        "Aucune position clôturée enregistrée dans l'historique pour le"
-        " moment."
-    )
-  else:
-    import pandas as pd
+    if not closed_history:
+      st.info(
+          "Aucune position clôturée enregistrée dans l'historique pour le"
+          " moment."
+      )
+    else:
+      df_closed = pd.DataFrame(
+          closed_history,
+          columns=[
+              "ID",
+              "Symbole",
+              "Exchange",
+              "Prix Entrée (€)",
+              "Prix Sortie (€)",
+              "Investi (€)",
+              "PnL (€)",
+              "PnL (%)",
+              "Ouverture",
+              "Clôture",
+              "Raison",
+          ],
+      )
 
-    df_closed = pd.DataFrame(
-        closed_history,
-        columns=[
-            "ID",
-            "Symbole",
-            "Exchange",
-            "Prix Entrée (€)",
-            "Prix Sortie (€)",
-            "Investi (€)",
-            "PnL (€)",
-            "PnL (%)",
-            "Ouverture",
-            "Clôture",
-            "Raison",
-        ],
-    )
+      total_pnl = df_closed["PnL (€)"].sum()
+      wins = len(df_closed[df_closed["PnL (€)"] >= 0])
+      losses = len(df_closed[df_closed["PnL (€)"] < 0])
+      total_trades = len(df_closed)
+      win_rate = (wins / total_trades * 100.0) if total_trades > 0 else 0.0
 
-    # Calcul des métriques globales
-    total_pnl = df_closed["PnL (€)"].sum()
-    wins = len(df_closed[df_closed["PnL (€)"] >= 0])
-    losses = len(df_closed[df_closed["PnL (€)"] < 0])
-    total_trades = len(df_closed)
-    win_rate = (wins / total_trades * 100.0) if total_trades > 0 else 0.0
+      m1, m2, m3, m4 = st.columns(4)
+      m1.metric("PnL Cumulé Réalisé", f"{total_pnl:+,.2f} €")
+      m2.metric("Win Rate", f"{win_rate:.1f} %")
+      m3.metric("Ratio W / L", f"{wins}W / {losses}L")
+      m4.metric("Total Clôturés", f"{total_trades}")
 
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("PnL Cumulé Réalisé", f"{total_pnl:+,.2f} €")
-    m2.metric("Win Rate", f"{win_rate:.1f} %")
-    m3.metric("Ratio W / L", f"{wins}W / {losses}L")
-    m4.metric("Total Clôturés", f"{total_trades}")
+      df_display = df_closed[[
+          "Symbole",
+          "Exchange",
+          "Prix Entrée (€)",
+          "Prix Sortie (€)",
+          "Investi (€)",
+          "PnL (€)",
+          "PnL (%)",
+          "Clôture",
+          "Raison",
+      ]].copy()
 
-    # Mise en forme du tableau
-    df_display = df_closed[[
-        "Symbole",
-        "Exchange",
-        "Prix Entrée (€)",
-        "Prix Sortie (€)",
-        "Investi (€)",
-        "PnL (€)",
-        "PnL (%)",
-        "Clôture",
-        "Raison",
-    ]].copy()
+      def style_pnl_val(val):
+        if isinstance(val, (int, float)):
+          color = "#00FF00" if val >= 0 else "#FF4B4B"
+          return f"color: {color}; font-weight: bold;"
+        return ""
 
-    def style_pnl_val(val):
-      if isinstance(val, (int, float)):
-        color = "#00FF00" if val >= 0 else "#FF4B4B"
-        return f"color: {color}; font-weight: bold;"
-      return ""
+      styled_df = df_display.style.format({
+          "Prix Entrée (€)": "{:.4f} €",
+          "Prix Sortie (€)": "{:.4f} €",
+          "Investi (€)": "{:.2f} €",
+          "PnL (€)": "{:+,.2f} €",
+          "PnL (%)": "{:+.2f} %",
+      }).map(style_pnl_val, subset=["PnL (€)", "PnL (%)"])
 
-    styled_df = df_display.style.format({
-        "Prix Entrée (€)": "{:.4f} €",
-        "Prix Sortie (€)": "{:.4f} €",
-        "Investi (€)": "{:.2f} €",
-        "PnL (€)": "{:+,.2f} €",
-        "PnL (%)": "{:+.2f} %",
-    }).map(style_pnl_val, subset=["PnL (€)", "PnL (%)"])
-
-    st.dataframe(styled_df, use_container_width=True)
+      st.dataframe(styled_df, use_container_width=True)
 
 
 # ==========================================
-# ONGLET 2 : DAILY BRIEFING PRO (19H)
+# ONGLET 2 : MICROSTRUCTURE & DÉRIVÉS
+# ==========================================
+with tab_micro:
+  with st.expander("📖 Guide de lecture — Microstructure & Dérivés"):
+    st.markdown("""
+        Analyse du sentiment de marché dérivés sur les actifs de votre portefeuille :
+        * **Funding Rate (8h) :** Taux d'intérêt payé entre Longs et Shorts. 
+          * **> +0.03%** : Surchauffe acheteuse (risque de Long Squeeze).
+          * **< -0.01%** : Surchauffe vendeuse (opportunité de Short Squeeze).
+        * **Open Interest (OI) :** Capital total engagé sur les marchés à terme.
+        """)
+
+  st.subheader("🔥 Microstructure de Marché — Funding Rates & Open Interest")
+
+  if not FUNDING_ENGINE_AVAILABLE:
+    st.warning("⚠️ Le module `funding_oi_engine.py` est introuvable.")
+  else:
+    # 1. Extraction dynamique de TOUTES tes cryptos (BDD + Balances Exchanges)
+    user_crypto_list = set()
+    if 'enriched_positions' in locals() and enriched_positions:
+      for p in enriched_positions:
+        user_crypto_list.add(p['Symbole'])
+
+    if 'all_crypto_balances' in locals() and all_crypto_balances:
+      for asset in all_crypto_balances.keys():
+        if asset not in ['USDT', 'USDC', 'EUR', 'USD']:
+          user_crypto_list.add(asset)
+
+    if not user_crypto_list:
+      user_crypto_list = {
+          'BTC',
+          'ETH',
+          'SOL',
+          'NEAR',
+          'ONDO',
+          'PENDLE',
+          'SUI',
+          'AVAX',
+      }
+
+    col_btn, col_info = st.columns([1, 4])
+    with col_btn:
+      refresh_foi = st.button("🔄 Rafraîchir Funding/OI", key="btn_refresh_foi")
+
+    if refresh_foi or "funding_data" not in st.session_state:
+      with st.spinner(
+          f"Analyse des dérivés pour vos {len(user_crypto_list)} actifs..."
+      ):
+        try:
+          st.session_state["funding_data"] = get_funding_oi_summary(
+              symbols=list(user_crypto_list)
+          )
+        except Exception as e:
+          st.error(
+              "Erreur lors de la récupération des données microstructure :"
+              f" {e}"
+          )
+
+    data_foi = st.session_state.get("funding_data", {})
+
+    if not data_foi or "pairs" not in data_foi or not data_foi["pairs"]:
+      st.info(
+          "Cliquez sur 'Rafraîchir Funding/OI' pour analyser vos actifs en"
+          " direct."
+      )
+    else:
+      avg_fr = data_foi.get("avg_funding_rate", 0.0)
+      total_oi = data_foi.get("total_open_interest_usd", 0.0)
+      overheated_longs = data_foi.get("overheated_longs_count", 0)
+      short_squeeze_candidates = data_foi.get("short_squeeze_count", 0)
+
+      m1, m2, m3, m4 = st.columns(4)
+      m1.metric(
+          "Funding Rate Moyen (8h)",
+          f"{avg_fr:+.4f} %",
+          delta=(
+              "Surchauffe Acheteuse"
+              if avg_fr > 0.03
+              else ("Neutre / Sain" if avg_fr >= 0 else "Dominance Vendeuse")
+          ),
+          delta_color="inverse" if avg_fr > 0.03 else "normal",
+      )
+      m2.metric(
+          "Open Interest Total (Portefeuille)",
+          f"{total_oi / 1e6:,.1f} M$",
+      )
+      m3.metric(
+          "Risque Long Squeeze",
+          f"{overheated_longs} pair(s)",
+          delta="Alerte Surchauffe" if overheated_longs > 0 else "Niveau Sain",
+          delta_color="inverse" if overheated_longs > 0 else "normal",
+      )
+      m4.metric(
+          "Potentiel Short Squeeze",
+          f"{short_squeeze_candidates} pair(s)",
+          delta=(
+              "Opportunité Rebond" if short_squeeze_candidates > 0 else "Calme"
+          ),
+          delta_color="normal" if short_squeeze_candidates > 0 else "off",
+      )
+
+      st.markdown("---")
+
+      df_funding = pd.DataFrame(data_foi["pairs"])
+
+      if not df_funding.empty:
+
+        def style_funding_rate(val):
+          if isinstance(val, (int, float)):
+            if val > 0.03:
+              return (
+                  "color: #FF4B4B; font-weight: bold; background-color:"
+                  " rgba(255, 75, 75, 0.12);"
+              )
+            elif val < -0.01:
+              return (
+                  "color: #00FF00; font-weight: bold; background-color:"
+                  " rgba(0, 255, 0, 0.12);"
+              )
+            elif val >= 0:
+              return "color: #FFA500;"
+          return ""
+
+        df_display_foi = df_funding[[
+            "symbol",
+            "exchange",
+            "funding_rate_8h_pct",
+            "funding_rate_annual_pct",
+            "open_interest_usd",
+            "bias_status",
+        ]].copy()
+
+        df_display_foi.columns = [
+            "Symbole",
+            "Exchange",
+            "Funding 8h (%)",
+            "Funding Annuel (%)",
+            "Open Interest ($)",
+            "Biais Microstructure",
+        ]
+
+        styled_df_foi = df_display_foi.style.format({
+            "Funding 8h (%)": "{:+,.4f} %",
+            "Funding Annuel (%)": "{:+,.2f} %",
+            "Open Interest ($)": "{:,.0f} $",
+        }).map(style_funding_rate, subset=["Funding 8h (%)"])
+
+        st.dataframe(styled_df_foi, use_container_width=True)
+
+
+# ==========================================
+# ONGLET 3 : DAILY BRIEFING PRO (19H)
 # ==========================================
 with tab_digest:
   with st.expander("📖 Guide du Daily Briefing Pro (Rapport de 19h)"):
@@ -1193,7 +1338,7 @@ with tab_digest:
     )
 
 # ==========================================
-# ONGLET 3 : CENTRE D'ALERTES & RAPPROCHEMENT
+# ONGLET 4 : CENTRE D'ALERTES & RAPPROCHEMENT
 # ==========================================
 with tab_alerts:
   with st.expander("📖 Guide du Centre d'Alertes & Réconciliation"):
@@ -1353,7 +1498,6 @@ with tab_alerts:
   )
 
   if RSI_ENGINE_AVAILABLE:
-    # Liste des tokens actifs + watchlist
     tracked_symbols = list(
         {p["Symbole"] for p in enriched_positions}
         | {"BTC", "ETH", "SOL", "NEAR", "ONDO", "PENDLE", "SUI", "AVAX"}
@@ -1373,30 +1517,26 @@ with tab_alerts:
       styled_df = df_rsi.style.map(color_rsi, subset=["15m", "1h", "4h", "1d"])
       st.dataframe(styled_df, width="stretch", hide_index=True)
 
-      # Alerte automatique sur survente extrême
       survendu_list = df_rsi[df_rsi["15m"] <= 30]["Actif"].tolist()
       surachete_list = df_rsi[df_rsi["4h"] >= 75]["Actif"].tolist()
 
       if survendu_list:
         st.success(
-          f"💡 **Opportunité de rebond court terme (RSI 15m ≤ 30)** : {', '.join(survendu_list)}"
+            "💡 **Opportunité de rebond court terme (RSI 15m ≤ 30)** :"
+            f" {', '.join(survendu_list)}"
         )
       if surachete_list:
         st.warning(
-          f"⚠️ **Zone de surachat / Prise de profit recommandée (RSI 4h ≥ 75)** : {', '.join(surachete_list)}"
+            "⚠️ **Zone de surachat / Prise de profit recommandée (RSI 4h ≥"
+            f" 75)** : {', '.join(surachete_list)}"
         )
   else:
     st.info("Module RSI Engine non disponible.")
-
-
-
-
 
   st.markdown("---")
   st.subheader("🔔 Vigie des Risques & Marché")
 
   alerts_list = []
-
   spec_pct = pct_spec if "pct_spec" in locals() else 10.0
 
   if spec_pct > 15.0:
@@ -1445,9 +1585,7 @@ with tab_alerts:
         alerts_list.append({
             "level": "WARNING",
             "title": f"Take-Profit non configuré pour {sym} ({exch})",
-            "desc": (
-                f"La position ID {row['ID']} n'a aucun palier TP1 défini."
-            ),
+            "desc": f"La position ID {row['ID']} n'a aucun palier TP1 défini.",
         })
 
       if current_price and current_price > 0:
@@ -1528,7 +1666,7 @@ with tab_alerts:
       )
 
 # ==========================================
-# ONGLET 4 : ASSISTANT IA PRO
+# ONGLET 5 : ASSISTANT IA PRO
 # ==========================================
 with tab_ai:
   with st.expander("📖 Guide de l'Assistant IA Conversationnel"):
@@ -1549,7 +1687,6 @@ with tab_ai:
   preset_prompt = None
   preset_context = None
 
-# --- PROMPT 1 : RAPPORT SPÉCULATIF & COÛT D'OPPORTUNITÉ ---
   with col_p1:
     if st.button("📰 Rapport & Évaluation Spéculative", width="stretch"):
       with st.spinner("Analyse impartiale des opportunités et des coûts d'opportunité..."):
@@ -1567,7 +1704,6 @@ with tab_ai:
         cats = calculate_unfied_crypto_categories()
         open_pos = get_open_positions()
 
-        # Récupération des opportunités marché
         raw_opps = [] if is_crash else fetch_coingecko_trending_and_markets()
         kraken_syms, okx_syms = get_kraken_spot_symbols(), get_okx_spot_symbols()
         verified_opps = []
@@ -1580,11 +1716,9 @@ with tab_ai:
             item["exchanges_verifies"] = avail
             verified_opps.append(item)
 
-        # Screener RSI Global
         rsi_context_str = "Non disponible"
         if RSI_ENGINE_AVAILABLE:
           try:
-            # On inclut à la fois tes tokens actuels ET des pépites clés du marché
             current_syms = [p[1] for p in open_pos] if open_pos else []
             market_syms = ["SOL", "NEAR", "ONDO", "PENDLE", "SUI", "AVAX", "LINK", "APT", "FET", "INJ", "TIA", "RENDER"]
             combined_syms = list(set(current_syms + market_syms))
@@ -1620,7 +1754,6 @@ CONSIGNES STRICTES D'ANALYSE IMPARTIALE :
    - NE FORCE PAS la recommandation d'un nouveau token si mes positions actuelles sont déjà les plus performantes.
    - N'HÉSITE PAS à recommander la clôture/allègement d'un de mes tokens 'mous' ou trop exposés pour pivoter vers un actif à meilleur potentiel spéculatif (ou vers le Cash).
    - Pour toute opportunité retenue, fournis le plan Moonbag complet (Exchange, Entrée, TP1 x2, TP2 x4, SL -35% à -45%)."""
-
 
   with col_p2:
     if st.button("🛡️ Audit de Protection & SL", width="stretch"):
@@ -1723,7 +1856,6 @@ Rédige avec des titres clairs (##), des puces et du gras."""
               " totalement liquide et sécurisé."
           )
 
-  # --- PROMPT 3 : ARBITRAGE & REBALANCEMENT ---
   with col_p3:
     if st.button("🔄 Arbitrages & Arbitrages Tactiques", width="stretch"):
       with st.spinner("Analyse des arbitrages tactiques sous règle Cash-Neutral..."):
@@ -1775,12 +1907,10 @@ CONSIGNES D'ARBITRAGE :
             " rééquilibrer le portefeuille sur mes exchanges."
         )
 
-        # Injection du rapport RSI dans le prompt IA
         if RSI_ENGINE_AVAILABLE:
           rsi_summary_text = df_rsi.to_string(index=False)
         else:
           rsi_summary_text = "Non disponible"
-
 
         preset_context = f"""Tu es un Execution Trader institutionnel expert.
 Ta mission est de convertir une stratégie globale d'allocation en une FEUILLE DE ROUTE D'EXÉCUTION PAS-À-PAS, ultra-concrète et directement applicable sur les échanges de l'utilisateur.
@@ -1811,12 +1941,11 @@ CONSIGNES DE RÉDACTION POUR LA FEUILLE DE ROUTE :
 
 Rédige sous forme de checklist d'exécution avec du gras, des montants précis et des noms d'exchanges."""
 
-        # Ajout au preset_context de Gemini :
         preset_context += f"\n\nDONNÉES RSI MULTI-TIMEFRAME (COINGLASS HEATMAP) :\n{rsi_summary_text}\n"
         preset_context += (
-    "\nCONSIGNE RISQUE RSI : Ne jamais recommander d'achat sur un actif dont le"
-    " RSI 4h est > 70. Privilégier les entrées sur des tokens dont le RSI 15m"
-    " sort de zone de survente (< 35)."
+            "\nCONSIGNE RISQUE RSI : Ne jamais recommander d'achat sur un actif dont le"
+            " RSI 4h est > 70. Privilégier les entrées sur des tokens dont le RSI 15m"
+            " sort de zone de survente (< 35)."
         )
 
   st.markdown("---")
@@ -1865,15 +1994,13 @@ Réponds de manière professionnelle, structurée, concrète et percutante."""
         try:
           client = genai.Client(api_key=GEMINI_API_KEY)
 
-          # Priorité exacte définie pour la v2.9
           preferred_models = [
               "gemini-3.8-flash",
               "gemini-3.7-flash",
               "gemini-3.6-flash",
-              "gemini-3.5-flash-lite"
+              "gemini-3.5-flash-lite",
           ]
 
-          # Appel avec bascule automatique
           answer, used_model = call_gemini_with_fallback(
               client=client,
               prompt_text=prompt_to_process,
@@ -1881,7 +2008,6 @@ Réponds de manière professionnelle, structurée, concrète et percutante."""
               models=preferred_models,
           )
 
-          # Affichage de la réponse et du modèle utilisé
           st.markdown(answer)
           st.caption(f"🤖 *Réponse générée avec succès via `{used_model}`*")
 
@@ -1894,7 +2020,7 @@ Réponds de manière professionnelle, structurée, concrète et percutante."""
           st.error(error_msg)
 
 # ==========================================
-# ONGLET 5 : MONITORING & SANTÉ APIS
+# ONGLET 6 : MONITORING & SANTÉ APIS
 # ==========================================
 with tab_monitor:
   with st.expander("📖 Guide du Monitoring Technique"):
@@ -1954,7 +2080,7 @@ with tab_fiscal:
   with st.expander("📖 Guide de l'Assistant Fiscal Avancé"):
     st.markdown("Outil d'aide à la déclaration et export CSV normalisé.")
 
-  st.subheader("🧾 Assistant d'Export Fiscal & Comptable (v2.8)")
+  st.subheader("🧾 Assistant d'Export Fiscal & Comptable (v3.0)")
   year_selected = st.selectbox(
       "Sélectionner l'année fiscale", [2026, 2025, 2024]
   )
