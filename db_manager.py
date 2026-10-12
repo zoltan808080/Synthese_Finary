@@ -6,7 +6,7 @@ DB_PATH = os.path.expanduser("~/Synthese_finary/crypto_trading.db")
 
 
 def init_db():
-  """Initialise les tables SQLite et applique les migrations."""
+  """Initialise les tables SQLite (positions ouvertes, trades fermés et filtres core)."""
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
 
@@ -70,6 +70,24 @@ def init_db():
             price_eur REAL,
             reason TEXT DEFAULT 'CORE',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+  # Table du Journal de Trading (Historique des positions clôturées - v3.0 FIFO)
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS closed_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_id INTEGER,
+            symbol TEXT NOT NULL,
+            exchange TEXT,
+            entry_price REAL,
+            exit_price REAL,
+            amount_eur REAL,
+            pnl_eur REAL,
+            pnl_pct REAL,
+            opened_at TIMESTAMP,
+            closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            close_reason TEXT DEFAULT 'MANUAL'
         )
     """)
 
@@ -150,10 +168,80 @@ def mark_trade_ignored(rec_id):
   conn.close()
 
 
-def close_trade(rec_id):
-  """Marque un trade comme clôturé."""
+def archive_closed_trade(
+    trade_id,
+    symbol,
+    exchange,
+    entry_price,
+    exit_price,
+    amount_eur,
+    opened_at=None,
+    close_reason="MANUAL",
+):
+  """Calcule le PnL réalisé exact et enregistre le trade dans le journal d'historique (SQLite)."""
+  entry_p = float(entry_price or 0.0)
+  exit_p = float(exit_price or 0.0)
+  amt_e = float(amount_eur or 0.0)
+
+  pnl_pct = (((exit_p - entry_p) / entry_p) * 100.0) if entry_p > 0 else 0.0
+  pnl_eur = amt_e * (pnl_pct / 100.0)
+
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
+  cursor.execute(
+      """
+        INSERT INTO closed_trades 
+        (trade_id, symbol, exchange, entry_price, exit_price, amount_eur, pnl_eur, pnl_pct, opened_at, close_reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """,
+      (
+          trade_id,
+          symbol,
+          exchange,
+          entry_p,
+          exit_p,
+          amt_e,
+          pnl_eur,
+          pnl_pct,
+          opened_at,
+          close_reason,
+      ),
+  )
+  conn.commit()
+  conn.close()
+
+
+def close_trade(rec_id, exit_price=None, close_reason="MANUAL"):
+  """Marque un trade comme clôturé et l'archive automatiquement dans le journal de trading."""
+  conn = sqlite3.connect(DB_PATH)
+  cursor = conn.cursor()
+
+  # Récupération des informations du trade avant fermeture
+  cursor.execute(
+      """
+        SELECT symbol, exchange, price_entry, amount_eur, taken_at 
+        FROM speculative_trades WHERE id = ?
+    """,
+      (rec_id,),
+  )
+  row = cursor.fetchone()
+
+  if row:
+    sym, exch, entry_p, amt_e, taken_at = row
+    final_exit_p = (
+        exit_price if exit_price is not None else (entry_p or 0.0)
+    )  # Défaut au prix d'entrée si non fourni
+    archive_closed_trade(
+        trade_id=rec_id,
+        symbol=sym,
+        exchange=exch,
+        entry_price=entry_p,
+        exit_price=final_exit_p,
+        amount_eur=amt_e,
+        opened_at=taken_at,
+        close_reason=close_reason,
+    )
+
   cursor.execute(
       """
         UPDATE speculative_trades
@@ -164,6 +252,20 @@ def close_trade(rec_id):
   )
   conn.commit()
   conn.close()
+
+
+def get_closed_trades_history():
+  """Récupère l'ensemble des trades clôturés pour les calculs de Win Rate et PnL cumulé."""
+  conn = sqlite3.connect(DB_PATH)
+  cursor = conn.cursor()
+  cursor.execute("""
+        SELECT id, symbol, exchange, entry_price, exit_price, amount_eur, pnl_eur, pnl_pct, opened_at, closed_at, close_reason
+        FROM closed_trades
+        ORDER BY closed_at DESC
+    """)
+  rows = cursor.fetchall()
+  conn.close()
+  return rows
 
 
 def update_alert_status(rec_id, new_alert_status):
@@ -360,6 +462,7 @@ def is_manual_trade_ignored(symbol, exchange, cost_eur=None):
   conn.close()
   return row is not None
 
+
 def get_open_positions():
   """Récupère toutes les positions ouvertes."""
   conn = sqlite3.connect(DB_PATH)
@@ -377,4 +480,7 @@ def get_open_positions():
 
 if __name__ == "__main__":
   init_db()
-  print("✅ Base SQLite v2.8 (Moonbag & Core) initialisée et vérifiée.")
+  print(
+      "✅ Base SQLite v3.0 (Moonbag, Core & Journal Closed Trades) initialisée et"
+      " vérifiée."
+  )

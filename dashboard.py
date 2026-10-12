@@ -1014,6 +1014,83 @@ with tab_live:
   else:
     st.info("Aucune position active trouvée.")
 
+  # --- HISTORIQUE & JOURNAL DES POSITIONS CLÔTURÉES ---
+st.markdown("---")
+with st.expander(
+    "📋 Journal & Historique des Positions Clôturées", expanded=False
+):
+  from db_manager import get_closed_trades_history
+
+  closed_history = get_closed_trades_history()
+
+  if not closed_history:
+    st.info(
+        "Aucune position clôturée enregistrée dans l'historique pour le"
+        " moment."
+    )
+  else:
+    import pandas as pd
+
+    df_closed = pd.DataFrame(
+        closed_history,
+        columns=[
+            "ID",
+            "Symbole",
+            "Exchange",
+            "Prix Entrée (€)",
+            "Prix Sortie (€)",
+            "Investi (€)",
+            "PnL (€)",
+            "PnL (%)",
+            "Ouverture",
+            "Clôture",
+            "Raison",
+        ],
+    )
+
+    # Calcul des métriques globales
+    total_pnl = df_closed["PnL (€)"].sum()
+    wins = len(df_closed[df_closed["PnL (€)"] >= 0])
+    losses = len(df_closed[df_closed["PnL (€)"] < 0])
+    total_trades = len(df_closed)
+    win_rate = (wins / total_trades * 100.0) if total_trades > 0 else 0.0
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("PnL Cumulé Réalisé", f"{total_pnl:+,.2f} €")
+    m2.metric("Win Rate", f"{win_rate:.1f} %")
+    m3.metric("Ratio W / L", f"{wins}W / {losses}L")
+    m4.metric("Total Clôturés", f"{total_trades}")
+
+    # Mise en forme du tableau
+    df_display = df_closed[[
+        "Symbole",
+        "Exchange",
+        "Prix Entrée (€)",
+        "Prix Sortie (€)",
+        "Investi (€)",
+        "PnL (€)",
+        "PnL (%)",
+        "Clôture",
+        "Raison",
+    ]].copy()
+
+    def style_pnl_val(val):
+      if isinstance(val, (int, float)):
+        color = "#00FF00" if val >= 0 else "#FF4B4B"
+        return f"color: {color}; font-weight: bold;"
+      return ""
+
+    styled_df = df_display.style.format({
+        "Prix Entrée (€)": "{:.4f} €",
+        "Prix Sortie (€)": "{:.4f} €",
+        "Investi (€)": "{:.2f} €",
+        "PnL (€)": "{:+,.2f} €",
+        "PnL (%)": "{:+.2f} %",
+    }).map(style_pnl_val, subset=["PnL (€)", "PnL (%)"])
+
+    st.dataframe(styled_df, use_container_width=True)
+
+
 # ==========================================
 # ONGLET 2 : DAILY BRIEFING PRO (19H)
 # ==========================================
