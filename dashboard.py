@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.express as px
 import requests
 import streamlit as st
+import time
 from db_manager import (
     close_trade,
     get_open_positions,
@@ -57,6 +58,62 @@ try:
 except ImportError:
   RSI_ENGINE_AVAILABLE = False
 
+
+def call_gemini_with_fallback(
+    client,
+    prompt_text,
+    system_instruction=None,
+    models=None,
+    max_retries_per_model=1,
+):
+  """Exécute une requête Gemini avec bascule automatique sur les modèles de secours (Fallback Pattern) en cas de 503/429 ou d'indisponibilité.
+
+  """
+  if models is None:
+    models = [
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+    ]
+
+  last_error = None
+
+  for model_name in models:
+    for attempt in range(max_retries_per_model + 1):
+      try:
+        # Séparation propre du system instruction si fourni
+        contents = (
+            f"{system_instruction}\n\nDemande utilisateur :\n{prompt_text}"
+            if system_instruction
+            else prompt_text
+        )
+
+        response = client.models.generate_content(
+            model=model_name,
+            contents=contents,
+        )
+
+        if response and response.text:
+          return response.text, model_name
+
+      except Exception as e:
+        last_error = e
+        err_str = str(e)
+
+        # Si erreur 503 (Surcharge) ou 429 (Rate Limit), temporiser légèrement puis essayer le modèle suivant
+        if "503" in err_str or "429" in err_str or "UNAVAILABLE" in err_str:
+          time.sleep(1.0)
+          break  # Passer directement au modèle suivant de la liste
+
+        # Pour les autres types d'erreurs (404, paramètre invalide), passer immédiatement au suivant
+        break
+
+  raise Exception(
+      f"Tous les modèles Gemini ont échoué. Dernière erreur : {last_error}"
+  )
 
 def color_rsi(val):
   """Applique un dégradé de couleur style Coinglass sur les cellules RSI."""
@@ -284,7 +341,6 @@ st.sidebar.info(
     tab_alerts,
     tab_ai,
     tab_monitor,
-    tab_analytics,
     tab_fiscal,
 ) = st.tabs([
     "📊 Positions Actives (Live)",
@@ -292,7 +348,6 @@ st.sidebar.info(
     "🔔 Centre d'Alertes",
     "🤖 Assistant IA Pro",
     "🛠️ Monitoring & Santé APIs",
-    "📈 Analytics & Win Rate",
     "🧾 Export Fiscal & Comptable",
 ])
 
@@ -642,32 +697,104 @@ with tab_live:
 
     if view_mode.startswith("🖥️"):
       df_display = df_pos.copy()
-      df_display["Prix Entrée"] = df_display["Prix Entrée"].apply(
-          lambda x: f"{x:.4f} {curr_symbol}"
-      )
-      df_display["Prix Actuel"] = df_display["Prix Actuel"].apply(
-          lambda x: f"{x:.4f} {curr_symbol}"
-      )
-      df_display["Montant Initial"] = df_display["Montant Initial"].apply(
-          lambda x: f"{x:,.2f} {curr_symbol}"
-      )
-      df_display["Valeur Actuelle"] = df_display["Valeur Actuelle"].apply(
-          lambda x: f"{x:,.2f} {curr_symbol}"
-      )
-      df_display["PnL (€/$)"] = df_display["PnL (€/$)"].apply(
-          lambda x: f"{x:+,.2f} {curr_symbol}"
-      )
-      df_display["PnL (%)"] = df_display["PnL (%)"].apply(
-          lambda x: f"{x:+.2f}%"
-      )
-      df_display["TP1"] = df_display["TP1"].apply(
-          lambda x: f"{x:.4f} {curr_symbol}"
-      )
-      df_display["Stop-Loss"] = df_display["Stop-Loss"].apply(
-          lambda x: f"{x:.4f} {curr_symbol}"
+
+      # Ajout d'une colonne calculant la marge de sécurité avant SL (%)
+      df_display["Marge SL"] = df_display.apply(
+          lambda r: (
+              ((r["Prix Actuel"] - r["Stop-Loss"]) / r["Prix Actuel"]) * 100.0
+              if r["Prix Actuel"] > 0 and r["Stop-Loss"] > 0
+              else 0.0
+          ),
+          axis=1,
       )
 
-      st.dataframe(df_display, width="stretch", hide_index=True)
+      # Fonctions de stylage conditionnel Pandas
+      def style_pnl(val):
+        if pd.isna(val):
+          return ""
+        if val > 0:
+          return (
+              "color: #00ff66; font-weight: bold; background-color: rgba(0, 255,"
+              " 102, 0.12);"
+          )
+        elif val < 0:
+          return (
+              "color: #ff4d4d; font-weight: bold; background-color: rgba(255,"
+              " 77, 77, 0.12);"
+          )
+        return "color: #888888;"
+
+      def style_tp_sl(row):
+        styles = [""] * len(row)
+        price = row["Prix Actuel"]
+        sl = row["Stop-Loss"]
+        tp1 = row["TP1"]
+        statut = row["Statut"]
+
+        # Stylage de la colonne Stop-Loss & Marge SL
+        sl_idx = row.index.get_loc("Stop-Loss")
+        marge_idx = row.index.get_loc("Marge SL")
+        if sl > 0 and price > 0:
+          sl_dist_pct = ((price - sl) / price) * 100.0
+          if price <= sl:
+            styles[sl_idx] = (
+                "background-color: #5c1d1d; color: #ff3333; font-weight: bold;"
+            )
+            styles[marge_idx] = (
+                "background-color: #5c1d1d; color: #ff3333; font-weight: bold;"
+            )
+          elif sl_dist_pct <= 5.0:  # Proche du SL (< 5%)
+            styles[sl_idx] = (
+                "background-color: #52321e; color: #ffa500; font-weight: bold;"
+            )
+            styles[marge_idx] = (
+                "background-color: #52321e; color: #ffa500; font-weight: bold;"
+            )
+
+        # Stylage de la colonne TP1
+        if tp1 > 0 and price > 0:
+          tp_idx = row.index.get_loc("TP1")
+          if price >= tp1:
+            styles[tp_idx] = (
+                "background-color: #1e4620; color: #00ff66; font-weight: bold;"
+            )
+          elif price >= (tp1 * 0.90):  # Proche du TP1 (à moins de 10%)
+            styles[tp_idx] = (
+                "background-color: #2a4d30; color: #88ffaa; font-weight: bold;"
+            )
+
+        # Stylage de la colonne Statut
+        stat_idx = row.index.get_loc("Statut")
+        if "FREE RIDE" in str(statut):
+          styles[stat_idx] = (
+              "background-color: rgba(0, 255, 102, 0.2); color: #00ff66;"
+              " font-weight: bold;"
+          )
+        elif "SL FRÔLÉ" in str(statut):
+          styles[stat_idx] = (
+              "background-color: rgba(255, 165, 0, 0.2); color: #ffa500;"
+              " font-weight: bold;"
+          )
+
+        return styles
+
+      # Application du stylage et du formatage de devises
+      styler = df_display.style.apply(style_tp_sl, axis=1)
+      styler = styler.map(style_pnl, subset=["PnL (€/$)", "PnL (%)"])
+
+      styler = styler.format({
+          "Prix Entrée": f"{{:.4f}} {curr_symbol}",
+          "Prix Actuel": f"{{:.4f}} {curr_symbol}",
+          "Montant Initial": f"{{:,.2f}} {curr_symbol}",
+          "Valeur Actuelle": f"{{:,.2f}} {curr_symbol}",
+          "PnL (€/$)": f"{{:+,.2f}} {curr_symbol}",
+          "PnL (%)": "{:+.2f}%",
+          "TP1": f"{{:.4f}} {curr_symbol}",
+          "Stop-Loss": f"{{:.4f}} {curr_symbol}",
+          "Marge SL": "{:+.1f}%",
+      })
+
+      st.dataframe(styler, width="stretch", hide_index=True)
     else:
       st.markdown("### 📱 Cartes de suivi mobile temps réel")
       for row in enriched_positions:
@@ -1660,21 +1787,34 @@ Réponds de manière professionnelle, structurée, concrète et percutante."""
       with st.spinner("Analyse des marchés et génération du rapport..."):
         try:
           client = genai.Client(api_key=GEMINI_API_KEY)
-          response = client.models.generate_content(
-              model="gemini-3.7-flash",
-              contents=(
-                  f"{preset_context}\n\nDemande de l'utilisateur :"
-                  f" {prompt_to_process}"
-              ),
-          )
-          answer = response.text
-        except Exception as e:
-          answer = f"⚠️ Erreur lors de la communication avec l'API Gemini : {e}"
 
-        st.markdown(answer)
-        st.session_state.messages.append(
-            {"role": "assistant", "content": answer}
-        )
+          # Priorité exacte définie pour la v2.9
+          preferred_models = [
+              "gemini-3.8-flash",
+              "gemini-3.7-flash",
+              "gemini-3.6-flash",
+              "gemini-3.5-flash-lite"
+          ]
+
+          # Appel avec bascule automatique
+          answer, used_model = call_gemini_with_fallback(
+              client=client,
+              prompt_text=prompt_to_process,
+              system_instruction=preset_context,
+              models=preferred_models,
+          )
+
+          # Affichage de la réponse et du modèle utilisé
+          st.markdown(answer)
+          st.caption(f"🤖 *Réponse générée avec succès via `{used_model}`*")
+
+          st.session_state.messages.append(
+              {"role": "assistant", "content": answer}
+          )
+
+        except Exception as e:
+          error_msg = f"⚠️ Impossible d'obtenir une réponse de Gemini : {e}"
+          st.error(error_msg)
 
 # ==========================================
 # ONGLET 5 : MONITORING & SANTÉ APIS
@@ -1729,36 +1869,6 @@ with tab_monitor:
       f"Dernières lignes de log pour {log_service}", log_output, height=300
   )
 
-# ==========================================
-# ONGLET 6 : ANALYTICS & WIN RATE
-# ==========================================
-with tab_analytics:
-  with st.expander("📖 Aide & Légendes des Graphiques d'Analytics"):
-    st.markdown("Visualisez votre Win Rate par exchange et l'évolution du PnL.")
-
-  st.subheader(f"📈 Win Rate & Performance Ventilée ({curr_symbol})")
-  col_a1, col_a2 = st.columns(2)
-  with col_a1:
-    st.markdown("#### Win Rate par Plateforme")
-    df_winrate = pd.DataFrame(
-        {"Exchange": ["Kraken", "OKX", "MEXC"], "Win Rate (%)": [68.5, 74.2, 60.0]}
-    )
-    st.bar_chart(
-        df_winrate.set_index("Exchange")["Win Rate (%)"], width="stretch"
-    )
-  with col_a2:
-    st.markdown(f"#### Évolution du PnL Réalisé ({curr_symbol})")
-    dates = pd.date_range(start="2026-01-01", periods=10, freq="W")
-    pnl_base = [100, 250, 180, 420, 590, 750, 710, 950, 1200, 1450]
-    df_pnl = pd.DataFrame(
-        {
-            f"PnL Cumulé ({curr_symbol})": [
-                val * curr_multiplier for val in pnl_base
-            ]
-        },
-        index=dates,
-    )
-    st.line_chart(df_pnl, width="stretch")
 
 # ==========================================
 # ONGLET 7 : EXPORT COMPTABLE & FISCAL
