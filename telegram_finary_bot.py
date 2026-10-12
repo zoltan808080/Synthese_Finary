@@ -29,6 +29,8 @@ import exchange_connectors as ec
 import pnl_engine as pe
 import sl_audit_engine as sa
 
+
+
 # Support des moteurs optionnels v2.9 / v3.0
 try:
   from rsi_engine import build_rsi_heatmap_dataframe
@@ -46,6 +48,14 @@ try:
   ADVISOR_AVAILABLE = True
 except ImportError:
   ADVISOR_AVAILABLE = False
+
+try:
+  from funding_oi_engine import build_funding_oi_dataframe
+
+  FUNDING_AVAILABLE = True
+except ImportError:
+  FUNDING_AVAILABLE = Falseo
+
 
 load_dotenv()
 
@@ -67,6 +77,7 @@ async def post_init(application):
       ("rsi", "🔥 Heatmap RSI multi-UT (Screener survente/surachat)"),
       ("pnl", "📈 Bilan PnL global, Win Rate & frais API"),
       ("audit", "🛡️ Audit de couverture Stop-Loss / Take-Profit"),
+      ("funding", "🌊 Taux de financement & Open Interest (Squeeze radar)"),
       ("help", "📖 Guide complet d'utilisation"),
       ("start", "👋 Relancer l'accueil"),
   ]
@@ -201,6 +212,52 @@ async def rsi_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode="Markdown")
   except Exception as e:
     await update.message.reply_text(f"❌ Erreur lors du calcul RSI : {e}")
+
+async def funding_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  """Affiche le suivi des Funding Rates et de l'OI."""
+  user_id = str(update.effective_user.id)
+  if user_id != str(ALLOWED_USER_ID):
+    await update.message.reply_text("⛔ Accès non autorisé.")
+    return
+
+  if not FUNDING_AVAILABLE:
+    await update.message.reply_text(
+        "⚠️ Module Funding & OI non disponible (`funding_oi_engine.py`)."
+    )
+    return
+
+  await update.message.reply_text("🔄 Récupération de la microstructure...")
+
+  open_trades = get_open_positions()
+  tracked_symbols = list(
+      {t[1] for t in open_trades}
+      | {"BTC", "ETH", "SOL", "NEAR", "ONDO", "PENDLE", "SUI", "AVAX"}
+  )
+
+  try:
+    df_funding = await asyncio.to_thread(
+        build_funding_oi_dataframe, tracked_symbols
+    )
+    if df_funding.empty:
+      await update.message.reply_text("⚠️ Aucune donnée disponible.")
+      return
+
+    msg = "🌊 *MICROSTRUCTURE & FUNDING RATES (v3.0)*\n\n"
+    for _, row in df_funding.iterrows():
+      sym = row["Actif"]
+      fr = row["Funding (%)"]
+      oi = row["OI ($)"]
+      bias = row["Biais"]
+
+      msg += f"🔹 *{sym}* : `{fr:+.4f}%` | {bias}\n"
+      if oi > 0:
+        msg += f"   OI : `{oi:,.0f} $`\n\n"
+      else:
+        msg += "\n"
+
+    await update.message.reply_text(msg, parse_mode="Markdown")
+  except Exception as e:
+    await update.message.reply_text(f"❌ Erreur lors du calcul Funding : {e}")
 
 
 async def positions_command(
@@ -449,6 +506,7 @@ if __name__ == "__main__":
   app.add_handler(CommandHandler("help", help_command))
   app.add_handler(CommandHandler("status", status_command))
   app.add_handler(CommandHandler("rsi", rsi_command))
+  app.add_handler(CommandHandler("funding", funding_command))
   app.add_handler(CommandHandler("positions", positions_command))
   app.add_handler(CommandHandler("pnl", pnl_command))
   app.add_handler(CommandHandler("audit", audit_command))
