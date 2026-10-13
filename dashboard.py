@@ -75,7 +75,7 @@ def call_gemini_with_fallback(
     models=None,
     max_retries_per_model=1,
 ):
-  """Exécute une requête Gemini avec bascule automatique sur les modèles de secours (Fallback Pattern) en cas de 503/429 ou d'indisponibilité."""
+  """Exécute une requête Gemini avec bascule automatique sur les modèles de secours en cas d'indisponibilité."""
   if models is None:
     models = [
         "gemini-3.8-flash",
@@ -139,7 +139,6 @@ def get_cached_market_tech_micro_context(symbols_tuple):
   """Génère et met en cache (2 min) la synthèse RSI & Microstructure."""
   symbols_list = list(symbols_tuple)
 
-  # 1. Context RSI Multi-Timeframe
   rsi_context_str = "RSI Non disponible"
   if RSI_ENGINE_AVAILABLE:
     try:
@@ -149,7 +148,6 @@ def get_cached_market_tech_micro_context(symbols_tuple):
     except Exception:
       pass
 
-  # 2. Context Microstructure (Funding Rates & Open Interest)
   foi_context_str = "Microstructure Non disponible"
   if FUNDING_ENGINE_AVAILABLE:
     try:
@@ -230,10 +228,30 @@ def build_market_tech_micro_context(open_pos=None, balances=None):
   return get_cached_market_tech_micro_context(tuple(sorted(list(symbols))))
 
 
+def compute_ai_liquidities(balances, eur_usd_rate=1.12, fallback_cash_eur=0.0):
+  """Calcule séparément et exactement le Fiat réel, les Stablecoins et le total disponible."""
+  fiat_eur = 0.0
+  stables_eur = 0.0
+  if balances:
+    rate = eur_usd_rate if eur_usd_rate and eur_usd_rate > 0 else 1.12
+    for asset, info in balances.items():
+      asset_u = str(asset).upper()
+      amt = info.get("amount", 0.0) if isinstance(info, dict) else float(info)
+      if asset_u in ["EUR", "USD"]:
+        fiat_eur += amt if asset_u == "EUR" else (amt / rate)
+      elif asset_u in ["USDT", "USDC", "DAI", "FDUSD"]:
+        stables_eur += amt / rate if asset_u in ["USDT", "USDC"] else amt
+
+  total_liq = fiat_eur + stables_eur
+  if total_liq == 0 and fallback_cash_eur > 0:
+    total_liq = fallback_cash_eur
+    stables_eur = fallback_cash_eur
+  return round(fiat_eur, 2), round(stables_eur, 2), round(total_liq, 2)
+
+
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Configuration de la page Streamlit
 st.set_page_config(
     page_title="Crypto Speculative Monitor & Analytics",
     page_icon="🚀",
@@ -241,9 +259,6 @@ st.set_page_config(
 )
 
 
-# ==========================================
-# FONCTIONS CACHÉES (PERFORMANCE BOOST)
-# ==========================================
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_live_price_cached(sym, exch, eur_usd_rate):
   """Récupère le prix en direct avec un cache de 60s pour éviter la latence réseau."""
@@ -313,7 +328,6 @@ def send_telegram_notify(text):
     pass
 
 
-# --- SYSTÈME DE SÉCURITÉ PAR MOT DE PASSE ---
 def check_password():
   """Retourne True si l'utilisateur a saisi le bon mot de passe."""
   expected_password = os.getenv("STREAMLIT_PASSWORD", "MonMotDePasseSecret123")
@@ -390,9 +404,6 @@ def get_live_eur_usd_rate():
   return 1.12
 
 
-# ==========================================
-# GESTION GLOBALE DE LA DEVISE (EUR / USD)
-# ==========================================
 if "live_eur_usd_rate" not in st.session_state:
   st.session_state["live_eur_usd_rate"] = get_live_eur_usd_rate()
 
@@ -435,7 +446,6 @@ st.sidebar.info(
     " données Live' pour forcer une réinterrogation des APIs."
 )
 
-# --- NAVIGATION PAR ONGLETS ---
 (
     tab_live,
     tab_micro,
@@ -553,7 +563,8 @@ with tab_live:
 
   val_majors = 0.0
   val_core = 0.0
-  val_stables_cash = 0.0
+  val_real_fiat = 0.0
+  val_stables_crypto = 0.0
 
   dict_majors = {}
   dict_core = {}
@@ -564,8 +575,10 @@ with tab_live:
     lp = fetch_live_price(asset, exch) or 0.0
     asset_val = amt * lp
 
-    if asset in ["USDT", "USDC"]:
-      val_stables_cash += amt
+    if asset in ["EUR", "USD"]:
+      val_real_fiat += amt if asset == "EUR" else (amt / eur_usd_rate if eur_usd_rate else amt)
+    elif asset in ["USDT", "USDC", "DAI", "FDUSD"]:
+      val_stables_crypto += (amt / eur_usd_rate if asset in ["USDT", "USDC"] and eur_usd_rate else amt)
     elif asset in ["BTC", "ETH"]:
       val_majors += asset_val
       if asset_val > 0.1:
@@ -583,7 +596,11 @@ with tab_live:
 
   cash_info = get_cached_verified_cash()
   total_cash_eur = cash_info.get("total_cash", 0.0)
-  val_stables_cash += total_cash_eur
+
+  # Calcul strict des liquidités sans double comptage
+  val_stables_cash = val_real_fiat + val_stables_crypto
+  if val_stables_cash == 0 and total_cash_eur > 0:
+    val_stables_cash = total_cash_eur
 
   val_speculative = total_current_market_value
   total_crypto_only_val = (
@@ -635,7 +652,7 @@ with tab_live:
   global_risk_buffer = (
       (weighted_sl_distance / total_weight_risk) if total_weight_risk > 0 else 0.0
   )
-  total_cash_disp = total_cash_eur * curr_multiplier
+  total_cash_disp = val_stables_cash * curr_multiplier
 
   s_col1, s_col2, s_col3, s_col4 = st.columns(4)
   s_col1.metric(
@@ -726,7 +743,6 @@ with tab_live:
   st.subheader("🔍 Zooms Détaillés par Poche d'Actifs")
   z_col1, z_col2, z_col3 = st.columns(3)
 
-  # 1. Zoom Majeures
   with z_col1:
     if dict_majors:
       df_majors = pd.DataFrame(
@@ -747,7 +763,6 @@ with tab_live:
     else:
       st.info("Aucun actif majeur détecté.")
 
-  # 2. Zoom Poche CORE
   with z_col2:
     if dict_core:
       df_core_pie = pd.DataFrame(
@@ -768,7 +783,6 @@ with tab_live:
     else:
       st.info("Aucun actif CORE détecté.")
 
-  # 3. Zoom Poche Spéculative
   with z_col3:
     if enriched_positions:
       df_spec_pie = pd.DataFrame(enriched_positions)
@@ -1111,7 +1125,6 @@ with tab_live:
   else:
     st.info("Aucune position active trouvée.")
 
-  # --- HISTORIQUE & JOURNAL DES POSITIONS CLÔTURÉES ---
   st.markdown("---")
   with st.expander(
       "📋 Journal & Historique des Positions Clôturées", expanded=False
@@ -1203,25 +1216,25 @@ with tab_micro:
     st.warning("⚠️ Le module `funding_oi_engine.py` est introuvable.")
   else:
     user_crypto_list = set()
-    if 'enriched_positions' in locals() and enriched_positions:
+    if "enriched_positions" in locals() and enriched_positions:
       for p in enriched_positions:
-        user_crypto_list.add(p['Symbole'])
+        user_crypto_list.add(p["Symbole"])
 
-    if 'all_crypto_balances' in locals() and all_crypto_balances:
+    if "all_crypto_balances" in locals() and all_crypto_balances:
       for asset in all_crypto_balances.keys():
-        if asset not in ['USDT', 'USDC', 'EUR', 'USD']:
+        if asset not in ["USDT", "USDC", "EUR", "USD"]:
           user_crypto_list.add(asset)
 
     if not user_crypto_list:
       user_crypto_list = {
-          'BTC',
-          'ETH',
-          'SOL',
-          'NEAR',
-          'ONDO',
-          'PENDLE',
-          'SUI',
-          'AVAX',
+          "BTC",
+          "ETH",
+          "SOL",
+          "NEAR",
+          "ONDO",
+          "PENDLE",
+          "SUI",
+          "AVAX",
       }
 
     col_btn, col_info = st.columns([1, 4])
@@ -1372,7 +1385,11 @@ with tab_digest:
       delta="NORMAL 🟢" if not is_crash else "DÉFENSIF 🚨",
       delta_color="normal" if not is_crash else "inverse",
   )
-  cash_eur = cash_info.get("total_cash", 0.0)
+  cash_eur = (
+      val_stables_cash
+      if "val_stables_cash" in locals()
+      else cash_info.get("total_cash", 0.0)
+  )
   m_col3.metric(
       f"Liquidités Cash Réel ({curr_symbol})",
       f"{cash_eur * curr_multiplier:,.2f} {curr_symbol}",
@@ -1785,7 +1802,6 @@ with tab_ai:
   preset_prompt = None
   preset_context = None
 
-  # Données de base rapides pour l'affichage initial
   open_pos = get_open_positions()
   try:
     all_balances = get_cached_crypto_balances()
@@ -1811,7 +1827,6 @@ with tab_ai:
         is_crash, crash_pct = check_circuit_breaker()
         fng = fetch_fear_and_greed_index()
 
-        # 1. Utilisation des positions enrichies avec la VRAIE valeur marchande live
         live_positions_for_ai = (
             [
                 {
@@ -1835,20 +1850,16 @@ with tab_ai:
             else open_pos
         )
 
-        # 2. Séparation stricte du Cash Fiat (Widget Cockpit) et des Stablecoins
-        cash_fiat_eur = (
-            total_cash_eur
-            if "total_cash_eur" in locals()
-            else cash_info.get("total_cash", 0.0)
-        )
-        stables_crypto_eur = (
-            sum(
-                info["amount"]
-                for asset, info in all_crypto_balances.items()
-                if asset in ["USDT", "USDC"]
+        fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
+            compute_ai_liquidities(
+                all_balances,
+                eur_usd_rate=eur_usd_rate,
+                fallback_cash_eur=(
+                    total_cash_eur
+                    if "total_cash_eur" in locals()
+                    else cash_info.get("total_cash", 0.0)
+                ),
             )
-            if "all_crypto_balances" in locals() and all_crypto_balances
-            else 0.0
         )
 
         raw_opps = [] if is_crash else fetch_coingecko_trending_and_markets()
@@ -1893,21 +1904,22 @@ Ta mission est d'effectuer une ANALYSE DU COÛT D'OPPORTUNITÉ neutre et sans pa
 - Statut Circuit Breaker : {"🚨 DEFENSIVE MODE" if is_crash else "✅ NORMAL"}
 - Var BTC 24h : {crash_pct:+.2f}% | Fear & Greed : {fng['value']}/100 ({fng['classification']})
 
-SITUATION DU PORTEFEUILLE (VALEURS MARCHANDE TEMPS RÉEL) :
-- Capital Spéculatif Total (Valeur Live) : {total_market_disp:,.2f} €
-- Liquidités Cash Fiat Disponibles (Widget Cockpit) : {cash_fiat_eur:,.2f} €
-- Solde Stablecoins Exchanges (USDT/USDC) : {stables_crypto_eur:,.2f} €
+SITUATION DU PORTEFEUILLE & LIQUIDITÉS (VALEURS MARCHANDE TEMPS RÉEL) :
+- Capital Spéculatif Enregistré (Valeur Live) : {total_market_disp:,.2f} €
+- Solde Fiat Réel sur Exchanges (EUR/USD) : {fiat_real_eur:,.2f} €
+- Solde Stablecoins sur Exchanges (USDT/USDC) : {stables_real_eur:,.2f} €
+- TOTAL LIQUIDITÉS MOBILISABLES (Fiat + Stablecoins) : {total_liquidites_dispo:,.2f} €
 - Positions Spéculatives Actives (avec Valeur Actuelle Marché) : {json.dumps(live_positions_for_ai, indent=2, ensure_ascii=False)}
 
 {tech_micro_block}
 
 CONSIGNES STRICTES D'ANALYSE IMPARTIALE :
-1. **Base impérativement ton analyse sur les {cash_fiat_eur:,.2f} € de Cash Fiat disponible** (valeur officielle affichée sur le widget du cockpit). Ne confonds pas ce montant avec les stablecoins ({stables_crypto_eur:,.2f} €).
+1. **RÈGLE ABSOLUE ANTI-DOUBLE COMPTAGE** : Le capital liquide TOTAL disponible pour tes recommandations est STRICTEMENT de {total_liquidites_dispo:,.2f} € (dont {fiat_real_eur:,.2f} € en Fiat et {stables_real_eur:,.2f} € en Stablecoins). NE DOUBLE-COMPTE EN AUCUN CAS les stablecoins avec le cash. Si tu calcules un nouveau cash disponible après une vente, utilise la formule : `Nouveau Cash = {total_liquidites_dispo:,.2f} € + Produit_de_la_vente`. Ne ré-additionne JAMAIS les stablecoins une seconde fois.
 2. **Utilise la 'Valeur_Actuelle_Marché_EUR'** pour chaque token (ne confonds pas avec le montant d'achat initial).
 3. **Évalue la qualité spéculative de mes positions actuelles** : Ont-elles encore du momentum ? Leur RSI et Funding Rate sont-ils favorables ou surchauffés ?
 4. **Compare avec le reste du marché & Microstructure** : Y a-t-il d'autres actifs sur Kraken/OKX ayant un meilleur setup spéculatif (ex: Funding négatif avec potentiel Short Squeeze, ou RSI 15m/1h survendu) ?
 5. **Recommandations d'Arbitrage Précises** :
-   - Basé sur mes {cash_fiat_eur:,.2f} € de liquidités disponibles réelles.
+   - Basé uniquement sur les {total_liquidites_dispo:,.2f} € de liquidités disponibles réelles.
    - Si un arbitrage implique de vendre un token (ex: MON), précise sa valeur de vente réelle ({mon_val_str} €).
    - NE FORCE PAS la recommandation d'un nouveau token si mes positions actuelles sont déjà les plus performantes.
    - N'HÉSITE PAS à recommander la clôture/allègement d'un de mes tokens 'mous' ou trop exposés/surchauffés en dérivés pour pivoter vers un actif à meilleur potentiel (ou vers le Cash).
@@ -2029,6 +2041,14 @@ CONSIGNES DE RÉDACTION POUR L'AUDIT :
 
         cats = calculate_unfied_crypto_categories()
 
+        fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
+            compute_ai_liquidities(
+                all_balances,
+                eur_usd_rate=eur_usd_rate,
+                fallback_cash_eur=cats.get("stables_cash", 0.0),
+            )
+        )
+
         preset_prompt = (
             "Quels sont les arbitrages spéculatifs les plus pertinents à"
             " effectuer aujourd'hui ?"
@@ -2037,18 +2057,21 @@ CONSIGNES DE RÉDACTION POUR L'AUDIT :
         preset_context = f"""Tu es un gérant de portefeuille crypto focalisé sur le rendement asymétrique.
 Analyse les meilleures rotations de capital possibles entre mes positions actuelles, les liquidités, le RSI et la microstructure de marché (Funding Rates & Open Interest).
 
-DONNÉES PORTEFEUILLE :
-- Liquidités Immédiates : {cats['stables_cash']:,.2f} €
+DONNÉES PORTEFEUILLE & LIQUIDITÉS :
+- Solde Fiat Réel (EUR/USD) : {fiat_real_eur:,.2f} €
+- Solde Stablecoins (USDT/USDC) : {stables_real_eur:,.2f} €
+- Total Liquidités Immédiates Mobilisables : {total_liquidites_dispo:,.2f} €
 - Positions Spéculatives Actives : {open_pos}
 
 {tech_micro_block}
 
 CONSIGNES D'ARBITRAGE :
-1. Détermine si le meilleur move est :
+1. **RÈGLE ANTI-DOUBLE COMPTAGE** : Tes liquidités totales immédiatement mobilisables sont STRICTEMENT de {total_liquidites_dispo:,.2f} €. Ne compte AUCUN stablecoin en plus du cash disponible.
+2. Détermine si le meilleur move est :
    a) De conserver/sécuriser nos positions actuelles (ex: remonter SL en Break-Even).
    b) D'écrêter les gains d'un token en surachat RSI ou en surchauffe de Funding Rate pour renforcer la poche Cash.
    c) De faire un arbitrage (vendre un actif essoufflé ou en surchauffe pour en acheter un avec un meilleur setup RSI/Microstructure de Short Squeeze).
-2. Fournis des consignes concrètes et chiffrées par exchange."""
+3. Fournis des consignes concrètes et chiffrées par exchange."""
 
   with col_p4:
     if st.button("🧭 Plan d'Exécution Pas-à-Pas", width="stretch"):
@@ -2064,6 +2087,14 @@ CONSIGNES D'ARBITRAGE :
 
         cats = calculate_unfied_crypto_categories()
 
+        fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
+            compute_ai_liquidities(
+                all_balances,
+                eur_usd_rate=eur_usd_rate,
+                fallback_cash_eur=cats.get("stables_cash", 0.0),
+            )
+        )
+
         target_spec = cats["total_crypto"] * 0.10
         target_majors = cats["total_crypto"] * 0.55
         target_core = cats["total_crypto"] * 0.22
@@ -2072,7 +2103,7 @@ CONSIGNES D'ARBITRAGE :
         delta_majors = cats["btc_eth"] - target_majors
         delta_spec = cats["speculative"] - target_spec
         delta_core = target_core - cats["core"]
-        delta_cash = target_cash - cats["stables_cash"]
+        delta_cash = target_cash - total_liquidites_dispo
 
         preset_prompt = (
             "Génère ma feuille de route d'exécution tactique pas-à-pas pour"
@@ -2080,14 +2111,14 @@ CONSIGNES D'ARBITRAGE :
         )
 
         preset_context = f"""Tu es un Execution Trader institutionnel expert.
-Ta mission est de convertir une stratégie globale d'allocation en une FEUILLE DE ROUTE D'EXÉCUTION PAS-À-PAS, ultra-concrète et directly applicable sur les échanges de l'utilisateur.
+Ta mission est de convertir une stratégie globale d'allocation en une FEUILLE DE ROUTE D'EXÉCUTION PAS-À-PAS, ultra-concrète et directement applicable sur les échanges de l'utilisateur.
 
 SITUATION DU PORTEFEUILLE & ÉCARTS CIBLES :
 - Valeur totale du capital : {cats['total_crypto']:,.2f} €
 - Majeures (BTC/ETH) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) | Cible 55% ({target_majors:,.2f} €) -> ÉCART : {delta_majors:+,.2f} € (À Alléger)
 - Poche Core : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) | Cible 22% ({target_core:,.2f} €) -> ÉCART : {delta_core:+,.2f} € (À Renforcer)
 - Spéculatif (Moonbag) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) | Cible 10% ({target_spec:,.2f} €) -> ÉCART : {delta_spec:+,.2f} € (À Écrêter)
-- Liquidités / Cash : {cats['stables_cash']:,.2f} € ({cats['stables_cash_pct']:.1f}%) | Cible 13% ({target_cash:,.2f} €) -> ÉCART : {delta_cash:+,.2f} € (À Reconstituer)
+- Total Liquidités Mobilisables (Fiat + Stables) : {total_liquidites_dispo:,.2f} € (Fiat: {fiat_real_eur:,.2f} €, Stables: {stables_real_eur:,.2f} €) | Cible 13% ({target_cash:,.2f} €) -> ÉCART : {delta_cash:+,.2f} € (À Reconstituer)
 
 SOLDES RÉELS DÉTECTÉS PAR PLATEFORME (Direct APIs) :
 {json.dumps(all_balances, indent=2, ensure_ascii=False)}
@@ -2098,14 +2129,15 @@ POSITIONS SPÉCULATIVES ACTIVES EN BDD :
 {tech_micro_block}
 
 CONSIGNES DE RÉDACTION POUR LA FEUILLE DE ROUTE :
-1. **Étape 1 : Reconstruction du Cash (Priorité 1 — Allègement Majeures)**
+1. **RÈGLE ANTI-DOUBLE COMPTAGE** : Ne ré-additionne JAMAIS les stablecoins au cash. Les liquidités actuelles disponibles sont STRICTEMENT de {total_liquidites_dispo:,.2f} €.
+2. **Étape 1 : Reconstruction du Cash (Priorité 1 — Allègement Majeures)**
    - Indique exactement quelle quantité de BTC ou ETH vendre, sur quel exchange (Kraken ou OKX selon les soldes réels ci-dessus) et vers quelle paire (BTC/EUR ou BTC/USDC).
    - Propose un découpage temporel (ex. 3 ou 4 tranches hebdomadaires) pour éviter le risque de market timing.
 
-2. **Étape 2 : Écrêtage Spéculatif (~{abs(delta_spec):,.2f} €)**
+3. **Étape 2 : Écrêtage Spéculatif (~{abs(delta_spec):,.2f} €)**
    - Identifie dans les positions spéculatives actives ci-dessus celles qu'il faut alléger ou clôturer partiellement pour récupérer le surplus (priorité aux tokens surchauffés en RSI ou Funding).
 
-3. **Étape 3 : Plan de Déploiement DCA sur la Poche CORE & Opportunités**
+4. **Étape 3 : Plan de Déploiement DCA sur la Poche CORE & Opportunités**
    - Donne des consignes d'achats limites sur les replis techniques pour renforcer progressivement tes convictions Core (ex. SOL, NEAR, ONDO, PENDLE, SUI) ou profiter d'opportunités de Short Squeeze identifiées dans la microstructure sur OKX/Kraken.
 
 Rédige sous forme de checklist d'exécution avec du gras, des montants précis et des noms d'exchanges."""
@@ -2143,6 +2175,19 @@ Rédige sous forme de checklist d'exécution avec du gras, des montants précis 
       current_positions = get_open_positions()
       current_cash = get_cached_verified_cash()
       current_balances = get_cached_crypto_balances()
+
+      fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
+          compute_ai_liquidities(
+              current_balances,
+              eur_usd_rate=eur_usd_rate,
+              fallback_cash_eur=(
+                  current_cash.get("total_cash", 0.0)
+                  if isinstance(current_cash, dict)
+                  else 0.0
+              ),
+          )
+      )
+
       tech_micro_block = build_market_tech_micro_context(
           open_pos=current_positions, balances=current_balances
       )
@@ -2151,10 +2196,14 @@ L'utilisateur te consulte sur son cockpit web personnel.
 
 DONNÉES DU PORTEFEUILLE ACTUEL :
 - Positions ouvertes en BDD : {current_positions}
-- Cash & Liquidités : {current_cash}
+- Solde Fiat Réel sur Exchanges (EUR/USD) : {fiat_real_eur:,.2f} €
+- Solde Stablecoins sur Exchanges (USDT/USDC) : {stables_real_eur:,.2f} €
+- TOTAL LIQUIDITÉS MOBILISABLES : {total_liquidites_dispo:,.2f} €
 - Devise active : {curr_label}
 
 {tech_micro_block}
+
+CONSIGNE STRICTE ANTI-DOUBLE COMPTAGE : Le montant total de tes liquidités immédiatement mobilisables est de {total_liquidites_dispo:,.2f} € (Fiat + Stablecoins). Ne double-compte JAMAIS le cash et les stablecoins et ne rajoute aucune somme fictive.
 
 Réponds de manière professionnelle, structurée, concrète et percutante en prenant en compte la situation globale du portefeuille, l'analyse technique RSI et la microstructure du marché (Funding Rates & Open Interest)."""
 
