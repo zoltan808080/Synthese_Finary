@@ -2,13 +2,14 @@ import datetime
 import json
 import os
 import subprocess
+import time
 from dotenv import load_dotenv
 from google import genai
 import pandas as pd
 import plotly.express as px
 import requests
 import streamlit as st
-import time
+
 from db_manager import (
     close_trade,
     get_open_positions,
@@ -118,6 +119,7 @@ def call_gemini_with_fallback(
       f"Tous les modèles Gemini ont échoué. Dernière erreur : {last_error}"
   )
 
+
 def color_rsi(val):
   """Applique un dégradé de couleur style Coinglass sur les cellules RSI."""
   if isinstance(val, (int, float)):
@@ -130,6 +132,102 @@ def color_rsi(val):
     elif val >= 60:
       return "background-color: #331a1a; color: #ffaaaa"
   return ""
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def get_cached_market_tech_micro_context(symbols_tuple):
+  """Génère et met en cache (2 min) la synthèse RSI & Microstructure."""
+  symbols_list = list(symbols_tuple)
+
+  # 1. Context RSI Multi-Timeframe
+  rsi_context_str = "RSI Non disponible"
+  if RSI_ENGINE_AVAILABLE:
+    try:
+      df_rsi_prompt = build_rsi_heatmap_dataframe(symbols_list)
+      if not df_rsi_prompt.empty:
+        rsi_context_str = df_rsi_prompt.to_string(index=False)
+    except Exception:
+      pass
+
+  # 2. Context Microstructure (Funding Rates & Open Interest)
+  foi_context_str = "Microstructure Non disponible"
+  if FUNDING_ENGINE_AVAILABLE:
+    try:
+      foi_data = get_funding_oi_summary(symbols_list)
+      if foi_data and "pairs" in foi_data and foi_data["pairs"]:
+        df_foi = pd.DataFrame(foi_data["pairs"])
+        foi_context_str = (
+            f"Funding Rate Moyen (8h) : {foi_data.get('avg_funding_rate', 0):+.4f}%\n"
+            f"Open Interest Total (Portefeuille) : {foi_data.get('total_open_interest_usd', 0)/1e6:,.1f} M$\n"
+            f"Paires en Surchauffe Longs (>+0.03%) : {foi_data.get('overheated_longs_count', 0)} | Potentiels Short Squeeze (<-0.01%) : {foi_data.get('short_squeeze_count', 0)}\n\n"
+        )
+        if not df_foi.empty:
+          df_foi_disp = df_foi[[
+              "symbol",
+              "exchange",
+              "funding_rate_8h_pct",
+              "funding_rate_annual_pct",
+              "open_interest_usd",
+              "bias_status",
+          ]].copy()
+          df_foi_disp.columns = [
+              "Symbole",
+              "Exchange",
+              "Funding_8h(%)",
+              "Funding_Annuel(%)",
+              "OI($)",
+              "Biais_Microstructure",
+          ]
+          foi_context_str += df_foi_disp.to_string(index=False)
+    except Exception:
+      pass
+
+  return f"""
+---
+📊 MATRICE TECHNIQUE & SCREENER RSI MULTI-TIMEFRAME :
+{rsi_context_str}
+
+🔥 MICROSTRUCTURE DE MARCHÉ & DÉRIVÉS (FUNDING RATES 8H & OPEN INTEREST - OKX SWAP) :
+{foi_context_str}
+
+RÈGLES DE DÉCISION TECHNIQUE & MICROSTRUCTURE :
+1. **Microstructure & Funding Rates** :
+   - **Funding Rate 8h ≥ +0.03% (Surchauffe Longs)** : Risque fort de Long Squeeze.
+   - **Funding Rate 8h ≤ -0.01% (Accumulation Shorts)** : Opportunité de Short Squeeze.
+2. **RSI Multi-Timeframe** :
+   - Ne pas recommander d'achat si RSI 4h > 70.
+   - Privilégier les entrées avec RSI 15m/1h en sortie de survente (< 35).
+---
+"""
+
+
+def build_market_tech_micro_context(open_pos=None, balances=None):
+  symbols = {
+      "BTC",
+      "ETH",
+      "SOL",
+      "NEAR",
+      "ONDO",
+      "PENDLE",
+      "SUI",
+      "AVAX",
+      "RAY",
+      "FET",
+      "RENDER",
+      "STRK",
+      "TAO",
+  }
+  if open_pos:
+    for p in open_pos:
+      if len(p) > 1 and p[1]:
+        symbols.add(
+            str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
+        )
+  if balances:
+    for asset in balances.keys():
+      if asset not in ["USDT", "USDC", "EUR", "USD"]:
+        symbols.add(str(asset).upper().strip())
+  return get_cached_market_tech_micro_context(tuple(sorted(list(symbols))))
 
 
 load_dotenv()
@@ -221,11 +319,12 @@ def check_password():
   expected_password = os.getenv("STREAMLIT_PASSWORD", "MonMotDePasseSecret123")
 
   def password_entered():
-    if st.session_state["password"] == expected_password:
-      st.session_state["password_correct"] = True
-      del st.session_state["password"]
-    else:
-      st.session_state["password_correct"] = False
+    if "password" in st.session_state:
+      if st.session_state["password"] == expected_password:
+        st.session_state["password_correct"] = True
+        del st.session_state["password"]
+      else:
+        st.session_state["password_correct"] = False
 
   if "password_correct" not in st.session_state:
     st.text_input(
@@ -1103,7 +1202,6 @@ with tab_micro:
   if not FUNDING_ENGINE_AVAILABLE:
     st.warning("⚠️ Le module `funding_oi_engine.py` est introuvable.")
   else:
-    # 1. Extraction dynamique de TOUTES tes cryptos (BDD + Balances Exchanges)
     user_crypto_list = set()
     if 'enriched_positions' in locals() and enriched_positions:
       for p in enriched_positions:
@@ -1687,11 +1785,22 @@ with tab_ai:
   preset_prompt = None
   preset_context = None
 
+  # Données de base rapides pour l'affichage initial
+  open_pos = get_open_positions()
+  try:
+    all_balances = get_cached_crypto_balances()
+  except Exception:
+    all_balances = {}
+
   with col_p1:
     if st.button("📰 Rapport & Évaluation Spéculative", width="stretch"):
-      with st.spinner("Analyse impartiale des opportunités et des coûts d'opportunité..."):
+      with st.spinner(
+          "Analyse impartiale des opportunités, RSI et microstructure..."
+      ):
+        tech_micro_block = build_market_tech_micro_context(
+            open_pos=open_pos, balances=all_balances
+        )
         from crypto_speculative_advisor import (
-            calculate_unfied_crypto_categories,
             check_circuit_breaker,
             fetch_coingecko_trending_and_markets,
             fetch_fear_and_greed_index,
@@ -1701,36 +1810,81 @@ with tab_ai:
 
         is_crash, crash_pct = check_circuit_breaker()
         fng = fetch_fear_and_greed_index()
-        cats = calculate_unfied_crypto_categories()
-        open_pos = get_open_positions()
+
+        # 1. Utilisation des positions enrichies avec la VRAIE valeur marchande live
+        live_positions_for_ai = (
+            [
+                {
+                    "Symbole": p["Symbole"],
+                    "Exchange": p["Exchange"],
+                    "Valeur_Actuelle_Marché_EUR": round(
+                        p["Valeur Actuelle"], 2
+                    ),
+                    "Montant_Investi_Initial_EUR": round(
+                        p["Montant Initial"], 2
+                    ),
+                    "Prix_Entree": round(p["Prix Entrée"], 4),
+                    "Prix_Actuel_Live": round(p["Prix Actuel"], 4),
+                    "PnL_Pct": round(p["PnL (%)"], 2),
+                    "TP1": round(p["TP1"], 4),
+                    "Stop_Loss": round(p["Stop-Loss"], 4),
+                }
+                for p in enriched_positions
+            ]
+            if "enriched_positions" in locals() and enriched_positions
+            else open_pos
+        )
+
+        # 2. Séparation stricte du Cash Fiat (Widget Cockpit) et des Stablecoins
+        cash_fiat_eur = (
+            total_cash_eur
+            if "total_cash_eur" in locals()
+            else cash_info.get("total_cash", 0.0)
+        )
+        stables_crypto_eur = (
+            sum(
+                info["amount"]
+                for asset, info in all_crypto_balances.items()
+                if asset in ["USDT", "USDC"]
+            )
+            if "all_crypto_balances" in locals() and all_crypto_balances
+            else 0.0
+        )
 
         raw_opps = [] if is_crash else fetch_coingecko_trending_and_markets()
-        kraken_syms, okx_syms = get_kraken_spot_symbols(), get_okx_spot_symbols()
+        kraken_syms, okx_syms = (
+            get_kraken_spot_symbols(),
+            get_okx_spot_symbols(),
+        )
         verified_opps = []
         for item in raw_opps:
           sym = item["symbol"].upper()
           avail = []
-          if sym in kraken_syms: avail.append("KRAKEN")
-          if sym in okx_syms: avail.append("OKX")
+          if sym in kraken_syms:
+            avail.append("KRAKEN")
+          if sym in okx_syms:
+            avail.append("OKX")
           if avail:
             item["exchanges_verifies"] = avail
             verified_opps.append(item)
 
-        rsi_context_str = "Non disponible"
-        if RSI_ENGINE_AVAILABLE:
-          try:
-            current_syms = [p[1] for p in open_pos] if open_pos else []
-            market_syms = ["SOL", "NEAR", "ONDO", "PENDLE", "SUI", "AVAX", "LINK", "APT", "FET", "INJ", "TIA", "RENDER"]
-            combined_syms = list(set(current_syms + market_syms))
-            
-            df_rsi_prompt = build_rsi_heatmap_dataframe(combined_syms)
-            rsi_context_str = df_rsi_prompt.to_string(index=False)
-          except Exception:
-            pass
+        preset_prompt = (
+            "Analyse la pertinence spéculative globale de mon portefeuille"
+            " face aux opportunités actuelles du marché."
+        )
 
-        target_budget = cats["total_crypto"] * 0.10
-
-        preset_prompt = "Analyse la pertinence spéculative globale de mon portefeuille face aux opportunités actuelles du marché."
+        mon_live_val = (
+            [
+                p["Valeur Actuelle"]
+                for p in enriched_positions
+                if p["Symbole"] == "MON"
+            ]
+            if "enriched_positions" in locals()
+            else []
+        )
+        mon_val_str = (
+            f"{mon_live_val[0]:.2f}" if mon_live_val else "valeur actuelle"
+        )
 
         preset_context = f"""Tu es un stratège et trader crypto institutionnel.
 Ta mission est d'effectuer une ANALYSE DU COÛT D'OPPORTUNITÉ neutre et sans parti pris entre mes positions spéculatives actuelles et les opportunités globales du marché.
@@ -1739,27 +1893,32 @@ Ta mission est d'effectuer une ANALYSE DU COÛT D'OPPORTUNITÉ neutre et sans pa
 - Statut Circuit Breaker : {"🚨 DEFENSIVE MODE" if is_crash else "✅ NORMAL"}
 - Var BTC 24h : {crash_pct:+.2f}% | Fear & Greed : {fng['value']}/100 ({fng['classification']})
 
-SITUATION DU PORTEFEUILLE :
-- Capital Total : {cats['total_crypto']:,.2f} €
-- Liquidités Immédiates (Fiat + Stables) : {cats['stables_cash']:,.2f} €
-- Positions Spéculatives Actives en BDD : {open_pos}
+SITUATION DU PORTEFEUILLE (VALEURS MARCHANDE TEMPS RÉEL) :
+- Capital Spéculatif Total (Valeur Live) : {total_market_disp:,.2f} €
+- Liquidités Cash Fiat Disponibles (Widget Cockpit) : {cash_fiat_eur:,.2f} €
+- Solde Stablecoins Exchanges (USDT/USDC) : {stables_crypto_eur:,.2f} €
+- Positions Spéculatives Actives (avec Valeur Actuelle Marché) : {json.dumps(live_positions_for_ai, indent=2, ensure_ascii=False)}
 
-MATRICE DE MARCHÉ ET SCREENER RSI MULTI-TIMEFRAME :
-{rsi_context_str}
+{tech_micro_block}
 
 CONSIGNES STRICTES D'ANALYSE IMPARTIALE :
-1. **Évalue la qualité spéculative de mes positions actuelles** : Ont-elles encore du momentum ? Leur RSI est-il favorable ou suracheté ? La thèse est-elle toujours valide ?
-2. **Compare avec le reste du marché** : Y a-t-il d'autres actifs sur Kraken/OKX ayant un meilleur setup spéculatif (ex: RSI 15m/1h survendu avec tendance 4h haussière) ?
-3. **Recommandations d'Arbitrage Précises** :
+1. **Base impérativement ton analyse sur les {cash_fiat_eur:,.2f} € de Cash Fiat disponible** (valeur officielle affichée sur le widget du cockpit). Ne confonds pas ce montant avec les stablecoins ({stables_crypto_eur:,.2f} €).
+2. **Utilise la 'Valeur_Actuelle_Marché_EUR'** pour chaque token (ne confonds pas avec le montant d'achat initial).
+3. **Évalue la qualité spéculative de mes positions actuelles** : Ont-elles encore du momentum ? Leur RSI et Funding Rate sont-ils favorables ou surchauffés ?
+4. **Compare avec le reste du marché & Microstructure** : Y a-t-il d'autres actifs sur Kraken/OKX ayant un meilleur setup spéculatif (ex: Funding négatif avec potentiel Short Squeeze, ou RSI 15m/1h survendu) ?
+5. **Recommandations d'Arbitrage Précises** :
+   - Basé sur mes {cash_fiat_eur:,.2f} € de liquidités disponibles réelles.
+   - Si un arbitrage implique de vendre un token (ex: MON), précise sa valeur de vente réelle ({mon_val_str} €).
    - NE FORCE PAS la recommandation d'un nouveau token si mes positions actuelles sont déjà les plus performantes.
-   - N'HÉSITE PAS à recommander la clôture/allègement d'un de mes tokens 'mous' ou trop exposés pour pivoter vers un actif à meilleur potentiel spéculatif (ou vers le Cash).
-   - Pour toute opportunité retenue, fournis le plan Moonbag complet (Exchange, Entrée, TP1 x2, TP2 x4, SL -35% à -45%)."""
+   - N'HÉSITE PAS à recommander la clôture/allègement d'un de mes tokens 'mous' ou trop exposés/surchauffés en dérivés pour pivoter vers un actif à meilleur potentiel (ou vers le Cash).
+   - Pour toute opportunité retenue, fournis le plan Moonbag complet (Exchange, Entrée, TP1 x2, TP2 x4, SL -35% à -45%) et la valeur suggérée d'investissement en €"""
 
   with col_p2:
     if st.button("🛡️ Audit de Protection & SL", width="stretch"):
       with st.spinner("Analyse de la sécurité de vos positions en direct..."):
-        open_pos = get_open_positions()
-
+        tech_micro_block = build_market_tech_micro_context(
+            open_pos=open_pos, balances=all_balances
+        )
         if open_pos:
           pos_audit_data = []
           total_risk_weight = 0.0
@@ -1840,14 +1999,14 @@ SYNTHÈSE DE LA PROTECTION GLOBALE :
 DÉTAIL DES POSITIONS EN PORTEFEUILLE :
 {json.dumps(pos_audit_data, indent=2, ensure_ascii=False)}
 
-CONSIGNES DE RÉDACTION POUR L'AUDIT :
-1. **Niveau de Risque Global** : Évalue la sécurité générale du portefeuille.
-2. **Positions Sans Protection (CRITIQUE)** : Liste clairement les tokens n'ayant AUCUN Stop-Loss défini (sl_eur = 0) et conseille le niveau d'invalidation technique à ajouter.
-3. **Zone de Danger / SL Frôlé (ATTENTION)** : Identifie les lignes dont le prix actuel est proche du Stop-Loss (distance < 10%).
-4. **Opportunités de Sécurisation (Break-Even / Free Ride)** : Pour les positions où TP1 est atteint ou en fort gain, recommande de remonter le Stop-Loss au prix d'entrée (Break-Even).
-5. **Plan d'Action Immédiat** : Résume en 3 à 5 points à puces les réglages prioritaires à effectuer.
+{tech_micro_block}
 
-Rédige avec des titres clairs (##), des puces et du gras."""
+CONSIGNES DE RÉDACTION POUR L'AUDIT :
+1. **Niveau de Risque Global** : Évalue la sécurité générale du portefeuille en croisant les Stop-Loss, le RSI et la Microstructure (Funding Rates).
+2. **Positions Sans Protection (CRITIQUE)** : Liste clairement les tokens n'ayant AUCUN Stop-Loss défini (sl_eur = 0) et conseille le niveau d'invalidation technique à ajouter.
+3. **Zone de Danger & Surchauffe (ATTENTION)** : Identifie les lignes dont le prix est proche du Stop-Loss (< 10%) OU dont le Funding Rate montre une surchauffe acheteuse (> +0.03%).
+4. **Opportunités de Sécurisation (Break-Even / Free Ride / Squeeze)** : Pour les positions où TP1 est atteint ou en fort gain (ou présentant un risque/opportunité de squeeze), recommande d'ajuster le Stop-Loss.
+5. **Plan d'Action Immédiat** : Résume en 3 à 5 points à puces les réglages prioritaires à effectuer."""
         else:
           preset_prompt = "Fais un audit de sécurité de mes positions."
           preset_context = (
@@ -1858,25 +2017,37 @@ Rédige avec des titres clairs (##), des puces et du gras."""
 
   with col_p3:
     if st.button("🔄 Arbitrages & Arbitrages Tactiques", width="stretch"):
-      with st.spinner("Analyse des arbitrages tactiques sous règle Cash-Neutral..."):
-        from crypto_speculative_advisor import calculate_unfied_crypto_categories
-        cats = calculate_unfied_crypto_categories()
-        open_pos = get_open_positions()
+      with st.spinner(
+          "Analyse des arbitrages tactiques sous règle Cash-Neutral..."
+      ):
+        tech_micro_block = build_market_tech_micro_context(
+            open_pos=open_pos, balances=all_balances
+        )
+        from crypto_speculative_advisor import (
+            calculate_unfied_crypto_categories,
+        )
 
-        preset_prompt = "Quels sont les arbitrages spéculatifs les plus pertinents à effectuer aujourd'hui ?"
+        cats = calculate_unfied_crypto_categories()
+
+        preset_prompt = (
+            "Quels sont les arbitrages spéculatifs les plus pertinents à"
+            " effectuer aujourd'hui ?"
+        )
 
         preset_context = f"""Tu es un gérant de portefeuille crypto focalisé sur le rendement asymétrique.
-Analyse les meilleures rotations de capital possibles entre mes positions actuelles, les liquidités et le marché.
+Analyse les meilleures rotations de capital possibles entre mes positions actuelles, les liquidités, le RSI et la microstructure de marché (Funding Rates & Open Interest).
 
 DONNÉES PORTEFEUILLE :
 - Liquidités Immédiates : {cats['stables_cash']:,.2f} €
 - Positions Spéculatives Actives : {open_pos}
 
+{tech_micro_block}
+
 CONSIGNES D'ARBITRAGE :
-1. Détermine si le meilleur moove est :
+1. Détermine si le meilleur move est :
    a) De conserver/sécuriser nos positions actuelles (ex: remonter SL en Break-Even).
-   b) D'écrêter les gains d'un token en surachat pour renforcer la poche Cash.
-   c) De faire un arbitrage (vendre un actif essoufflé pour en acheter un avec un meilleur setup RSI/momentum).
+   b) D'écrêter les gains d'un token en surachat RSI ou en surchauffe de Funding Rate pour renforcer la poche Cash.
+   c) De faire un arbitrage (vendre un actif essoufflé ou en surchauffe pour en acheter un avec un meilleur setup RSI/Microstructure de Short Squeeze).
 2. Fournis des consignes concrètes et chiffrées par exchange."""
 
   with col_p4:
@@ -1884,13 +2055,14 @@ CONSIGNES D'ARBITRAGE :
       with st.spinner(
           "Calcul du plan d'exécution et dispatching par exchange..."
       ):
+        tech_micro_block = build_market_tech_micro_context(
+            open_pos=open_pos, balances=all_balances
+        )
         from crypto_speculative_advisor import (
             calculate_unfied_crypto_categories,
         )
 
         cats = calculate_unfied_crypto_categories()
-        open_pos = get_open_positions()
-        all_balances = get_cached_crypto_balances()
 
         target_spec = cats["total_crypto"] * 0.10
         target_majors = cats["total_crypto"] * 0.55
@@ -1907,13 +2079,8 @@ CONSIGNES D'ARBITRAGE :
             " rééquilibrer le portefeuille sur mes exchanges."
         )
 
-        if RSI_ENGINE_AVAILABLE:
-          rsi_summary_text = df_rsi.to_string(index=False)
-        else:
-          rsi_summary_text = "Non disponible"
-
         preset_context = f"""Tu es un Execution Trader institutionnel expert.
-Ta mission est de convertir une stratégie globale d'allocation en une FEUILLE DE ROUTE D'EXÉCUTION PAS-À-PAS, ultra-concrète et directement applicable sur les échanges de l'utilisateur.
+Ta mission est de convertir une stratégie globale d'allocation en une FEUILLE DE ROUTE D'EXÉCUTION PAS-À-PAS, ultra-concrète et directly applicable sur les échanges de l'utilisateur.
 
 SITUATION DU PORTEFEUILLE & ÉCARTS CIBLES :
 - Valeur totale du capital : {cats['total_crypto']:,.2f} €
@@ -1928,25 +2095,20 @@ SOLDES RÉELS DÉTECTÉS PAR PLATEFORME (Direct APIs) :
 POSITIONS SPÉCULATIVES ACTIVES EN BDD :
 {open_pos}
 
+{tech_micro_block}
+
 CONSIGNES DE RÉDACTION POUR LA FEUILLE DE ROUTE :
 1. **Étape 1 : Reconstruction du Cash (Priorité 1 — Allègement Majeures)**
    - Indique exactement quelle quantité de BTC ou ETH vendre, sur quel exchange (Kraken ou OKX selon les soldes réels ci-dessus) et vers quelle paire (BTC/EUR ou BTC/USDC).
    - Propose un découpage temporel (ex. 3 ou 4 tranches hebdomadaires) pour éviter le risque de market timing.
 
 2. **Étape 2 : Écrêtage Spéculatif (~{abs(delta_spec):,.2f} €)**
-   - Identifie dans les positions spéculatives actives ci-dessus celles qu'il faut alléger ou clôturer partiellement pour récupérer le surplus de ~200 €.
+   - Identifie dans les positions spéculatives actives ci-dessus celles qu'il faut alléger ou clôturer partiellement pour récupérer le surplus (priorité aux tokens surchauffés en RSI ou Funding).
 
-3. **Étape 3 : Plan de Déploiement DCA sur la Poche CORE**
-   - Donne des consignes d'achats limites sur les replis techniques pour renforcer progressivement tes convictions Core (ex. SOL, NEAR, ONDO, PENDLE) sur OKX/Kraken avec les USDC/EUR générés.
+3. **Étape 3 : Plan de Déploiement DCA sur la Poche CORE & Opportunités**
+   - Donne des consignes d'achats limites sur les replis techniques pour renforcer progressivement tes convictions Core (ex. SOL, NEAR, ONDO, PENDLE, SUI) ou profiter d'opportunités de Short Squeeze identifiées dans la microstructure sur OKX/Kraken.
 
 Rédige sous forme de checklist d'exécution avec du gras, des montants précis et des noms d'exchanges."""
-
-        preset_context += f"\n\nDONNÉES RSI MULTI-TIMEFRAME (COINGLASS HEATMAP) :\n{rsi_summary_text}\n"
-        preset_context += (
-            "\nCONSIGNE RISQUE RSI : Ne jamais recommander d'achat sur un actif dont le"
-            " RSI 4h est > 70. Privilégier les entrées sur des tokens dont le RSI 15m"
-            " sort de zone de survente (< 35)."
-        )
 
   st.markdown("---")
 
@@ -1980,14 +2142,21 @@ Rédige sous forme de checklist d'exécution avec du gras, des montants précis 
     if not preset_context:
       current_positions = get_open_positions()
       current_cash = get_cached_verified_cash()
+      current_balances = get_cached_crypto_balances()
+      tech_micro_block = build_market_tech_micro_context(
+          open_pos=current_positions, balances=current_balances
+      )
       preset_context = f"""Tu es un trader crypto expert, analytique et pédagogue, spécialisé en altcoins, stratégie Moonbag et gestion du risque.
 L'utilisateur te consulte sur son cockpit web personnel. 
-Données de son portefeuille actuel :
+
+DONNÉES DU PORTEFEUILLE ACTUEL :
 - Positions ouvertes en BDD : {current_positions}
 - Cash & Liquidités : {current_cash}
 - Devise active : {curr_label}
 
-Réponds de manière professionnelle, structurée, concrète et percutante."""
+{tech_micro_block}
+
+Réponds de manière professionnelle, structurée, concrète et percutante en prenant en compte la situation globale du portefeuille, l'analyse technique RSI et la microstructure du marché (Funding Rates & Open Interest)."""
 
     with st.chat_message("assistant"):
       with st.spinner("Analyse des marchés et génération du rapport..."):
