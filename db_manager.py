@@ -59,6 +59,10 @@ def init_db():
     cursor.execute(
         "ALTER TABLE speculative_trades ADD COLUMN step TEXT DEFAULT 'ENTRY'"
     )
+  if "auto_tp_sl" not in columns:
+    cursor.execute(
+        "ALTER TABLE speculative_trades ADD COLUMN auto_tp_sl INTEGER DEFAULT 0"
+    )
 
   # Table des trades manuels ignorés ou classés CORE
   cursor.execute("""
@@ -93,6 +97,30 @@ def init_db():
 
   conn.commit()
   conn.close()
+
+
+def toggle_auto_tp_sl(trade_id, status):
+  """Active (1) ou désactive (0) la gestion automatique TP/SL par l'IA pour une position."""
+  conn = sqlite3.connect(DB_PATH)
+  cursor = conn.cursor()
+  cursor.execute(
+      "UPDATE speculative_trades SET auto_tp_sl = ? WHERE id = ?",
+      (1 if status else 0, trade_id),
+  )
+  conn.commit()
+  conn.close()
+
+
+def get_auto_tp_sl_status():
+  """Retourne un dictionnaire {trade_id: auto_tp_sl_bool} pour toutes les positions ouvertes."""
+  conn = sqlite3.connect(DB_PATH)
+  cursor = conn.cursor()
+  cursor.execute(
+      "SELECT id, auto_tp_sl FROM speculative_trades WHERE status = 'OPEN'"
+  )
+  rows = cursor.fetchall()
+  conn.close()
+  return {row[0]: bool(row[1]) for row in rows}
 
 
 def add_recommendation(
@@ -216,7 +244,6 @@ def close_trade(rec_id, exit_price=None, close_reason="MANUAL"):
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
 
-  # Récupération des informations du trade avant fermeture
   cursor.execute(
       """
         SELECT symbol, exchange, price_entry, amount_eur, taken_at 
@@ -228,9 +255,7 @@ def close_trade(rec_id, exit_price=None, close_reason="MANUAL"):
 
   if row:
     sym, exch, entry_p, amt_e, taken_at = row
-    final_exit_p = (
-        exit_price if exit_price is not None else (entry_p or 0.0)
-    )  # Défaut au prix d'entrée si non fourni
+    final_exit_p = exit_price if exit_price is not None else (entry_p or 0.0)
     archive_closed_trade(
         trade_id=rec_id,
         symbol=sym,

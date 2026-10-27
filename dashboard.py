@@ -12,12 +12,15 @@ import streamlit as st
 
 from db_manager import (
     close_trade,
+    get_auto_tp_sl_status,
+    get_closed_trades_history,
     get_open_positions,
     init_db,
     mark_trade_ignored,
     mark_trade_taken,
     merge_duplicate_trades,
     set_trade_break_even,
+    toggle_auto_tp_sl,
     update_trade_amount,
     update_trade_levels,
 )
@@ -66,6 +69,15 @@ try:
   RSI_ENGINE_AVAILABLE = True
 except ImportError:
   RSI_ENGINE_AVAILABLE = False
+
+
+# Import du moteur d'auto-ajustement TP/SL
+try:
+  from auto_tpsl_engine import run_auto_tpsl_cycle
+
+  AUTO_TPSL_AVAILABLE = True
+except ImportError:
+  AUTO_TPSL_AVAILABLE = False
 
 
 def call_gemini_with_fallback(
@@ -485,6 +497,7 @@ with tab_live:
         """)
 
   positions = get_open_positions()
+  auto_tpsl_map = get_auto_tp_sl_status()
 
   enriched_positions = []
   total_current_market_value = 0.0
@@ -505,6 +518,7 @@ with tab_live:
       tp1_eur = float(p[5]) if len(p) > 5 and p[5] is not None else 0.0
       sl_eur = float(p[7]) if len(p) > 7 and p[7] is not None else 0.0
       step_val = p[9] if len(p) > 9 and p[9] is not None else "ENTRY"
+      is_auto = auto_tpsl_map.get(pos_id, False)
 
       total_invested_base += amount_eur
 
@@ -539,6 +553,7 @@ with tab_live:
 
       enriched_positions.append({
           "ID": pos_id,
+          "Mode": "🤖 Auto IA" if is_auto else "👤 Manuel",
           "Symbole": sym,
           "Exchange": exch,
           "Prix Entrée": entry_eur * curr_multiplier,
@@ -915,7 +930,7 @@ with tab_live:
           st.markdown(
               f"""
                     <div style="padding: 15px; border-radius: 10px; border: 1px solid #303030; margin-bottom: 10px; background-color: #1e1e1e;">
-                        <h4 style="margin: 0; color: #00ffcc;">{row['Symbole']} <span style="font-size: 12px; color: #888;">({row['Exchange']})</span> — <span style="color: {pnl_color};">{row['Statut']}</span></h4>
+                        <h4 style="margin: 0; color: #00ffcc;">{row['Symbole']} <span style="font-size: 12px; color: #888;">({row['Exchange']})</span> — <span style="color: #00ffcc;">[{row['Mode']}]</span> — <span style="color: {pnl_color};">{row['Statut']}</span></h4>
                         <p style="margin: 5px 0 0 0; font-size: 14px;">
                             <b>Valeur :</b> {row['Valeur Actuelle']:,.2f} {curr_symbol} | <b>PnL :</b> <span style="color: {pnl_color};">{row['PnL (%)']:+.2f}% ({row['PnL (€/$)']:+,.2f} {curr_symbol})</span><br>
                             <b>Prix Actuel :</b> {row['Prix Actuel']:.4f} {curr_symbol} (Entrée : {row['Prix Entrée']:.4f})<br>
@@ -929,10 +944,11 @@ with tab_live:
     st.markdown("---")
     st.subheader("⚡ Actions & Gestion Dynamique des Positions")
 
-    act_tab1, act_tab2, act_tab3, act_tab4 = st.tabs([
+    act_tab1, act_tab2, act_tab3, act_tab4, act_tab5 = st.tabs([
         "🔒 Clôture de Position",
         "🛡️ Passage en Break-Even (1-Click)",
         "✏️ Édition & Raccourcis SL/TP",
+        "🤖 Mode Auto TP/SL (IA)",
         "🔀 Consolidation de Doublons",
     ])
 
@@ -1079,6 +1095,64 @@ with tab_live:
         st.rerun()
 
     with act_tab4:
+      st.markdown(
+          "**Activer / Désactiver la gestion automatique TP/SL par l'IA**"
+          " pour chaque position :"
+      )
+      selected_auto_id = st.selectbox(
+          "Position à modifier",
+          options=df_pos["ID"].tolist(),
+          format_func=lambda x: (
+              f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
+              f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]}) | Mode"
+              f" actuel : {df_pos[df_pos['ID'] == x]['Mode'].values[0]}"
+          ),
+          key="auto_select",
+      )
+      auto_row = df_pos[df_pos["ID"] == selected_auto_id].iloc[0]
+      is_currently_auto = "Auto IA" in str(auto_row["Mode"])
+
+      a_col1, a_col2 = st.columns(2)
+      with a_col1:
+        if st.button(
+            "🤖 Activer le mode Auto IA",
+            type="primary",
+            disabled=is_currently_auto,
+            key="btn_enable_auto",
+        ):
+          toggle_auto_tp_sl(selected_auto_id, True)
+          st.cache_data.clear()
+          send_telegram_notify(
+              f"🤖 *MODE AUTO TP/SL ACTIVÉ VIA WEB*\n•"
+              f" **{auto_row['Symbole']}** (ID {selected_auto_id}) est désormais"
+              " géré automatiquement par l'IA."
+          )
+          st.success(
+              f"✅ Position ID {selected_auto_id} ({auto_row['Symbole']})"
+              " passée en mode Auto IA !"
+          )
+          st.rerun()
+      with a_col2:
+        if st.button(
+            "👤 Repasser en Gestion Manuelle",
+            type="secondary",
+            disabled=not is_currently_auto,
+            key="btn_disable_auto",
+        ):
+          toggle_auto_tp_sl(selected_auto_id, False)
+          st.cache_data.clear()
+          send_telegram_notify(
+              f"👤 *MODE AUTO TP/SL DÉSACTIVÉ VIA WEB*\n•"
+              f" **{auto_row['Symbole']}** (ID {selected_auto_id}) repasse en"
+              " gestion manuelle."
+          )
+          st.info(
+              f"ℹ️ Position ID {selected_auto_id} ({auto_row['Symbole']})"
+              " repassée en gestion manuelle."
+          )
+          st.rerun()
+
+    with act_tab5:
       st.markdown(
           "**Fusionner deux lignes du même actif sur un même exchange** en une"
           " seule position avec PRU pondéré."
@@ -1796,6 +1870,40 @@ with tab_ai:
   st.markdown(
       "Discutez en direct ou lancez une analyse pré-configurée en 1 clic :"
   )
+
+  if AUTO_TPSL_AVAILABLE:
+    st.markdown("##### ⚡ Gestion Automatique des Paliers TP/SL (IA)")
+    col_auto1, col_auto2 = st.columns([2, 3])
+    with col_auto1:
+      if st.button(
+          "🤖 Lancer le Recalibrage Auto TP/SL (IA)",
+          type="primary",
+          use_container_width=True,
+      ):
+        with st.spinner("Analyse du marché et recalibrage des positions Auto..."):
+          res_tpsl = run_auto_tpsl_cycle(manual_trigger=True)
+          if res_tpsl["updated_count"] > 0:
+            st.success(
+                f"✅ {res_tpsl['updated_count']} position(s) mise(s) à jour par l'IA !"
+            )
+            for log_entry in res_tpsl["logs"]:
+              st.write(log_entry)
+            st.cache_data.clear()
+            st.rerun()
+          else:
+            st.info(
+                "ℹ️ Aucune modification nécessaire par l'IA ou aucune position"
+                " en mode Auto."
+            )
+            for log_entry in res_tpsl["logs"]:
+              st.write(log_entry)
+    with col_auto2:
+      st.caption(
+          "💡 Le recalibrage s'exécute automatiquement toutes les 8h (lors des"
+          " clôtures de Funding Rate). Vous pouvez également forcer un cycle"
+          " à tout moment ci-contre."
+      )
+    st.markdown("---")
 
   st.markdown("##### ⚡ Prompts Rapides & Analyses en 1 Clic")
   col_p1, col_p2, col_p3, col_p4 = st.columns(4)
