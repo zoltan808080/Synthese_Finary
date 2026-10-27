@@ -78,6 +78,7 @@ def call_gemini_with_fallback(
   """Exécute une requête Gemini avec bascule automatique sur les modèles de secours en cas d'indisponibilité."""
   if models is None:
     models = [
+        "gemini-4-argon",
         "gemini-3.8-flash",
         "gemini-3.7-flash",
         "gemini-3.6-flash",
@@ -2213,6 +2214,7 @@ Réponds de manière professionnelle, structurée, concrète et percutante en pr
           client = genai.Client(api_key=GEMINI_API_KEY)
 
           preferred_models = [
+              "gemini-4-argon",
               "gemini-3.8-flash",
               "gemini-3.7-flash",
               "gemini-3.6-flash",
