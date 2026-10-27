@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 from google import genai
 import pandas as pd
@@ -276,6 +277,8 @@ st.set_page_config(
 def fetch_live_price_cached(sym, exch, eur_usd_rate):
   """Récupère le prix en direct avec un cache de 60s pour éviter la latence réseau."""
   clean_sym = str(sym).upper().replace("USDT", "").replace("EUR", "").strip()
+  if clean_sym in ["EUR", "USD"]:
+    return 1.0 if clean_sym == "EUR" else (1.0 / eur_usd_rate)
   price = None
   try:
     res_okx = requests.get(
@@ -286,7 +289,8 @@ def fetch_live_price_cached(sym, exch, eur_usd_rate):
       data_okx = res_okx.json().get("data", [])
       if data_okx:
         price_usdt = float(data_okx[0].get("last", 0))
-        price = price_usdt / eur_usd_rate
+        if price_usdt > 0:
+          price = price_usdt / eur_usd_rate
   except Exception:
     pass
 
@@ -308,6 +312,27 @@ def fetch_live_price_cached(sym, exch, eur_usd_rate):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_bulk_live_prices(symbols_tuple, eur_usd_rate):
+  """Récupère les prix en direct en parallèle (ThreadPool) pour accélérer le chargement."""
+  symbols_list = list(symbols_tuple)
+  prices = {}
+  if not symbols_list:
+    return prices
+  with ThreadPoolExecutor(max_workers=min(12, len(symbols_list))) as executor:
+    future_to_sym = {
+        executor.submit(fetch_live_price_cached, sym, "", eur_usd_rate): sym
+        for sym in symbols_list
+    }
+    for future in as_completed(future_to_sym):
+      sym = future_to_sym[future]
+      try:
+        prices[sym] = future.result()
+      except Exception:
+        prices[sym] = None
+  return prices
+
+
 def get_cached_crypto_balances():
   return get_all_exchange_crypto_balances()
 
@@ -478,7 +503,41 @@ st.sidebar.info(
 ])
 
 
+# Pre-fetch optimisé des prix en parallèle (Multi-threading)
+active_symbols_set = set()
+try:
+  _open_pos_pre = get_open_positions()
+  if _open_pos_pre:
+    for _p in _open_pos_pre:
+      if len(_p) > 1 and _p[1]:
+        active_symbols_set.add(
+            str(_p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
+        )
+except Exception:
+  pass
+
+try:
+  _balances_pre = get_cached_crypto_balances()
+  if _balances_pre:
+    for _asset in _balances_pre.keys():
+      if _asset not in ["USDT", "USDC", "EUR", "USD"]:
+        active_symbols_set.add(str(_asset).upper().strip())
+except Exception:
+  pass
+
+_bulk_prices_map = (
+    fetch_bulk_live_prices(tuple(sorted(list(active_symbols_set))), eur_usd_rate)
+    if active_symbols_set
+    else {}
+)
+
+
 def fetch_live_price(sym, exch):
+  clean_sym = str(sym).upper().replace("USDT", "").replace("EUR", "").strip()
+  if clean_sym in ["EUR", "USD"]:
+    return 1.0 if clean_sym == "EUR" else (1.0 / eur_usd_rate)
+  if clean_sym in _bulk_prices_map and _bulk_prices_map[clean_sym] is not None:
+    return _bulk_prices_map[clean_sym]
   return fetch_live_price_cached(sym, exch, eur_usd_rate)
 
 
