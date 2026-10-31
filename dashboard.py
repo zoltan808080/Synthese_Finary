@@ -945,293 +945,319 @@ with tab_live:
                         unsafe_allow_html=True,
                     )
 
-    st.markdown("---")
-    st.subheader("⚡ Actions & Gestion Dynamique des Positions")
+        st.markdown("---")
+        st.subheader("⚡ Actions & Gestion Dynamique des Positions")
 
-    act_tab1, act_tab2, act_tab3, act_tab4, act_tab5 = st.tabs([
-        "🔒 Clôture de Position",
-        "🛡️ Passage en Break-Even (1-Click)",
-        "✏️ Édition & Raccourcis SL/TP",
-        "🤖 Mode Auto TP/SL (IA)",
-        "🔀 Consolidation de Doublons",
-    ])
+        act_tab1, act_tab2, act_tab3, act_tab4, act_tab5 = st.tabs([
+            "🔒 Clôture de Position",
+            "🛡️ Passage en Break-Even (1-Click)",
+            "✏️ Édition & Raccourcis SL/TP",
+            "🤖 Mode Auto TP/SL (IA)",
+            "🔀 Consolidation de Doublons",
+        ])
 
-    with act_tab1:
-        c_col1, c_col2 = st.columns([2, 1])
-        with c_col1:
-            selected_close_id = st.selectbox(
-                "Position à clôturer",
+        with act_tab1:
+            c_col1, c_col2 = st.columns([2, 1])
+            with c_col1:
+                selected_close_id = st.selectbox(
+                    "Position à clôturer",
+                    options=df_pos["ID"].tolist(),
+                    format_func=lambda x: (
+                        f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
+                        f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]})"
+                    ),
+                    key="close_select",
+                )
+            with c_col2:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("🔒 Clôturer la position", type="secondary"):
+                    close_sym = df_pos[df_pos["ID"] == selected_close_id][
+                        "Symbole"
+                    ].values[0]
+                    close_trade(selected_close_id)
+                    st.cache_data.clear()
+                    send_telegram_notify(
+                        f"🔒 *POSITION CLÔTURÉE VIA DASHBOARD*\n• **{close_sym}** (ID"
+                        f" {selected_close_id}) a été fermée en base de données."
+                    )
+                    st.success(f"Position ID {selected_close_id} clôturée en BDD !")
+                    st.rerun()
+
+        with act_tab2:
+            st.markdown(
+                "**Caler le Stop-Loss sur le Prix d'Entrée** pour éliminer 100% du"
+                " risque sur une position en gain."
+            )
+            be_col1, be_col2 = st.columns([2, 1])
+            with be_col1:
+                selected_be_id = st.selectbox(
+                    "Position à sécuriser (Break-Even)",
+                    options=df_pos["ID"].tolist(),
+                    format_func=lambda x: (
+                        f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]} |"
+                        f" Entrée:"
+                        f" {df_pos[df_pos['ID'] == x]['Prix Entrée'].values[0]} | PnL:"
+                        f" {df_pos[df_pos['ID'] == x]['PnL (%)'].values[0]}"
+                    ),
+                    key="be_select",
+                )
+            with be_col2:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("🛡️ Passer en Break-Even", type="primary"):
+                    be_row = df_pos[df_pos["ID"] == selected_be_id].iloc[0]
+                    set_trade_break_even(selected_be_id)
+                    st.cache_data.clear()
+                    send_telegram_notify(
+                        f"🛡️ *POSITION SÉCURISÉE (BREAK-EVEN)*\n•"
+                        f" **{be_row['Symbole']}** (ID {selected_be_id})\n• Nouveau SL"
+                        f" calé sur prix d'entrée : *{be_row['Prix Entrée']}*"
+                    )
+                    st.success(
+                        f"✅ Stop-Loss de la position ID {selected_be_id} ajusté au prix"
+                        " d'entrée !"
+                    )
+                    st.rerun()
+
+        with act_tab3:
+            st.markdown(
+                "**Ajuster manuellement ou via les raccourcis (-10%, -15%, -20%) les"
+                " paliers TP / SL**"
+            )
+            selected_edit_id = st.selectbox(
+                "Position à modifier",
                 options=df_pos["ID"].tolist(),
                 format_func=lambda x: (
                     f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
                     f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]})"
                 ),
-                key="close_select",
+                key="edit_select",
             )
-        with c_col2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🔒 Clôturer la position", type="secondary"):
-                close_sym = df_pos[df_pos["ID"] == selected_close_id][
-                    "Symbole"
-                ].values[0]
-                close_trade(selected_close_id)
-                st.cache_data.clear()
-                send_telegram_notify(
-                    f"🔒 *POSITION CLÔTURÉE VIA DASHBOARD*\n• **{close_sym}** (ID"
-                    f" {selected_close_id}) a été fermée en base de données."
+
+            curr_row = df_pos[df_pos["ID"] == selected_edit_id].iloc[0]
+            raw_entry = curr_row["Prix Entrée"]
+            raw_tp1 = curr_row["TP1"]
+            raw_sl = curr_row["Stop-Loss"]
+
+            state_key = f"preset_sl_val_{selected_edit_id}"
+            if state_key not in st.session_state:
+                st.session_state[state_key] = (
+                    float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70)
                 )
-                st.success(f"Position ID {selected_close_id} clôturée en BDD !")
+
+            st.markdown(
+                "**⚡ Raccourcis de calcul SL rapide (par rapport au prix d'entrée)"
+                " :**"
+            )
+            r_c1, r_c2, r_c3, r_c4 = st.columns(4)
+
+            if r_c1.button("-10% (Resserré)", key="btn_sl_10"):
+                st.session_state[state_key] = float(raw_entry * 0.90)
+                st.rerun()
+            if r_c2.button("-15% (Standard)", key="btn_sl_15"):
+                st.session_state[state_key] = float(raw_entry * 0.85)
+                st.rerun()
+            if r_c3.button("-20% (Modéré)", key="btn_sl_20"):
+                st.session_state[state_key] = float(raw_entry * 0.80)
+                st.rerun()
+            if r_c4.button("-30% (Large)", key="btn_sl_30"):
+                st.session_state[state_key] = float(raw_entry * 0.70)
                 st.rerun()
 
-    with act_tab2:
-        st.markdown(
-            "**Caler le Stop-Loss sur le Prix d'Entrée** pour éliminer 100% du"
-            " risque sur une position en gain."
-        )
-        be_col1, be_col2 = st.columns([2, 1])
-        with be_col1:
-            selected_be_id = st.selectbox(
-                "Position à sécuriser (Break-Even)",
+            e_col1, e_col2, e_col3 = st.columns(3)
+            with e_col1:
+                new_tp1 = st.number_input(
+                    f"Nouveau TP1 ({curr_symbol})",
+                    value=float(raw_tp1) if raw_tp1 > 0 else float(raw_entry * 2.0),
+                    format="%.4f",
+                    key=f"input_tp1_{selected_edit_id}",
+                )
+            with e_col2:
+                new_tp2 = st.number_input(
+                    f"Nouveau TP2 ({curr_symbol})",
+                    value=float(raw_entry * 4.0),
+                    format="%.4f",
+                    key=f"input_tp2_{selected_edit_id}",
+                )
+            with e_col3:
+                new_sl = st.number_input(
+                    f"Nouveau Stop-Loss ({curr_symbol})",
+                    value=st.session_state[state_key],
+                    format="%.4f",
+                    key=f"input_sl_field_{selected_edit_id}",
+                )
+
+            if st.button("💾 Enregistrer les nouveaux paliers"):
+                update_trade_levels(
+                    selected_edit_id,
+                    tp1_price=new_tp1 / curr_multiplier,
+                    tp2_price=new_tp2 / curr_multiplier,
+                    sl_price=new_sl / curr_multiplier,
+                )
+
+                if state_key in st.session_state:
+                    del st.session_state[state_key]
+
+                st.cache_data.clear()
+                send_telegram_notify(
+                    f"✏️ *PALIERS MIS À JOUR VIA DASHBOARD*\n•"
+                    f" **{curr_row['Symbole']}** (ID {selected_edit_id})\n• Nouveau TP1"
+                    f" : {new_tp1:.4f} {curr_symbol}\n• Nouveau SL : {new_sl:.4f}"
+                    f" {curr_symbol}"
+                )
+                st.success(
+                    f"✅ Paliers mis à jour pour {curr_row['Symbole']} (ID"
+                    f" {selected_edit_id}) !"
+                )
+                st.rerun()
+
+        with act_tab4:
+            st.markdown(
+                "**Activer / Désactiver la gestion automatique TP/SL par l'IA**"
+                " pour chaque position :"
+            )
+            selected_auto_id = st.selectbox(
+                "Position à modifier",
                 options=df_pos["ID"].tolist(),
                 format_func=lambda x: (
-                    f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]} |"
-                    f" Entrée:"
-                    f" {df_pos[df_pos['ID'] == x]['Prix Entrée'].values[0]} | PnL:"
-                    f" {df_pos[df_pos['ID'] == x]['PnL (%)'].values[0]}"
+                    f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
+                    f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]}) | Mode"
+                    f" actuel : {df_pos[df_pos['ID'] == x]['Mode'].values[0]}"
                 ),
-                key="be_select",
+                key="auto_select",
             )
-        with be_col2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🛡️ Passer en Break-Even", type="primary"):
-                be_row = df_pos[df_pos["ID"] == selected_be_id].iloc[0]
-                set_trade_break_even(selected_be_id)
-                st.cache_data.clear()
-                send_telegram_notify(
-                    f"🛡️ *POSITION SÉCURISÉE (BREAK-EVEN)*\n•"
-                    f" **{be_row['Symbole']}** (ID {selected_be_id})\n• Nouveau SL"
-                    f" calé sur prix d'entrée : *{be_row['Prix Entrée']}*"
-                )
-                st.success(
-                    f"✅ Stop-Loss de la position ID {selected_be_id} ajusté au prix"
-                    " d'entrée !"
-                )
-                st.rerun()
+            auto_row = df_pos[df_pos["ID"] == selected_auto_id].iloc[0]
+            is_currently_auto = "Auto IA" in str(auto_row["Mode"])
 
-    with act_tab3:
-        st.markdown(
-            "**Ajuster manuellement ou via les raccourcis (-10%, -15%, -20%) les"
-            " paliers TP / SL**"
-        )
-        selected_edit_id = st.selectbox(
-            "Position à modifier",
-            options=df_pos["ID"].tolist(),
-            format_func=lambda x: (
-                f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
-                f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]})"
-            ),
-            key="edit_select",
-        )
-
-        curr_row = df_pos[df_pos["ID"] == selected_edit_id].iloc[0]
-        raw_entry = curr_row["Prix Entrée"]
-        raw_tp1 = curr_row["TP1"]
-        raw_sl = curr_row["Stop-Loss"]
-
-        state_key = f"preset_sl_val_{selected_edit_id}"
-        if state_key not in st.session_state:
-            st.session_state[state_key] = (
-                float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70)
-            )
-
-        st.markdown(
-            "**⚡ Raccourcis de calcul SL rapide (par rapport au prix d'entrée)"
-            " :**"
-        )
-        r_c1, r_c2, r_c3, r_c4 = st.columns(4)
-
-        if r_c1.button("-10% (Resserré)", key="btn_sl_10"):
-            st.session_state[state_key] = float(raw_entry * 0.90)
-            st.rerun()
-        if r_c2.button("-15% (Standard)", key="btn_sl_15"):
-            st.session_state[state_key] = float(raw_entry * 0.85)
-            st.rerun()
-        if r_c3.button("-20% (Modéré)", key="btn_sl_20"):
-            st.session_state[state_key] = float(raw_entry * 0.80)
-            st.rerun()
-        if r_c4.button("-30% (Large)", key="btn_sl_30"):
-            st.session_state[state_key] = float(raw_entry * 0.70)
-            st.rerun()
-
-        e_col1, e_col2, e_col3 = st.columns(3)
-        with e_col1:
-            new_tp1 = st.number_input(
-                f"Nouveau TP1 ({curr_symbol})",
-                value=float(raw_tp1) if raw_tp1 > 0 else float(raw_entry * 2.0),
-                format="%.4f",
-                key=f"input_tp1_{selected_edit_id}",
-            )
-        with e_col2:
-            new_tp2 = st.number_input(
-                f"Nouveau TP2 ({curr_symbol})",
-                value=float(raw_entry * 4.0),
-                format="%.4f",
-                key=f"input_tp2_{selected_edit_id}",
-            )
-        with e_col3:
-            new_sl = st.number_input(
-                f"Nouveau Stop-Loss ({curr_symbol})",
-                value=st.session_state[state_key],
-                format="%.4f",
-                key=f"input_sl_field_{selected_edit_id}",
-            )
-
-        if st.button("💾 Enregistrer les nouveaux paliers"):
-            update_trade_levels(
-                selected_edit_id,
-                tp1_price=new_tp1 / curr_multiplier,
-                tp2_price=new_tp2 / curr_multiplier,
-                sl_price=new_sl / curr_multiplier,
-            )
-
-            if state_key in st.session_state:
-                del st.session_state[state_key]
-
-            st.cache_data.clear()
-            send_telegram_notify(
-                f"✏️ *PALIERS MIS À JOUR VIA DASHBOARD*\n•"
-                f" **{curr_row['Symbole']}** (ID {selected_edit_id})\n• Nouveau TP1"
-                f" : {new_tp1:.4f} {curr_symbol}\n• Nouveau SL : {new_sl:.4f}"
-                f" {curr_symbol}"
-            )
-            st.success(
-                f"✅ Paliers mis à jour pour {curr_row['Symbole']} (ID"
-                f" {selected_edit_id}) !"
-            )
-            st.rerun()
-
-    with act_tab4:
-        st.markdown(
-            "**Activer / Désactiver la gestion automatique TP/SL par l'IA**"
-            " pour chaque position :"
-        )
-        selected_auto_id = st.selectbox(
-            "Position à modifier",
-            options=df_pos["ID"].tolist(),
-            format_func=lambda x: (
-                f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
-                f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]}) | Mode"
-                f" actuel : {df_pos[df_pos['ID'] == x]['Mode'].values[0]}"
-            ),
-            key="auto_select",
-        )
-        auto_row = df_pos[df_pos["ID"] == selected_auto_id].iloc[0]
-        is_currently_auto = "Auto IA" in str(auto_row["Mode"])
-
-        a_col1, a_col2 = st.columns(2)
-        with a_col1:
-            if st.button(
-                "🤖 Activer le mode Auto IA",
-                type="primary",
-                disabled=is_currently_auto,
-                key="btn_enable_auto",
-            ):
-                toggle_auto_tp_sl(selected_auto_id, True)
-                st.cache_data.clear()
-                send_telegram_notify(
-                    f"🤖 *MODE AUTO TP/SL ACTIVÉ VIA WEB*\n•"
-                    f" **{auto_row['Symbole']}** (ID {selected_auto_id}) est désormais"
-                    " géré automatiquement par l'IA."
-                )
-                st.success(
-                    f"✅ Position ID {selected_auto_id} ({auto_row['Symbole']})"
-                    " passée en mode Auto IA !"
-                )
-                st.rerun()
-        with a_col2:
-            if st.button(
-                "👤 Repasser en Gestion Manuelle",
-                type="secondary",
-                disabled=not is_currently_auto,
-                key="btn_disable_auto",
-            ):
-                toggle_auto_tp_sl(selected_auto_id, False)
-                st.cache_data.clear()
-                send_telegram_notify(
-                    f"👤 *MODE AUTO TP/SL DÉSACTIVÉ VIA WEB*\n•"
-                    f" **{auto_row['Symbole']}** (ID {selected_auto_id}) repasse en"
-                    " gestion manuelle."
-                )
-                st.info(
-                    f"ℹ️ Position ID {selected_auto_id} ({auto_row['Symbole']})"
-                    " repassée en gestion manuelle."
-                )
-                st.rerun()
-
-    with act_tab5:
-        st.markdown(
-            "**Fusionner deux lignes du même actif sur un même exchange** en une"
-            " seule position avec PRU pondéré."
-        )
-
-        duplicates = df_pos.groupby(["Symbole", "Exchange"]).filter(
-            lambda x: len(x) > 1
-        )
-
-        if not duplicates.empty:
-            st.warning("⚠️ Doublon(s) de position détecté(s) !")
-            dup_symbols = duplicates["Symbole"].unique()
-
-            for d_sym in dup_symbols:
-                sub_dup = duplicates[duplicates["Symbole"] == d_sym]
-                ids = sub_dup["ID"].tolist()
-                primary_id = ids[0]
-                secondary_id = ids[1]
-
-                st.markdown(
-                    f"• **{d_sym} ({sub_dup['Exchange'].values[0]})** : Ligne"
-                    f" principale ID **{primary_id}** & Secondaire ID"
-                    f" **{secondary_id}**"
-                )
-
+            a_col1, a_col2 = st.columns(2)
+            with a_col1:
                 if st.button(
-                    f"🔀 Fusionner les lignes {d_sym} (ID {primary_id} + ID"
-                    f" {secondary_id})",
-                    key=f"merge_btn_{d_sym}",
+                    "🤖 Activer le mode Auto IA",
+                    type="primary",
+                    disabled=is_currently_auto,
+                    key="btn_enable_auto",
                 ):
-                    if merge_duplicate_trades(primary_id, secondary_id):
-                        st.cache_data.clear()
-                        send_telegram_notify(
-                            f"🔀 *FUSION DE DOUBLONS EFFECTUÉE*\n• **{d_sym}** : Lignes"
-                            f" ID {secondary_id} fusionnée dans ID {primary_id}.\n•"
-                            " PRU et volumes consolidés avec succès."
-                        )
-                        st.success(f"✅ Positions {d_sym} fusionnées avec succès !")
-                        st.rerun()
-        else:
-            st.info(
-                "✅ Aucun doublon de position actuellement dans le portefeuille."
+                    toggle_auto_tp_sl(selected_auto_id, True)
+                    st.cache_data.clear()
+                    send_telegram_notify(
+                        f"🤖 *MODE AUTO TP/SL ACTIVÉ VIA WEB*\n•"
+                        f" **{auto_row['Symbole']}** (ID {selected_auto_id}) est désormais"
+                        " géré automatiquement par l'IA."
+                    )
+                    st.success(
+                        f"✅ Position ID {selected_auto_id} ({auto_row['Symbole']})"
+                        " passée en mode Auto IA !"
+                    )
+                    st.rerun()
+            with a_col2:
+                if st.button(
+                    "👤 Repasser en Gestion Manuelle",
+                    type="secondary",
+                    disabled=not is_currently_auto,
+                    key="btn_disable_auto",
+                ):
+                    toggle_auto_tp_sl(selected_auto_id, False)
+                    st.cache_data.clear()
+                    send_telegram_notify(
+                        f"👤 *MODE AUTO TP/SL DÉSACTIVÉ VIA WEB*\n•"
+                        f" **{auto_row['Symbole']}** (ID {selected_auto_id}) repasse en"
+                        " gestion manuelle."
+                    )
+                    st.info(
+                        f"ℹ️ Position ID {selected_auto_id} ({auto_row['Symbole']})"
+                        " repassée en gestion manuelle."
+                    )
+                    st.rerun()
+
+        with act_tab5:
+            st.markdown(
+                "**Fusionner deux lignes du même actif sur un même exchange** en une"
+                " seule position avec PRU pondéré."
             )
 
-  else:
-    st.info("Aucune position active trouvée.")
+            duplicates = df_pos.groupby(["Symbole", "Exchange"]).filter(
+                lambda x: len(x) > 1
+            )
 
-  st.markdown("---")
-  with st.expander(
-      "📋 Journal & Historique des Positions Clôturées", expanded=False
-  ):
-    closed_history = get_closed_trades_history()
+            if not duplicates.empty:
+                st.warning("⚠️ Doublon(s) de position détecté(s) !")
+                dup_symbols = duplicates["Symbole"].unique()
 
-    if not closed_history:
-        st.info(
-            "Aucune position clôturée enregistrée dans l'historique pour le"
-            " moment."
-        )
+                for d_sym in dup_symbols:
+                    sub_dup = duplicates[duplicates["Symbole"] == d_sym]
+                    ids = sub_dup["ID"].tolist()
+                    primary_id = ids[0]
+                    secondary_id = ids[1]
+
+                    st.markdown(
+                        f"• **{d_sym} ({sub_dup['Exchange'].values[0]})** : Ligne"
+                        f" principale ID **{primary_id}** & Secondaire ID"
+                        f" **{secondary_id}**"
+                    )
+
+                    if st.button(
+                        f"🔀 Fusionner les lignes {d_sym} (ID {primary_id} + ID"
+                        f" {secondary_id})",
+                        key=f"merge_btn_{d_sym}",
+                    ):
+                        if merge_duplicate_trades(primary_id, secondary_id):
+                            st.cache_data.clear()
+                            send_telegram_notify(
+                                f"🔀 *FUSION DE DOUBLONS EFFECTUÉE*\n• **{d_sym}** : Lignes"
+                                f" ID {secondary_id} fusionnée dans ID {primary_id}.\n•"
+                                " PRU et volumes consolidés avec succès."
+                            )
+                            st.success(f"✅ Positions {d_sym} fusionnées avec succès !")
+                            st.rerun()
+            else:
+                st.info(
+                    "✅ Aucun doublon de position actuellement dans le portefeuille."
+                )
+
     else:
-        df_closed = pd.DataFrame(
-            closed_history,
-            columns=[
-                "ID",
+        st.info("Aucune position active trouvée.")
+
+    st.markdown("---")
+    with st.expander(
+        "📋 Journal & Historique des Positions Clôturées", expanded=False
+    ):
+        closed_history = get_closed_trades_history()
+
+        if not closed_history:
+            st.info(
+                "Aucune position clôturée enregistrée dans l'historique pour le"
+                " moment."
+            )
+        else:
+            df_closed = pd.DataFrame(
+                closed_history,
+                columns=[
+                    "ID",
+                    "Symbole",
+                    "Exchange",
+                    "Prix Entrée (€)",
+                    "Prix Sortie (€)",
+                    "Investi (€)",
+                    "PnL (€)",
+                    "PnL (%)",
+                    "Ouverture",
+                    "Clôture",
+                    "Raison",
+                ],
+            )
+
+            total_pnl = df_closed["PnL (€)"].sum()
+            wins = len(df_closed[df_closed["PnL (€)"] >= 0])
+            losses = len(df_closed[df_closed["PnL (€)"] < 0])
+            total_trades = len(df_closed)
+            win_rate = (wins / total_trades * 100.0) if total_trades > 0 else 0.0
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("PnL Cumulé Réalisé", f"{total_pnl:+,.2f} €")
+            m2.metric("Win Rate", f"{win_rate:.1f} %")
+            m3.metric("Ratio W / L", f"{wins}W / {losses}L")
+            m4.metric("Total Clôturés", f"{total_trades}")
+
+            df_display = df_closed[[
                 "Symbole",
                 "Exchange",
                 "Prix Entrée (€)",
@@ -1239,51 +1265,25 @@ with tab_live:
                 "Investi (€)",
                 "PnL (€)",
                 "PnL (%)",
-                "Ouverture",
                 "Clôture",
                 "Raison",
-            ],
-        )
+            ]].copy()
 
-        total_pnl = df_closed["PnL (€)"].sum()
-        wins = len(df_closed[df_closed["PnL (€)"] >= 0])
-        losses = len(df_closed[df_closed["PnL (€)"] < 0])
-        total_trades = len(df_closed)
-        win_rate = (wins / total_trades * 100.0) if total_trades > 0 else 0.0
+            def style_pnl_val(val):
+                if isinstance(val, (int, float)):
+                    color = "#00FF00" if val >= 0 else "#FF4B4B"
+                    return f"color: {color}; font-weight: bold;"
+                return ""
 
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("PnL Cumulé Réalisé", f"{total_pnl:+,.2f} €")
-        m2.metric("Win Rate", f"{win_rate:.1f} %")
-        m3.metric("Ratio W / L", f"{wins}W / {losses}L")
-        m4.metric("Total Clôturés", f"{total_trades}")
+            styled_df = df_display.style.format({
+                "Prix Entrée (€)": "{:.4f} €",
+                "Prix Sortie (€)": "{:.4f} €",
+                "Investi (€)": "{:.2f} €",
+                "PnL (€)": "{:+,.2f} €",
+                "PnL (%)": "{:+.2f} %",
+            }).map(style_pnl_val, subset=["PnL (€)", "PnL (%)"])
 
-        df_display = df_closed[[
-            "Symbole",
-            "Exchange",
-            "Prix Entrée (€)",
-            "Prix Sortie (€)",
-            "Investi (€)",
-            "PnL (€)",
-            "PnL (%)",
-            "Clôture",
-            "Raison",
-        ]].copy()
-
-        def style_pnl_val(val):
-            if isinstance(val, (int, float)):
-                color = "#00FF00" if val >= 0 else "#FF4B4B"
-                return f"color: {color}; font-weight: bold;"
-            return ""
-
-        styled_df = df_display.style.format({
-            "Prix Entrée (€)": "{:.4f} €",
-            "Prix Sortie (€)": "{:.4f} €",
-            "Investi (€)": "{:.2f} €",
-            "PnL (€)": "{:+,.2f} €",
-            "PnL (%)": "{:+.2f} %",
-        }).map(style_pnl_val, subset=["PnL (€)", "PnL (%)"])
-
-        st.dataframe(styled_df, use_container_width=True)
+            st.dataframe(styled_df, use_container_width=True)
 
 
 # ==========================================

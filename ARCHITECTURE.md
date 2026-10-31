@@ -13,8 +13,10 @@ Le **Cockpit Crypto & Moonbag** est une plateforme autonome d'agrégation, de r�
 
 ### Principes fondateurs
 * **Source de vérité unique & Journalisation FIFO :** Connexion directe aux API publiques et privées des exchanges (Kraken Spot + Staking `ETH2.S`, OKX Europe/Vercel Proxy, MEXC) et wallets froids (Exodus BTC/ETH). Les positions clôturées sont archivées de manière immuable dans la table SQLite `closed_trades`.
-* **Architecture Prompts SSOT (v3.2) :** Découplage strict entre la logique applicative (Python/Streamlit) et les consignes métier / rôles IA. Les consignes système sont stockées sous forme de fichiers Markdown réutilisables dans le dossier `prompts/` et chargées dynamiquement via `prompt_loader.py`.
-* **Pilotage Dynamique TP/SL par l'IA (v3.1 / v3.2) :** Option d'automatisation individuelle des positions via le moteur `auto_tpsl_engine.py`. Recalibrage automatique des paliers TP1, TP2 et Stop-Loss toutes les 8 h (aligné sur les clôtures de Funding Rates) ou déclenché à la demande via l'IA Gemini.
+* **Architecture Prompts SSOT (v3.2) :** Découplage strict entre la logique applicative (Python/Streamlit) et les consignes métier / rôles IA. Les consignes système sont stockées sous forme de fichiers Markdown réutilisables dans le dossier `prompts/` (`advisor_speculative.md`, `risk_manager.md`, `project_rules.md`, `auto_tpsl.md`) et chargées dynamiquement via `prompt_loader.py`.
+* **Centralisation & Résilience des Appels Gemini (v3.2) :** Wrapper unique `gemini_manager.py` gérant de manière unifiée la liste de priorité des modèles (`gemini-2.5-flash`, `gemini-2.0-flash`, `gemini-1.5-flash`, etc.), la temporisation (timeout), le basculement automatique (*fallback*) en cas d'erreur 429/503 et la traçabilité explicite du modèle réellement utilisé.
+* **Administration Web à Chaud de la Config IA (v3.2) :** Pilotage en direct de la priorité des modèles Gemini et du timeout réseau depuis l'onglet Monitoring du Dashboard Web, sauvegardé dans `config/gemini_config.json`.
+* **Pilotage Dynamique TP/SL par l'IA (v3.1 / v3.2) :** Option d'automatisation individuelle des positions via le moteur `auto_tpsl_engine.py`. Recalibrage automatique des paliers TP1, TP2 et Stop-Loss toutes les 8 h (aligné sur les clôtures de Funding Rates) ou déclenché à la demande via Gemini.
 * **Optimisation Multi-Threading des Prix (v3.2) :** Exécution parallélisée (`ThreadPoolExecutor`) de la récupération des cours sur OKX et Kraken pour éliminer toute latence d'affichage au chargement du Dashboard.
 * **Règle Cash-Neutral strict :** Tout achat spéculatif recommandé par l'IA doit être financé par les liquidités disponibles (Fiat + Stablecoins USDT/USDC) ou par l'arbitrage/vente d'un actif existant dans la limite de son plafond strict en portefeuille.
 * **Analyse Microstructure de Marché :** Évaluation en direct de la surchauffe et de la liquidité globale via les taux de financement (*Funding Rates*) et l'intérêt ouvert (*Open Interest*) pour anticiper les chasses à la liquidité (*Long/Short Squeezes*).
@@ -28,14 +30,16 @@ Le **Cockpit Crypto & Moonbag** est une plateforme autonome d'agrégation, de r�
 
 | Fichier / Dossier | Rôle & Responsabilité | Version |
 | :--- | :--- | :--- |
-| **`dashboard.py`** | **Interface utilisateur Web (Streamlit)** : Cockpit unifié avec positions actives (indicateur de mode `Auto IA` / `Manuel`), parallélisation multi-threading du fetch des prix, chargement des Prompts SSOT (Onglet 5), déclencheur manuel de recalibrage TP/SL par l'IA, journal & historique FIFO, Risk Management, Daily Briefing 19 h, Centre d'Alertes & Réconciliation, Monitoring APIs et Export Fiscal. | `v3.2` |
+| **`dashboard.py`** | **Interface utilisateur Web (Streamlit)** : Cockpit unifié avec positions actives (indicateur de mode `Auto IA` / `Manuel`), parallélisation multi-threading du fetch des prix, assistant IA SSOT (Onglet 5) avec traçabilité du modèle utilisé, administration à chaud de la config Gemini (Onglet 6), déclencheur manuel de recalibrage TP/SL, journal FIFO, Risk Management, Daily Briefing 19 h, Centre d'Alertes/Réconciliation et Export Fiscal. | `v3.2` |
+| **`gemini_manager.py`** | **Connecteur & Wrapper Centralisé Gemini** : Module unique gérant les exécutions d'IA avec bascule de secours (*fallback*), retries, timeouts configurables et traçabilité du modèle ayant répondu. | `v1.0` |
+| **`config/gemini_config.json`** | **Configuration JSON des Modèles IA** : Fichier de stockage centralisé de la liste prioritaire des modèles Gemini et du timeout réseau. | `v1.0` |
 | **`prompt_loader.py`** | **Chargeur SSOT de Prompts System** : Module centralisé d'importation dynamique des instructions d'expertise et règles métier depuis le dossier `prompts/`. | `v1.0` |
-| **`prompts/`** | **Répertoire des Prompts SSOT** : Stockage modulaire des consignes système de référence (`advisor_speculative.md`, `risk_manager.md`, `project_rules.md`). | `v1.0` |
-| **`auto_tpsl_engine.py`** | **Moteur d'Auto-Ajustement TP/SL (IA)** : Analyse périodique (toutes les 8 h) ou manuelle des positions marquées `auto_tp_sl = 1`. Ajuste dynamiquement TP1, TP2 et Stop-Loss selon le RSI, la microstructure (Funding/OI) et les recommandations de Gemini. | `v1.0` |
+| **`prompts/`** | **Répertoire des Prompts SSOT** : Stockage modulaire des consignes système de référence (`advisor_speculative.md`, `risk_manager.md`, `project_rules.md`, `auto_tpsl.md`). | `v1.0` |
+| **`auto_tpsl_engine.py`** | **Moteur d'Auto-Ajustement TP/SL (IA)** : Analyse périodique (toutes les 8 h) ou manuelle des positions marquées `auto_tp_sl = 1`. Ajuste dynamiquement TP1, TP2 et Stop-Loss selon le RSI, la microstructure (Funding/OI) et Gemini via `gemini_manager.py`. | `v3.2` |
 | **`crypto_monitor.py`** | **Sentinelle Proactive 24/7 (Cron /15 min)** : Surveille le cours des positions ouvertes en BDD. Déclenche les alertes Telegram d'urgence (`TP1` x2, `TP2` x4, `Stop-Loss`, `Time-Stop 21j`) et met à jour les étapes en BDD (`ENTRY` ➔ `TP1_DONE`). | `v1.8.5` |
 | **`funding_oi_engine.py`** | **Moteur Microstructure de Marché** : Analyse du Funding Rate et de la variation de l'Open Interest (OI) sur les paires majeures pour détecter les risques de Squeeze et surchauffe de marché. | `v1.0` |
 | **`pnl_engine.py`** | **Moteur PnL FIFO & Metrics** : Calcule le PnL réalisé exact, le Win Rate %, le Profit Factor, les gains/pertes bruts et maintient la rétrocompatibilité 100 % avec `/audit` (`open_positions`). | `v3.0` |
-| **`crypto_speculative_advisor.py`** | **Moteur de Reporting & IA (Daily Briefing 19h)** : Génère le rapport quotidien via Google Gemini en chargeant ses prompts via `prompt_loader.py`, calcule la répartition unifiée des poches et envoie les boutons d'arbitrage Telegram. | `v3.2` |
+| **`crypto_speculative_advisor.py`** | **Moteur de Reporting & IA (Daily Briefing 19h)** : Génère le rapport quotidien via Gemini via `gemini_manager.py`, calcule la répartition unifiée des poches et envoie les boutons d'arbitrage Telegram avec traçabilité du modèle. | `v3.2` |
 | **`reconciliation_engine.py`** | **Moteur d'Audit BDD vs Exchanges** : Agrège les positions par `(Actif, Exchange)` pour éviter les fausses alertes. Détecte les `GHOST_POSITION`, `VOLUME_MISMATCH` et les `MANUAL_TRADE_DETECTED` (< 48h). | `v3.0` |
 | **`exchange_connectors.py`** | **Infra & Ingestion de données** : Connecteur multi-sources (Kraken Spot + Staking, OKX Europe/Proxy, MEXC, Wallets froids Exodus). Fournit les soldes crypto, cash fiat et l'historique d'exécution (`get_all_trades_history`). | `v3.0` |
 | **`db_manager.py`** | **Gestionnaire de Base de Données** : Interface CRUD SQLite pour `crypto_trading.db`. Intègre la migration douce pour `auto_tp_sl` ainsi que les helpers `toggle_auto_tp_sl` et `get_auto_tp_sl_status`. | `v3.1` |
@@ -75,10 +79,16 @@ Le **Cockpit Crypto & Moonbag** est une plateforme autonome d'agrégation, de r�
                          ▼                                                    ▼
               ┌───────────────────────┐                            ┌───────────────────────┐
               │     prompt_loader     │                            │  auto_tpsl_engine.py  │
-              │  (Architecture SSOT)  │                            │(Recalibrage IA 8h)    │
+              │  (Architecture SSOT)  │                            │ (Recalibrage IA 8h)   │
               └───────────┬───────────┘                            └───────────┬───────────┘
                           │                                                    │
                           └──────────────────────┬─────────────────────────────┘
+                                                 │
+                                                 ▼
+                                      ┌───────────────────────┐
+                                      │   gemini_manager.py   │◄─── config/gemini_config.json
+                                      │ (Fallback & Resil.)   │
+                                      └──────────┬────────────┘
                                                  │
                                                  ▼
                                       ┌───────────────────────┐
@@ -113,10 +123,11 @@ Le **Cockpit Crypto & Moonbag** est une plateforme autonome d'agrégation, de r�
 
 ### 💻 Dashboard Web Streamlit (v3.2)
 * **Cockpit Positions Actives** : Ventilation globale du capital, sous-camemberts par poche (Majeures, CORE, Spéculatif), suivi du PRU, de la valeur marché et indicateur de mode par position (`🤖 Auto IA` vs `👤 Manuel`).
-* **Actions & Gestion Dynamique** : Sous-onglets permettant la bascule 1-click du mode `Auto TP/SL (IA)`, la clôture, le passage en Break-Even, l'édition des paliers et la fusion de doublons.
+* **Actions & Gestion Dynamique** : Sous-onglets permettant la bascule 1-click du mode `Auto TP/SL (IA)`, la clôture, le passage en Break-Even, l'édition des paliers (avec persistance de session) et la fusion de doublons.
 * **Journal & Historique des Positions Clôturées (Expander)** : Métriques globales (PnL Cumulé, Win Rate %, Ratio W/L, Total Clôturés) et tableau interactif.
-* **Assistant IA Pro (Onglet 5 — SSOT v3.2)** : Déclencheur manuel de recalibrage `🤖 Lancer le Recalibrage Auto TP/SL (IA)`, 4 prompts d'analyse rapide exploitant l'architecture SSOT (`prompts/`) et chat libre Gemini multi-modèles avec fallback.
-* **Onglets Complémentaires** : Microstructure & Dérivés, Daily Briefing 19 h, Centre de Réconciliation/Alertes, Monitoring APIs et Export Fiscal.
+* **Assistant IA Pro (Onglet 5 — SSOT v3.2)** : Déclencheur manuel de recalibrage `🤖 Lancer le Recalibrage Auto TP/SL (IA)`, 4 prompts d'analyse rapide exploitant l'architecture SSOT (`prompts/`), chat libre Gemini et traçabilité explicite du modèle utilisé.
+* **Monitoring & Administration IA (Onglet 6)** : Inspection des services Systemd et éditeur de la configuration des modèles Gemini (`config/gemini_config.json`).
+* **Onglets Complémentaires** : Microstructure & Dérivés, Daily Briefing 19 h, Centre de Réconciliation/Alertes et Export Fiscal.
 
 ---
 
