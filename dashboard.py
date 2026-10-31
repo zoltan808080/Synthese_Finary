@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.2 (Architecture SSOT / Externalisation Prompts & Centralisation Gemini)."""
+"""Cockpit Spéculatif & Analytics Streamlit v3.2 (Architecture SSOT / Externalisation Prompts, Administration Prompts & Centralisation Gemini)."""
 
 import datetime
 import json
@@ -39,122 +39,122 @@ from gemini_manager import (
     save_gemini_config,
 )
 
-# Import du module central d'externalisation des prompts (SSOT)
+# Import du module central d'externalisation et d'administration des prompts (SSOT v3.2)
 try:
-  from prompt_loader import get_system_prompt
-
-  PROMPT_LOADER_AVAILABLE = True
+    from prompt_loader import (
+        get_system_prompt,
+        get_raw_prompt,
+        save_system_prompt,
+        restore_backup_prompt,
+        list_available_prompts,
+    )
+    PROMPT_LOADER_AVAILABLE = True
 except ImportError:
-  PROMPT_LOADER_AVAILABLE = False
+    PROMPT_LOADER_AVAILABLE = False
 
 # Import du moteur Microstructure (Funding & Open Interest)
 try:
-  from funding_oi_engine import get_funding_oi_summary
-
-  FUNDING_ENGINE_AVAILABLE = True
+    from funding_oi_engine import get_funding_oi_summary
+    FUNDING_ENGINE_AVAILABLE = True
 except ImportError:
-  FUNDING_ENGINE_AVAILABLE = False
+    FUNDING_ENGINE_AVAILABLE = False
 
 try:
-  from reconciliation_engine import audit_database_vs_exchanges
-
-  RECONCILIATION_ENGINE_AVAILABLE = True
+    from reconciliation_engine import audit_database_vs_exchanges
+    RECONCILIATION_ENGINE_AVAILABLE = True
 except ImportError:
-  RECONCILIATION_ENGINE_AVAILABLE = False
+    RECONCILIATION_ENGINE_AVAILABLE = False
 
 # Import des moteurs d'analyse et d'audit
 try:
-  from crypto_speculative_advisor import (
-      calculate_exact_crypto_categories,
-      check_circuit_breaker,
-      fetch_fear_and_greed_index,
-  )
-  from daily_digest_engine import build_current_snapshot, init_finary_session
-  from exchange_connectors import get_all_open_orders
-  from sl_audit_engine import audit_positions_protection
-
-  EXPERT_ENGINE_AVAILABLE = True
+    from crypto_speculative_advisor import (
+        calculate_exact_crypto_categories,
+        check_circuit_breaker,
+        fetch_fear_and_greed_index,
+    )
+    from daily_digest_engine import build_current_snapshot, init_finary_session
+    from exchange_connectors import get_all_open_orders
+    from sl_audit_engine import audit_positions_protection
+    EXPERT_ENGINE_AVAILABLE = True
 except ImportError:
-  EXPERT_ENGINE_AVAILABLE = False
+    EXPERT_ENGINE_AVAILABLE = False
 
 # Import du moteur RSI
 try:
-  from rsi_engine import build_rsi_heatmap_dataframe
-
-  RSI_ENGINE_AVAILABLE = True
+    from rsi_engine import build_rsi_heatmap_dataframe
+    RSI_ENGINE_AVAILABLE = True
 except ImportError:
-  RSI_ENGINE_AVAILABLE = False
+    RSI_ENGINE_AVAILABLE = False
 
 # Import du moteur d'auto-ajustement TP/SL
 try:
-  from auto_tpsl_engine import run_auto_tpsl_cycle
-
-  AUTO_TPSL_AVAILABLE = True
+    from auto_tpsl_engine import run_auto_tpsl_cycle
+    AUTO_TPSL_AVAILABLE = True
 except ImportError:
-  AUTO_TPSL_AVAILABLE = False
+    AUTO_TPSL_AVAILABLE = False
 
 
 def color_rsi(val):
-  """Applique un dégradé de couleur style Coinglass sur les cellules RSI."""
-  if isinstance(val, (int, float)):
-    if val <= 30:
-      return "background-color: #1e4620; color: #00ff66; font-weight: bold"
-    elif val >= 70:
-      return "background-color: #4a1c1c; color: #ff4d4d; font-weight: bold"
-    elif val <= 40:
-      return "background-color: #1a3322; color: #88ffaa"
-    elif val >= 60:
-      return "background-color: #331a1a; color: #ffaaaa"
-  return ""
+    """Applique un dégradé de couleur style Coinglass sur les cellules RSI."""
+    if isinstance(val, (int, float)):
+        if val <= 30:
+            return "background-color: #1e4620; color: #00ff66; font-weight: bold"
+        elif val >= 70:
+            return "background-color: #4a1c1c; color: #ff4d4d; font-weight: bold"
+        elif val <= 40:
+            return "background-color: #1a3322; color: #88ffaa"
+        elif val >= 60:
+            return "background-color: #331a1a; color: #ffaaaa"
+    return ""
 
 
 @st.cache_data(ttl=120, show_spinner=False)
 def get_cached_market_tech_micro_context(symbols_tuple):
-  """Génère et met en cache (2 min) la synthèse RSI & Microstructure."""
-  symbols_list = list(symbols_tuple)
+    """Génère et met en cache (2 min) la synthèse RSI & Microstructure."""
+    symbols_list = list(symbols_tuple)
 
-  rsi_context_str = "RSI Non disponible"
-  if RSI_ENGINE_AVAILABLE:
-    try:
-      df_rsi_prompt = build_rsi_heatmap_dataframe(symbols_list)
-      if not df_rsi_prompt.empty:
-        rsi_context_str = df_rsi_prompt.to_string(index=False)
-    except Exception:
-      pass
+    rsi_context_str = "RSI Non disponible"
+    if RSI_ENGINE_AVAILABLE:
+        try:
+            df_rsi_prompt = build_rsi_heatmap_dataframe(symbols_list)
+            if not df_rsi_prompt.empty:
+                rsi_context_str = df_rsi_prompt.to_string(index=False)
+        except Exception:
+            pass
 
-  foi_context_str = "Microstructure Non disponible"
-  if FUNDING_ENGINE_AVAILABLE:
-    try:
-      foi_data = get_funding_oi_summary(symbols_list)
-      if foi_data and "pairs" in foi_data and foi_data["pairs"]:
-        df_foi = pd.DataFrame(foi_data["pairs"])
-        foi_context_str = (
-            f"Funding Rate Moyen (8h) : {foi_data.get('avg_funding_rate', 0):+.4f}%\n"
-            f"Open Interest Total (Portefeuille) : {foi_data.get('total_open_interest_usd', 0)/1e6:,.1f} M$\n"
-            f"Paires en Surchauffe Longs (>+0.03%) : {foi_data.get('overheated_longs_count', 0)} | Potentiels Short Squeeze (<-0.01%) : {foi_data.get('short_squeeze_count', 0)}\n\n"
-        )
-        if not df_foi.empty:
-          df_foi_disp = df_foi[[
-              "symbol",
-              "exchange",
-              "funding_rate_8h_pct",
-              "funding_rate_annual_pct",
-              "open_interest_usd",
-              "bias_status",
-          ]].copy()
-          df_foi_disp.columns = [
-              "Symbole",
-              "Exchange",
-              "Funding_8h(%)",
-              "Funding_Annuel(%)",
-              "OI($)",
-              "Biais_Microstructure",
-          ]
-          foi_context_str += df_foi_disp.to_string(index=False)
-    except Exception:
-      pass
+    foi_context_str = "Microstructure Non disponible"
+    if FUNDING_ENGINE_AVAILABLE:
+        try:
+            foi_data = get_funding_oi_summary(symbols_list)
+            if foi_data and "pairs" in foi_data and foi_data["pairs"]:
+                df_foi = pd.DataFrame(foi_data["pairs"])
+                foi_context_str = (
+                    f"Funding Rate Moyen (8h) : {foi_data.get('avg_funding_rate', 0):+.4f}%\n"
+                    f"Open Interest Total (Portefeuille) : {foi_data.get('total_open_interest_usd', 0)/1e6:,.1f} M$\n"
+                    f"Paires en Surchauffe Longs (>+0.03%) : {foi_data.get('overheated_longs_count', 0)} | Potentiels Short Squeeze (<-0.01%) : {foi_data.get('short_squeeze_count', 0)}\n\n"
+                )
+                if not df_foi.empty:
+                    df_foi_disp = df_foi[[
+                        "symbol",
+                        "exchange",
+                        "funding_rate_8h_pct",
+                        "funding_rate_annual_pct",
+                        "open_interest_usd",
+                        "bias_status",
+                    ]].copy()
+                    df_foi_disp.columns = [
+                        "Symbole",
+                        "Exchange",
+                        "Funding_8h(%)",
+                        "Funding_Annuel(%)",
+                        "OI($)",
+                        "Biais_Microstructure",
+                    ]
+                    foi_context_str += df_foi_disp.to_string(index=False)
+        except Exception:
+            pass
 
-  return f"""
+    return f"""
 ---
 📊 MATRICE TECHNIQUE & SCREENER RSI MULTI-TIMEFRAME :
 {rsi_context_str}
@@ -165,53 +165,42 @@ def get_cached_market_tech_micro_context(symbols_tuple):
 
 
 def build_market_tech_micro_context(open_pos=None, balances=None):
-  symbols = {
-      "BTC",
-      "ETH",
-      "SOL",
-      "NEAR",
-      "ONDO",
-      "PENDLE",
-      "SUI",
-      "AVAX",
-      "RAY",
-      "FET",
-      "RENDER",
-      "STRK",
-      "TAO",
-  }
-  if open_pos:
-    for p in open_pos:
-      if len(p) > 1 and p[1]:
-        symbols.add(
-            str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
-        )
-  if balances:
-    for asset in balances.keys():
-      if asset not in ["USDT", "USDC", "EUR", "USD"]:
-        symbols.add(str(asset).upper().strip())
-  return get_cached_market_tech_micro_context(tuple(sorted(list(symbols))))
+    symbols = {
+        "BTC", "ETH", "SOL", "NEAR", "ONDO", "PENDLE",
+        "SUI", "AVAX", "RAY", "FET", "RENDER", "STRK", "TAO",
+    }
+    if open_pos:
+        for p in open_pos:
+            if len(p) > 1 and p[1]:
+                symbols.add(
+                    str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
+                )
+    if balances:
+        for asset in balances.keys():
+            if asset not in ["USDT", "USDC", "EUR", "USD"]:
+                symbols.add(str(asset).upper().strip())
+    return get_cached_market_tech_micro_context(tuple(sorted(list(symbols))))
 
 
 def compute_ai_liquidities(balances, eur_usd_rate=1.12, fallback_cash_eur=0.0):
-  """Calcule séparément et exactement le Fiat réel, les Stablecoins et le total disponible."""
-  fiat_eur = 0.0
-  stables_eur = 0.0
-  if balances:
-    rate = eur_usd_rate if eur_usd_rate and eur_usd_rate > 0 else 1.12
-    for asset, info in balances.items():
-      asset_u = str(asset).upper()
-      amt = info.get("amount", 0.0) if isinstance(info, dict) else float(info)
-      if asset_u in ["EUR", "USD"]:
-        fiat_eur += amt if asset_u == "EUR" else (amt / rate)
-      elif asset_u in ["USDT", "USDC", "DAI", "FDUSD"]:
-        stables_eur += amt / rate if asset_u in ["USDT", "USDC"] else amt
+    """Calcule séparément et exactement le Fiat réel, les Stablecoins et le total disponible."""
+    fiat_eur = 0.0
+    stables_eur = 0.0
+    if balances:
+        rate = eur_usd_rate if eur_usd_rate and eur_usd_rate > 0 else 1.12
+        for asset, info in balances.items():
+            asset_u = str(asset).upper()
+            amt = info.get("amount", 0.0) if isinstance(info, dict) else float(info)
+            if asset_u in ["EUR", "USD"]:
+                fiat_eur += amt if asset_u == "EUR" else (amt / rate)
+            elif asset_u in ["USDT", "USDC", "DAI", "FDUSD"]:
+                stables_eur += amt / rate if asset_u in ["USDT", "USDC"] else amt
 
-  total_liq = fiat_eur + stables_eur
-  if total_liq == 0 and fallback_cash_eur > 0:
-    total_liq = fallback_cash_eur
-    stables_eur = fallback_cash_eur
-  return round(fiat_eur, 2), round(stables_eur, 2), round(total_liq, 2)
+    total_liq = fiat_eur + stables_eur
+    if total_liq == 0 and fallback_cash_eur > 0:
+        total_liq = fallback_cash_eur
+        stables_eur = fallback_cash_eur
+    return round(fiat_eur, 2), round(stables_eur, 2), round(total_liq, 2)
 
 
 load_dotenv()
@@ -225,131 +214,131 @@ st.set_page_config(
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_live_price_cached(sym, exch, eur_usd_rate):
-  """Récupère le prix en direct avec un cache de 60s pour éviter la latence réseau."""
-  clean_sym = str(sym).upper().replace("USDT", "").replace("EUR", "").strip()
-  if clean_sym in ["EUR", "USD"]:
-    return 1.0 if clean_sym == "EUR" else (1.0 / eur_usd_rate)
-  price = None
-  try:
-    res_okx = requests.get(
-        f"https://www.okx.com/api/v5/market/ticker?instId={clean_sym}-USDT",
-        timeout=1.2,
-    )
-    if res_okx.status_code == 200:
-      data_okx = res_okx.json().get("data", [])
-      if data_okx:
-        price_usdt = float(data_okx[0].get("last", 0))
-        if price_usdt > 0:
-          price = price_usdt / eur_usd_rate
-  except Exception:
-    pass
-
-  if not price:
+    """Récupère le prix en direct avec un cache de 60s pour éviter la latence réseau."""
+    clean_sym = str(sym).upper().replace("USDT", "").replace("EUR", "").strip()
+    if clean_sym in ["EUR", "USD"]:
+        return 1.0 if clean_sym == "EUR" else (1.0 / eur_usd_rate)
+    price = None
     try:
-      res_k = requests.get(
-          f"https://api.kraken.com/0/public/Ticker?pair={clean_sym}EUR",
-          timeout=1.2,
-      )
-      if res_k.status_code == 200:
-        result_k = res_k.json().get("result", {})
-        for _, v_data in result_k.items():
-          if "c" in v_data:
-            price = float(v_data["c"][0])
-            break
+        res_okx = requests.get(
+            f"https://www.okx.com/api/v5/market/ticker?instId={clean_sym}-USDT",
+            timeout=1.2,
+        )
+        if res_okx.status_code == 200:
+            data_okx = res_okx.json().get("data", [])
+            if data_okx:
+                price_usdt = float(data_okx[0].get("last", 0))
+                if price_usdt > 0:
+                    price = price_usdt / eur_usd_rate
     except Exception:
-      pass
-  return price
+        pass
+
+    if not price:
+        try:
+            res_k = requests.get(
+                f"https://api.kraken.com/0/public/Ticker?pair={clean_sym}EUR",
+                timeout=1.2,
+            )
+            if res_k.status_code == 200:
+                result_k = res_k.json().get("result", {})
+                for _, v_data in result_k.items():
+                    if "c" in v_data:
+                        price = float(v_data["c"][0])
+                        break
+        except Exception:
+            pass
+    return price
 
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_bulk_live_prices(symbols_tuple, eur_usd_rate):
-  """Récupère les prix en direct en parallèle (ThreadPool) pour accélérer le chargement."""
-  symbols_list = list(symbols_tuple)
-  prices = {}
-  if not symbols_list:
+    """Récupère les prix en direct en parallèle (ThreadPool) pour accélérer le chargement."""
+    symbols_list = list(symbols_tuple)
+    prices = {}
+    if not symbols_list:
+        return prices
+    with ThreadPoolExecutor(max_workers=min(12, len(symbols_list))) as executor:
+        future_to_sym = {
+            executor.submit(fetch_live_price_cached, sym, "", eur_usd_rate): sym
+            for sym in symbols_list
+        }
+        for future in as_completed(future_to_sym):
+            sym = future_to_sym[future]
+            try:
+                prices[sym] = future.result()
+            except Exception:
+                prices[sym] = None
     return prices
-  with ThreadPoolExecutor(max_workers=min(12, len(symbols_list))) as executor:
-    future_to_sym = {
-        executor.submit(fetch_live_price_cached, sym, "", eur_usd_rate): sym
-        for sym in symbols_list
-    }
-    for future in as_completed(future_to_sym):
-      sym = future_to_sym[future]
-      try:
-        prices[sym] = future.result()
-      except Exception:
-        prices[sym] = None
-  return prices
 
 
 def get_cached_crypto_balances():
-  return get_all_exchange_crypto_balances()
+    return get_all_exchange_crypto_balances()
 
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_cached_verified_cash():
-  return get_total_verified_cash()
+    return get_total_verified_cash()
 
 
 @st.cache_data(ttl=120, show_spinner=False)
 def get_cached_reconciliation_audit():
-  if RECONCILIATION_ENGINE_AVAILABLE:
-    return audit_database_vs_exchanges()
-  return []
+    if RECONCILIATION_ENGINE_AVAILABLE:
+        return audit_database_vs_exchanges()
+    return []
 
 
 def send_telegram_notify(text):
-  """Envoie une notification d'information directe sur Telegram lors d'une action Web."""
-  bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-  user_id = os.getenv("TELEGRAM_ALLOWED_USER_ID")
-  if not bot_token or not user_id:
-    return
-  url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-  try:
-    requests.post(
-        url,
-        json={"chat_id": user_id, "text": text, "parse_mode": "Markdown"},
-        timeout=3,
-    )
-  except Exception:
-    pass
+    """Envoie une notification d'information directe sur Telegram lors d'une action Web."""
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    user_id = os.getenv("TELEGRAM_ALLOWED_USER_ID")
+    if not bot_token or not user_id:
+        return
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    try:
+        requests.post(
+            url,
+            json={"chat_id": user_id, "text": text, "parse_mode": "Markdown"},
+            timeout=3,
+        )
+    except Exception:
+        pass
 
 
 def check_password():
-  """Retourne True si l'utilisateur a saisi le bon mot de passe."""
-  expected_password = os.getenv("STREAMLIT_PASSWORD", "MonMotDePasseSecret123")
+    """Retourne True si l'utilisateur a saisi le bon mot de passe."""
+    expected_password = os.getenv("STREAMLIT_PASSWORD", "MonMotDePasseSecret123")
 
-  def password_entered():
-    if "password" in st.session_state:
-      if st.session_state["password"] == expected_password:
-        st.session_state["password_correct"] = True
-        del st.session_state["password"]
-      else:
-        st.session_state["password_correct"] = False
+    def password_entered():
+        if "password" in st.session_state:
+            if st.session_state["password"] == expected_password:
+                st.session_state["password_correct"] = True
+                del st.session_state["password"]
+            else:
+                st.session_state["password_correct"] = False
 
-  if "password_correct" not in st.session_state:
-    st.text_input(
-        "🔒 Veuillez saisir le mot de passe pour accéder au cockpit :",
-        type="password",
-        on_change=password_entered,
-        key="password",
-    )
-    return False
-  elif not st.session_state["password_correct"]:
-    st.text_input(
-        "🔒 Veuillez saisir le mot de passe pour accéder au cockpit :",
-        type="password",
-        on_change=password_entered,
-        key="password",
-    )
-    st.error("😕 Mot de passe incorrect.")
-    return False
-  else:
-    return True
+    if "password_correct" not in st.session_state:
+        st.text_input(
+            "🔒 Veuillez saisir le mot de passe pour accéder au cockpit :",
+            type="password",
+            on_change=password_entered,
+            key="password",
+        )
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input(
+            "🔒 Veuillez saisir le mot de passe pour accéder au cockpit :",
+            type="password",
+            on_change=password_entered,
+            key="password",
+        )
+        st.error("😕 Mot de passe incorrect.")
+        return False
+    else:
+        return True
 
 
 if not check_password():
-  st.stop()
+    st.stop()
 
 init_db()
 
@@ -362,67 +351,67 @@ st.markdown("---")
 
 @st.cache_data(ttl=300, show_spinner=False)
 def get_live_eur_usd_rate():
-  """Récupère le taux EUR/USD en direct via l'API Frankfurter ou Kraken."""
-  try:
-    res = requests.get(
-        "https://api.frankfurter.app/latest?from=EUR&to=USD", timeout=2
-    )
-    if res.status_code == 200:
-      rate = float(res.json().get("rates", {}).get("USD", 0))
-      if rate > 0:
-        return round(rate, 4)
-  except Exception:
-    pass
+    """Récupère le taux EUR/USD en direct via l'API Frankfurter ou Kraken."""
+    try:
+        res = requests.get(
+            "https://api.frankfurter.app/latest?from=EUR&to=USD", timeout=2
+        )
+        if res.status_code == 200:
+            rate = float(res.json().get("rates", {}).get("USD", 0))
+            if rate > 0:
+                return round(rate, 4)
+    except Exception:
+        pass
 
-  try:
-    res_k = requests.get(
-        "https://api.kraken.com/0/public/Ticker?pair=EURUSD", timeout=2
-    )
-    if res_k.status_code == 200:
-      result_k = res_k.json().get("result", {})
-      for _, v_data in result_k.items():
-        if "c" in v_data:
-          rate = float(v_data["c"][0])
-          if rate > 0:
-            return round(rate, 4)
-  except Exception:
-    pass
+    try:
+        res_k = requests.get(
+            "https://api.kraken.com/0/public/Ticker?pair=EURUSD", timeout=2
+        )
+        if res_k.status_code == 200:
+            result_k = res_k.json().get("result", {})
+            for _, v_data in result_k.items():
+                if "c" in v_data:
+                    rate = float(v_data["c"][0])
+                    if rate > 0:
+                        return round(rate, 4)
+    except Exception:
+        pass
 
-  return 1.12
+    return 1.12
 
 
 if "live_eur_usd_rate" not in st.session_state:
-  st.session_state["live_eur_usd_rate"] = get_live_eur_usd_rate()
+    st.session_state["live_eur_usd_rate"] = get_live_eur_usd_rate()
 
 default_eur_usd_rate = st.session_state["live_eur_usd_rate"]
 
 with st.sidebar:
-  st.header("⚙️ Paramètres du Cockpit")
-  currency_choice = st.selectbox(
-      "Devise d'affichage principale", ["EUR (€)", "USD ($)"]
-  )
-  eur_usd_rate = st.number_input(
-      "Taux de change EUR/USD (Live / Ajustable)",
-      min_value=1.0,
-      max_value=1.5,
-      value=default_eur_usd_rate,
-      step=0.005,
-      format="%.4f",
-  )
+    st.header("⚙️ Paramètres du Cockpit")
+    currency_choice = st.selectbox(
+        "Devise d'affichage principale", ["EUR (€)", "USD ($)"]
+    )
+    eur_usd_rate = st.number_input(
+        "Taux de change EUR/USD (Live / Ajustable)",
+        min_value=1.0,
+        max_value=1.5,
+        value=default_eur_usd_rate,
+        step=0.005,
+        format="%.4f",
+    )
 
-  if st.button("⚡ Rafraîchir les données Live", type="primary"):
-    st.cache_data.clear()
-    st.session_state["live_eur_usd_rate"] = get_live_eur_usd_rate()
-    st.rerun()
+    if st.button("⚡ Rafraîchir les données Live", type="primary"):
+        st.cache_data.clear()
+        st.session_state["live_eur_usd_rate"] = get_live_eur_usd_rate()
+        st.rerun()
 
 if currency_choice.startswith("USD"):
-  curr_symbol = "$"
-  curr_multiplier = eur_usd_rate
-  curr_label = "USD ($)"
+    curr_symbol = "$"
+    curr_multiplier = eur_usd_rate
+    curr_label = "USD ($)"
 else:
-  curr_symbol = "€"
-  curr_multiplier = 1.0
-  curr_label = "EUR (€)"
+    curr_symbol = "€"
+    curr_multiplier = 1.0
+    curr_label = "EUR (€)"
 
 st.sidebar.markdown(
     f"**Devise active :** {curr_label} | **Taux EUR/USD :** {eur_usd_rate:.4f}"
@@ -455,24 +444,24 @@ st.sidebar.info(
 # Pre-fetch optimisé des prix en parallèle (Multi-threading)
 active_symbols_set = set()
 try:
-  _open_pos_pre = get_open_positions()
-  if _open_pos_pre:
-    for _p in _open_pos_pre:
-      if len(_p) > 1 and _p[1]:
-        active_symbols_set.add(
-            str(_p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
-        )
+    _open_pos_pre = get_open_positions()
+    if _open_pos_pre:
+        for _p in _open_pos_pre:
+            if len(_p) > 1 and _p[1]:
+                active_symbols_set.add(
+                    str(_p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
+                )
 except Exception:
-  pass
+    pass
 
 try:
-  _balances_pre = get_cached_crypto_balances()
-  if _balances_pre:
-    for _asset in _balances_pre.keys():
-      if _asset not in ["USDT", "USDC", "EUR", "USD"]:
-        active_symbols_set.add(str(_asset).upper().strip())
+    _balances_pre = get_cached_crypto_balances()
+    if _balances_pre:
+        for _asset in _balances_pre.keys():
+            if _asset not in ["USDT", "USDC", "EUR", "USD"]:
+                active_symbols_set.add(str(_asset).upper().strip())
 except Exception:
-  pass
+    pass
 
 _bulk_prices_map = (
     fetch_bulk_live_prices(tuple(sorted(list(active_symbols_set))), eur_usd_rate)
@@ -482,479 +471,479 @@ _bulk_prices_map = (
 
 
 def fetch_live_price(sym, exch):
-  clean_sym = str(sym).upper().replace("USDT", "").replace("EUR", "").strip()
-  if clean_sym in ["EUR", "USD"]:
-    return 1.0 if clean_sym == "EUR" else (1.0 / eur_usd_rate)
-  if clean_sym in _bulk_prices_map and _bulk_prices_map[clean_sym] is not None:
-    return _bulk_prices_map[clean_sym]
-  return fetch_live_price_cached(sym, exch, eur_usd_rate)
+    clean_sym = str(sym).upper().replace("USDT", "").replace("EUR", "").strip()
+    if clean_sym in ["EUR", "USD"]:
+        return 1.0 if clean_sym == "EUR" else (1.0 / eur_usd_rate)
+    if clean_sym in _bulk_prices_map and _bulk_prices_map[clean_sym] is not None:
+        return _bulk_prices_map[clean_sym]
+    return fetch_live_price_cached(sym, exch, eur_usd_rate)
 
 
 # ==========================================
 # ONGLET 1 : POSITIONS ACTIVES (LIVE & TEMPS RÉEL)
 # ==========================================
 with tab_live:
-  with st.expander("📖 Guide de lecture & Répartition du Portefeuille"):
-    st.markdown(f"""
-        Inventaire global et ventilation de votre capital en temps réel (Autonome & 100% direct exchanges) :
-        * **Volume Total Crypto :** Valeur marchande cumulée de l'ensemble de vos actifs (Exchanges + Wallets froids Exodus).
-        * **Majeures (BTC, ETH) :** Vos réserves de valeur fondamentales.
-        * **Poche Core :** Vos actifs de conviction long terme (ex: ONDO, PENDLE).
-        * **Poche Spéculative :** Votre poche à haute volatilité (Moonbag), pilotée par vos Stop-Loss et Take-Profits.
-        * **Buffer de Risque :** Marge moyenne avant que vos Stop-Loss ne se déclenchent.
-        """)
+    with st.expander("📖 Guide de lecture & Répartition du Portefeuille"):
+        st.markdown(f"""
+            Inventaire global et ventilation de votre capital en temps réel (Autonome & 100% direct exchanges) :
+            * **Volume Total Crypto :** Valeur marchande cumulée de l'ensemble de vos actifs (Exchanges + Wallets froids Exodus).
+            * **Majeures (BTC, ETH) :** Vos réserves de valeur fondamentales.
+            * **Poche Core :** Vos actifs de conviction long terme (ex: ONDO, PENDLE).
+            * **Poche Spéculative :** Votre poche à haute volatilité (Moonbag), pilotée par vos Stop-Loss et Take-Profits.
+            * **Buffer de Risque :** Marge moyenne avant que vos Stop-Loss ne se déclenchent.
+            """)
 
-  positions = get_open_positions()
-  auto_tpsl_map = get_auto_tp_sl_status()
+    positions = get_open_positions()
+    auto_tpsl_map = get_auto_tp_sl_status()
 
-  enriched_positions = []
-  total_current_market_value = 0.0
-  total_invested_base = 0.0
+    enriched_positions = []
+    total_current_market_value = 0.0
+    total_invested_base = 0.0
 
-  free_ride_count = 0
-  at_risk_count = 0
-  total_weight_risk = 0.0
-  weighted_sl_distance = 0.0
+    free_ride_count = 0
+    at_risk_count = 0
+    total_weight_risk = 0.0
+    weighted_sl_distance = 0.0
 
-  if positions:
-    for p in positions:
-      pos_id = p[0]
-      sym = p[1]
-      exch = p[2]
-      entry_eur = float(p[3]) if p[3] is not None else 0.0
-      amount_eur = float(p[4]) if p[4] is not None else 0.0
-      tp1_eur = float(p[5]) if len(p) > 5 and p[5] is not None else 0.0
-      sl_eur = float(p[7]) if len(p) > 7 and p[7] is not None else 0.0
-      step_val = p[9] if len(p) > 9 and p[9] is not None else "ENTRY"
-      is_auto = auto_tpsl_map.get(pos_id, False)
+    if positions:
+        for p in positions:
+            pos_id = p[0]
+            sym = p[1]
+            exch = p[2]
+            entry_eur = float(p[3]) if p[3] is not None else 0.0
+            amount_eur = float(p[4]) if p[4] is not None else 0.0
+            tp1_eur = float(p[5]) if len(p) > 5 and p[5] is not None else 0.0
+            sl_eur = float(p[7]) if len(p) > 7 and p[7] is not None else 0.0
+            step_val = p[9] if len(p) > 9 and p[9] is not None else "ENTRY"
+            is_auto = auto_tpsl_map.get(pos_id, False)
 
-      total_invested_base += amount_eur
+            total_invested_base += amount_eur
 
-      live_eur = fetch_live_price(sym, exch)
-      if not live_eur or live_eur <= 0:
-        live_eur = entry_eur
+            live_eur = fetch_live_price(sym, exch)
+            if not live_eur or live_eur <= 0:
+                live_eur = entry_eur
 
-      quantity = (amount_eur / entry_eur) if entry_eur > 0 else 0.0
-      current_val_eur = quantity * live_eur
-      total_current_market_value += current_val_eur
+            quantity = (amount_eur / entry_eur) if entry_eur > 0 else 0.0
+            current_val_eur = quantity * live_eur
+            total_current_market_value += current_val_eur
 
-      pnl_eur = current_val_eur - amount_eur
-      pnl_pct = (
-          ((live_eur - entry_eur) / entry_eur) * 100.0 if entry_eur > 0 else 0.0
-      )
+            pnl_eur = current_val_eur - amount_eur
+            pnl_pct = (
+                ((live_eur - entry_eur) / entry_eur) * 100.0 if entry_eur > 0 else 0.0
+            )
 
-      if step_val in ["TP1_DONE", "TP2_DONE"]:
-        free_ride_count += 1
-        status = "🎯 FREE RIDE (TP1 Validé)"
-      elif sl_eur > 0 and live_eur <= (sl_eur * 1.05):
-        status = "🛑 SL FRÔLÉ"
-        at_risk_count += 1
-      else:
-        status = "🟢 ACTIF (À Risque)"
-        at_risk_count += 1
+            if step_val in ["TP1_DONE", "TP2_DONE"]:
+                free_ride_count += 1
+                status = "🎯 FREE RIDE (TP1 Validé)"
+            elif sl_eur > 0 and live_eur <= (sl_eur * 1.05):
+                status = "🛑 SL FRÔLÉ"
+                at_risk_count += 1
+            else:
+                status = "🟢 ACTIF (À Risque)"
+                at_risk_count += 1
 
-      if sl_eur > 0 and live_eur > 0:
-        dist_to_sl_pct = ((live_eur - sl_eur) / live_eur) * 100.0
-        if dist_to_sl_pct > 0:
-          weighted_sl_distance += dist_to_sl_pct * current_val_eur
-          total_weight_risk += current_val_eur
+            if sl_eur > 0 and live_eur > 0:
+                dist_to_sl_pct = ((live_eur - sl_eur) / live_eur) * 100.0
+                if dist_to_sl_pct > 0:
+                    weighted_sl_distance += dist_to_sl_pct * current_val_eur
+                    total_weight_risk += current_val_eur
 
-      enriched_positions.append({
-          "ID": pos_id,
-          "Mode": "🤖 Auto IA" if is_auto else "👤 Manuel",
-          "Symbole": sym,
-          "Exchange": exch,
-          "Prix Entrée": entry_eur * curr_multiplier,
-          "Prix Actuel": live_eur * curr_multiplier,
-          "Montant Initial": amount_eur * curr_multiplier,
-          "Valeur Actuelle": current_val_eur * curr_multiplier,
-          "PnL (€/$)": pnl_eur * curr_multiplier,
-          "PnL (%)": pnl_pct,
-          "TP1": tp1_eur * curr_multiplier,
-          "Stop-Loss": sl_eur * curr_multiplier,
-          "Statut": status,
-      })
+            enriched_positions.append({
+                "ID": pos_id,
+                "Mode": "🤖 Auto IA" if is_auto else "👤 Manuel",
+                "Symbole": sym,
+                "Exchange": exch,
+                "Prix Entrée": entry_eur * curr_multiplier,
+                "Prix Actuel": live_eur * curr_multiplier,
+                "Montant Initial": amount_eur * curr_multiplier,
+                "Valeur Actuelle": current_val_eur * curr_multiplier,
+                "PnL (€/$)": pnl_eur * curr_multiplier,
+                "PnL (%)": pnl_pct,
+                "TP1": tp1_eur * curr_multiplier,
+                "Stop-Loss": sl_eur * curr_multiplier,
+                "Statut": status,
+            })
 
-  try:
-    all_crypto_balances = get_cached_crypto_balances()
-  except Exception:
-    all_crypto_balances = {}
+    try:
+        all_crypto_balances = get_cached_crypto_balances()
+    except Exception:
+        all_crypto_balances = {}
 
-  speculative_symbols = {
-      str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
-      for p in positions
-  }
+    speculative_symbols = {
+        str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
+        for p in positions
+    }
 
-  val_majors = 0.0
-  val_core = 0.0
-  val_real_fiat = 0.0
-  val_stables_crypto = 0.0
+    val_majors = 0.0
+    val_core = 0.0
+    val_real_fiat = 0.0
+    val_stables_crypto = 0.0
 
-  dict_majors = {}
-  dict_core = {}
+    dict_majors = {}
+    dict_core = {}
 
-  for asset, info in all_crypto_balances.items():
-    amt = info["amount"]
-    exch = info["exchange"]
-    lp = fetch_live_price(asset, exch) or 0.0
-    asset_val = amt * lp
+    for asset, info in all_crypto_balances.items():
+        amt = info["amount"]
+        exch = info["exchange"]
+        lp = fetch_live_price(asset, exch) or 0.0
+        asset_val = amt * lp
 
-    if asset in ["EUR", "USD"]:
-      val_real_fiat += (
-          amt
-          if asset == "EUR"
-          else (amt / eur_usd_rate if eur_usd_rate else amt)
-      )
-    elif asset in ["USDT", "USDC", "DAI", "FDUSD"]:
-      val_stables_crypto += (
-          amt / eur_usd_rate
-          if asset in ["USDT", "USDC"] and eur_usd_rate
-          else amt
-      )
-    elif asset in ["BTC", "ETH"]:
-      val_majors += asset_val
-      if asset_val > 0.1:
-        dict_majors[asset] = dict_majors.get(asset, 0.0) + (
-            asset_val * curr_multiplier
-        )
-    elif asset in speculative_symbols:
-      pass
+        if asset in ["EUR", "USD"]:
+            val_real_fiat += (
+                amt
+                if asset == "EUR"
+                else (amt / eur_usd_rate if eur_usd_rate else amt)
+            )
+        elif asset in ["USDT", "USDC", "DAI", "FDUSD"]:
+            val_stables_crypto += (
+                amt / eur_usd_rate
+                if asset in ["USDT", "USDC"] and eur_usd_rate
+                else amt
+            )
+        elif asset in ["BTC", "ETH"]:
+            val_majors += asset_val
+            if asset_val > 0.1:
+                dict_majors[asset] = dict_majors.get(asset, 0.0) + (
+                    asset_val * curr_multiplier
+                )
+        elif asset in speculative_symbols:
+            pass
+        else:
+            val_core += asset_val
+            if asset_val > 1.0:
+                dict_core[asset] = dict_core.get(asset, 0.0) + (
+                    asset_val * curr_multiplier
+                )
+
+    cash_info = get_cached_verified_cash()
+    total_cash_eur = cash_info.get("total_cash", 0.0)
+
+    val_stables_cash = val_real_fiat + val_stables_crypto
+    if val_stables_cash == 0 and total_cash_eur > 0:
+        val_stables_cash = total_cash_eur
+
+    val_speculative = total_current_market_value
+    total_crypto_only_val = (
+        val_majors + val_core + val_speculative + val_stables_cash
+    )
+
+    if total_crypto_only_val > 0:
+        pct_majors = (val_majors / total_crypto_only_val) * 100.0
+        pct_core = (val_core / total_crypto_only_val) * 100.0
+        pct_spec = (val_speculative / total_crypto_only_val) * 100.0
+        pct_stables = (val_stables_cash / total_crypto_only_val) * 100.0
     else:
-      val_core += asset_val
-      if asset_val > 1.0:
-        dict_core[asset] = dict_core.get(asset, 0.0) + (
-            asset_val * curr_multiplier
-        )
+        pct_majors = pct_core = pct_spec = pct_stables = 0.0
 
-  cash_info = get_cached_verified_cash()
-  total_cash_eur = cash_info.get("total_cash", 0.0)
-
-  val_stables_cash = val_real_fiat + val_stables_crypto
-  if val_stables_cash == 0 and total_cash_eur > 0:
-    val_stables_cash = total_cash_eur
-
-  val_speculative = total_current_market_value
-  total_crypto_only_val = (
-      val_majors + val_core + val_speculative + val_stables_cash
-  )
-
-  if total_crypto_only_val > 0:
-    pct_majors = (val_majors / total_crypto_only_val) * 100.0
-    pct_core = (val_core / total_crypto_only_val) * 100.0
-    pct_spec = (val_speculative / total_crypto_only_val) * 100.0
-    pct_stables = (val_stables_cash / total_crypto_only_val) * 100.0
-  else:
-    pct_majors = pct_core = pct_spec = pct_stables = 0.0
-
-  st.markdown("#### 🌐 Ventilation Globale du Capital")
-  m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-  m_col1.metric(
-      "Volume Total Crypto",
-      f"{total_crypto_only_val * curr_multiplier:,.2f} {curr_symbol}",
-      delta="Exchanges + Exodus",
-  )
-  m_col2.metric(
-      "Majeures (BTC, ETH)",
-      f"{val_majors * curr_multiplier:,.2f} {curr_symbol}",
-      delta=f"{pct_majors:.2f}% du portfolio",
-  )
-  m_col3.metric(
-      "Poche CORE",
-      f"{val_core * curr_multiplier:,.2f} {curr_symbol}",
-      delta=f"{pct_core:.2f}% du portfolio",
-  )
-  m_col4.metric(
-      "Poche Spéculative",
-      f"{val_speculative * curr_multiplier:,.2f} {curr_symbol}",
-      delta=f"{pct_spec:.2f}% (Cible : 10%)",
-      delta_color="normal" if pct_spec <= 12 else "inverse",
-  )
-
-  st.markdown("")
-
-  total_invested_disp = total_invested_base * curr_multiplier
-  total_market_disp = val_speculative * curr_multiplier
-  total_pnl_disp = total_market_disp - (total_invested_base * curr_multiplier)
-  total_pnl_pct = (
-      (total_pnl_disp / (total_invested_base * curr_multiplier)) * 100
-      if total_invested_base > 0
-      else 0.0
-  )
-  global_risk_buffer = (
-      (weighted_sl_distance / total_weight_risk) if total_weight_risk > 0 else 0.0
-  )
-  total_cash_disp = val_stables_cash * curr_multiplier
-
-  s_col1, s_col2, s_col3, s_col4 = st.columns(4)
-  s_col1.metric(
-      "Positions Actives",
-      f"{len(positions)} lignes",
-      delta=f"🛡️ {free_ride_count} Free Ride | ⚠️ {at_risk_count} À Risque",
-  )
-  s_col2.metric(
-      f"Valeur Marché Spécu ({curr_symbol})",
-      f"{total_market_disp:,.2f} {curr_symbol}",
-      delta=(
-          f"PnL : {total_pnl_pct:+.2f}% ({total_pnl_disp:+,.2f} {curr_symbol})"
-      ),
-  )
-  s_col3.metric(
-      "Buffer de Risque Global",
-      f"{global_risk_buffer:.1f}%",
-      delta=(
-          "Marge moyenne avant SL"
-          if global_risk_buffer > 10
-          else "Attention, proche des SL"
-      ),
-      delta_color="normal" if global_risk_buffer > 10 else "inverse",
-  )
-  s_col4.metric(
-      f"Cash Disponible Total ({curr_symbol})",
-      f"{total_cash_disp:,.2f} {curr_symbol}",
-  )
-
-  st.markdown("---")
-  st.subheader(f"📋 Inventaire & Suivi Temps Réel des Positions ({curr_symbol})")
-
-  r1_col1, r1_col2 = st.columns([1, 1])
-
-  with r1_col1:
-    labels_global = [
-        "Majeures (BTC/ETH)",
+    st.markdown("#### 🌐 Ventilation Globale du Capital")
+    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+    m_col1.metric(
+        "Volume Total Crypto",
+        f"{total_crypto_only_val * curr_multiplier:,.2f} {curr_symbol}",
+        delta="Exchanges + Exodus",
+    )
+    m_col2.metric(
+        "Majeures (BTC, ETH)",
+        f"{val_majors * curr_multiplier:,.2f} {curr_symbol}",
+        delta=f"{pct_majors:.2f}% du portfolio",
+    )
+    m_col3.metric(
         "Poche CORE",
-        "Spéculatif (Moonbag)",
-        "Stables & Cash",
-    ]
-    values_global = [
-        val_majors * curr_multiplier,
-        val_core * curr_multiplier,
-        val_speculative * curr_multiplier,
-        val_stables_cash * curr_multiplier,
-    ]
-    colors_global = ["#36a2eb", "#4bc0c0", "#ff6384", "#ffce56"]
-
-    fig_pie_global = px.pie(
-        names=labels_global,
-        values=values_global,
-        title="🌐 Allocation Globale du Portefeuille",
-        color_discrete_sequence=colors_global,
-        hole=0.4,
+        f"{val_core * curr_multiplier:,.2f} {curr_symbol}",
+        delta=f"{pct_core:.2f}% du portfolio",
     )
-    fig_pie_global.update_traces(textposition="inside", textinfo="percent+label")
-    fig_pie_global.update_layout(
-        margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=280
-    )
-    st.plotly_chart(fig_pie_global, width="stretch")
-
-  with r1_col2:
-    st.markdown("##### 📌 Synthèse visuelle des poches")
-    st.write(
-        f"• **Majeures (BTC/ETH) :** {val_majors * curr_multiplier:,.2f}"
-        f" {curr_symbol} ({pct_majors:.1f}%)"
-    )
-    st.write(
-        f"• **Poche CORE :** {val_core * curr_multiplier:,.2f}"
-        f" {curr_symbol} ({pct_core:.1f}%)"
-    )
-    st.write(
-        f"• **Spéculatif (Moonbag) :**"
-        f" {val_speculative * curr_multiplier:,.2f} {curr_symbol}"
-        f" ({pct_spec:.1f}%)"
-    )
-    st.write(
-        f"• **Stables & Cash :** {val_stables_cash * curr_multiplier:,.2f}"
-        f" {curr_symbol} ({pct_stables:.1f}%)"
-    )
-    st.info(
-        "💡 Les trois camemberts ci-dessous détaillent la composition exacte"
-        " de chaque poche d'actifs."
+    m_col4.metric(
+        "Poche Spéculative",
+        f"{val_speculative * curr_multiplier:,.2f} {curr_symbol}",
+        delta=f"{pct_spec:.2f}% (Cible : 10%)",
+        delta_color="normal" if pct_spec <= 12 else "inverse",
     )
 
-  st.markdown("---")
-  st.subheader("🔍 Zooms Détaillés par Poche d'Actifs")
-  z_col1, z_col2, z_col3 = st.columns(3)
+    st.markdown("")
 
-  with z_col1:
-    if dict_majors:
-      df_majors = pd.DataFrame(
-          list(dict_majors.items()), columns=["Actif", "Valeur"]
-      )
-      fig_maj = px.pie(
-          df_majors,
-          names="Actif",
-          values="Valeur",
-          title="🏛️ Majeures (BTC vs ETH)",
-          hole=0.4,
-      )
-      fig_maj.update_traces(textposition="inside", textinfo="percent+label")
-      fig_maj.update_layout(
-          margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=260
-      )
-      st.plotly_chart(fig_maj, width="stretch")
-    else:
-      st.info("Aucun actif majeur détecté.")
+    total_invested_disp = total_invested_base * curr_multiplier
+    total_market_disp = val_speculative * curr_multiplier
+    total_pnl_disp = total_market_disp - (total_invested_base * curr_multiplier)
+    total_pnl_pct = (
+        (total_pnl_disp / (total_invested_base * curr_multiplier)) * 100
+        if total_invested_base > 0
+        else 0.0
+    )
+    global_risk_buffer = (
+        (weighted_sl_distance / total_weight_risk) if total_weight_risk > 0 else 0.0
+    )
+    total_cash_disp = val_stables_cash * curr_multiplier
 
-  with z_col2:
-    if dict_core:
-      df_core_pie = pd.DataFrame(
-          list(dict_core.items()), columns=["Actif", "Valeur"]
-      )
-      fig_core = px.pie(
-          df_core_pie,
-          names="Actif",
-          values="Valeur",
-          title="💎 Poche CORE (Long Terme)",
-          hole=0.4,
-      )
-      fig_core.update_traces(textposition="inside", textinfo="percent+label")
-      fig_core.update_layout(
-          margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=260
-      )
-      st.plotly_chart(fig_core, width="stretch")
-    else:
-      st.info("Aucun actif CORE détecté.")
+    s_col1, s_col2, s_col3, s_col4 = st.columns(4)
+    s_col1.metric(
+        "Positions Actives",
+        f"{len(positions)} lignes",
+        delta=f"🛡️ {free_ride_count} Free Ride | ⚠️ {at_risk_count} À Risque",
+    )
+    s_col2.metric(
+        f"Valeur Marché Spécu ({curr_symbol})",
+        f"{total_market_disp:,.2f} {curr_symbol}",
+        delta=(
+            f"PnL : {total_pnl_pct:+.2f}% ({total_pnl_disp:+,.2f} {curr_symbol})"
+        ),
+    )
+    s_col3.metric(
+        "Buffer de Risque Global",
+        f"{global_risk_buffer:.1f}%",
+        delta=(
+            "Marge moyenne avant SL"
+            if global_risk_buffer > 10
+            else "Attention, proche des SL"
+        ),
+        delta_color="normal" if global_risk_buffer > 10 else "inverse",
+    )
+    s_col4.metric(
+        f"Cash Disponible Total ({curr_symbol})",
+        f"{total_cash_disp:,.2f} {curr_symbol}",
+    )
 
-  with z_col3:
+    st.markdown("---")
+    st.subheader(f"📋 Inventaire & Suivi Temps Réel des Positions ({curr_symbol})")
+
+    r1_col1, r1_col2 = st.columns([1, 1])
+
+    with r1_col1:
+        labels_global = [
+            "Majeures (BTC/ETH)",
+            "Poche CORE",
+            "Spéculatif (Moonbag)",
+            "Stables & Cash",
+        ]
+        values_global = [
+            val_majors * curr_multiplier,
+            val_core * curr_multiplier,
+            val_speculative * curr_multiplier,
+            val_stables_cash * curr_multiplier,
+        ]
+        colors_global = ["#36a2eb", "#4bc0c0", "#ff6384", "#ffce56"]
+
+        fig_pie_global = px.pie(
+            names=labels_global,
+            values=values_global,
+            title="🌐 Allocation Globale du Portefeuille",
+            color_discrete_sequence=colors_global,
+            hole=0.4,
+        )
+        fig_pie_global.update_traces(textposition="inside", textinfo="percent+label")
+        fig_pie_global.update_layout(
+            margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=280
+        )
+        st.plotly_chart(fig_pie_global, width="stretch")
+
+    with r1_col2:
+        st.markdown("##### 📌 Synthèse visuelle des poches")
+        st.write(
+            f"• **Majeures (BTC/ETH) :** {val_majors * curr_multiplier:,.2f}"
+            f" {curr_symbol} ({pct_majors:.1f}%)"
+        )
+        st.write(
+            f"• **Poche CORE :** {val_core * curr_multiplier:,.2f}"
+            f" {curr_symbol} ({pct_core:.1f}%)"
+        )
+        st.write(
+            f"• **Spéculatif (Moonbag) :**"
+            f" {val_speculative * curr_multiplier:,.2f} {curr_symbol}"
+            f" ({pct_spec:.1f}%)"
+        )
+        st.write(
+            f"• **Stables & Cash :** {val_stables_cash * curr_multiplier:,.2f}"
+            f" {curr_symbol} ({pct_stables:.1f}%)"
+        )
+        st.info(
+            "💡 Les trois camemberts ci-dessous détaillent la composition exacte"
+            " de chaque poche d'actifs."
+        )
+
+    st.markdown("---")
+    st.subheader("🔍 Zooms Détaillés par Poche d'Actifs")
+    z_col1, z_col2, z_col3 = st.columns(3)
+
+    with z_col1:
+        if dict_majors:
+            df_majors = pd.DataFrame(
+                list(dict_majors.items()), columns=["Actif", "Valeur"]
+            )
+            fig_maj = px.pie(
+                df_majors,
+                names="Actif",
+                values="Valeur",
+                title="🏛️ Majeures (BTC vs ETH)",
+                hole=0.4,
+            )
+            fig_maj.update_traces(textposition="inside", textinfo="percent+label")
+            fig_maj.update_layout(
+                margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=260
+            )
+            st.plotly_chart(fig_maj, width="stretch")
+        else:
+            st.info("Aucun actif majeur détecté.")
+
+    with z_col2:
+        if dict_core:
+            df_core_pie = pd.DataFrame(
+                list(dict_core.items()), columns=["Actif", "Valeur"]
+            )
+            fig_core = px.pie(
+                df_core_pie,
+                names="Actif",
+                values="Valeur",
+                title="💎 Poche CORE (Long Terme)",
+                hole=0.4,
+            )
+            fig_core.update_traces(textposition="inside", textinfo="percent+label")
+            fig_core.update_layout(
+                margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=260
+            )
+            st.plotly_chart(fig_core, width="stretch")
+        else:
+            st.info("Aucun actif CORE détecté.")
+
+    with z_col3:
+        if enriched_positions:
+            df_spec_pie = pd.DataFrame(enriched_positions)
+            fig_spec = px.pie(
+                df_spec_pie,
+                names="Symbole",
+                values="Valeur Actuelle",
+                title="🚀 Spéculatif (Moonbag BDD)",
+                hole=0.4,
+            )
+            fig_spec.update_traces(textposition="inside", textinfo="percent+label")
+            fig_spec.update_layout(
+                margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=260
+            )
+            st.plotly_chart(fig_spec, width="stretch")
+        else:
+            st.info("Aucune position spéculative active.")
+
+    st.markdown("---")
+
     if enriched_positions:
-      df_spec_pie = pd.DataFrame(enriched_positions)
-      fig_spec = px.pie(
-          df_spec_pie,
-          names="Symbole",
-          values="Valeur Actuelle",
-          title="🚀 Spéculatif (Moonbag BDD)",
-          hole=0.4,
-      )
-      fig_spec.update_traces(textposition="inside", textinfo="percent+label")
-      fig_spec.update_layout(
-          margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=260
-      )
-      st.plotly_chart(fig_spec, width="stretch")
-    else:
-      st.info("Aucune position spéculative active.")
+        df_pos = pd.DataFrame(enriched_positions)
 
-  st.markdown("---")
+        view_mode = st.radio(
+            "Mode d'affichage",
+            ["🖥️ Tableau Standard (PC)", "📱 Cartes Tactiles (Mobile)"],
+            horizontal=True,
+        )
 
-  if enriched_positions:
-    df_pos = pd.DataFrame(enriched_positions)
+        if view_mode.startswith("🖥️"):
+            df_display = df_pos.copy()
 
-    view_mode = st.radio(
-        "Mode d'affichage",
-        ["🖥️ Tableau Standard (PC)", "📱 Cartes Tactiles (Mobile)"],
-        horizontal=True,
-    )
-
-    if view_mode.startswith("🖥️"):
-      df_display = df_pos.copy()
-
-      df_display["Marge SL"] = df_display.apply(
-          lambda r: (
-              ((r["Prix Actuel"] - r["Stop-Loss"]) / r["Prix Actuel"]) * 100.0
-              if r["Prix Actuel"] > 0 and r["Stop-Loss"] > 0
-              else 0.0
-          ),
-          axis=1,
-      )
-
-      def style_pnl(val):
-        if pd.isna(val):
-          return ""
-        if val > 0:
-          return (
-              "color: #00ff66; font-weight: bold; background-color: rgba(0, 255,"
-              " 102, 0.12);"
-          )
-        elif val < 0:
-          return (
-              "color: #ff4d4d; font-weight: bold; background-color: rgba(255,"
-              " 77, 77, 0.12);"
-          )
-        return "color: #888888;"
-
-      def style_tp_sl(row):
-        styles = [""] * len(row)
-        price = row["Prix Actuel"]
-        sl = row["Stop-Loss"]
-        tp1 = row["TP1"]
-        statut = row["Statut"]
-
-        sl_idx = row.index.get_loc("Stop-Loss")
-        marge_idx = row.index.get_loc("Marge SL")
-        if sl > 0 and price > 0:
-          sl_dist_pct = ((price - sl) / price) * 100.0
-          if price <= sl:
-            styles[sl_idx] = (
-                "background-color: #5c1d1d; color: #ff3333; font-weight: bold;"
-            )
-            styles[marge_idx] = (
-                "background-color: #5c1d1d; color: #ff3333; font-weight: bold;"
-            )
-          elif sl_dist_pct <= 5.0:
-            styles[sl_idx] = (
-                "background-color: #52321e; color: #ffa500; font-weight: bold;"
-            )
-            styles[marge_idx] = (
-                "background-color: #52321e; color: #ffa500; font-weight: bold;"
+            df_display["Marge SL"] = df_display.apply(
+                lambda r: (
+                    ((r["Prix Actuel"] - r["Stop-Loss"]) / r["Prix Actuel"]) * 100.0
+                    if r["Prix Actuel"] > 0 and r["Stop-Loss"] > 0
+                    else 0.0
+                ),
+                axis=1,
             )
 
-        if tp1 > 0 and price > 0:
-          tp_idx = row.index.get_loc("TP1")
-          if price >= tp1:
-            styles[tp_idx] = (
-                "background-color: #1e4620; color: #00ff66; font-weight: bold;"
-            )
-          elif price >= (tp1 * 0.90):
-            styles[tp_idx] = (
-                "background-color: #2a4d30; color: #88ffaa; font-weight: bold;"
-            )
+            def style_pnl(val):
+                if pd.isna(val):
+                    return ""
+                if val > 0:
+                    return (
+                        "color: #00ff66; font-weight: bold; background-color: rgba(0, 255,"
+                        " 102, 0.12);"
+                    )
+                elif val < 0:
+                    return (
+                        "color: #ff4d4d; font-weight: bold; background-color: rgba(255,"
+                        " 77, 77, 0.12);"
+                    )
+                return "color: #888888;"
 
-        stat_idx = row.index.get_loc("Statut")
-        if "FREE RIDE" in str(statut):
-          styles[stat_idx] = (
-              "background-color: rgba(0, 255, 102, 0.2); color: #00ff66;"
-              " font-weight: bold;"
-          )
-        elif "SL FRÔLÉ" in str(statut):
-          styles[stat_idx] = (
-              "background-color: rgba(255, 165, 0, 0.2); color: #ffa500;"
-              " font-weight: bold;"
-          )
+            def style_tp_sl(row):
+                styles = [""] * len(row)
+                price = row["Prix Actuel"]
+                sl = row["Stop-Loss"]
+                tp1 = row["TP1"]
+                statut = row["Statut"]
 
-        return styles
+                sl_idx = row.index.get_loc("Stop-Loss")
+                marge_idx = row.index.get_loc("Marge SL")
+                if sl > 0 and price > 0:
+                    sl_dist_pct = ((price - sl) / price) * 100.0
+                    if price <= sl:
+                        styles[sl_idx] = (
+                            "background-color: #5c1d1d; color: #ff3333; font-weight: bold;"
+                        )
+                        styles[marge_idx] = (
+                            "background-color: #5c1d1d; color: #ff3333; font-weight: bold;"
+                        )
+                    elif sl_dist_pct <= 5.0:
+                        styles[sl_idx] = (
+                            "background-color: #52321e; color: #ffa500; font-weight: bold;"
+                        )
+                        styles[marge_idx] = (
+                            "background-color: #52321e; color: #ffa500; font-weight: bold;"
+                        )
 
-      styler = df_display.style.apply(style_tp_sl, axis=1)
-      styler = styler.map(style_pnl, subset=["PnL (€/$)", "PnL (%)"])
+                if tp1 > 0 and price > 0:
+                    tp_idx = row.index.get_loc("TP1")
+                    if price >= tp1:
+                        styles[tp_idx] = (
+                            "background-color: #1e4620; color: #00ff66; font-weight: bold;"
+                        )
+                    elif price >= (tp1 * 0.90):
+                        styles[tp_idx] = (
+                            "background-color: #2a4d30; color: #88ffaa; font-weight: bold;"
+                        )
 
-      styler = styler.format({
-          "Prix Entrée": f"{{:.4f}} {curr_symbol}",
-          "Prix Actuel": f"{{:.4f}} {curr_symbol}",
-          "Montant Initial": f"{{:,.2f}} {curr_symbol}",
-          "Valeur Actuelle": f"{{:,.2f}} {curr_symbol}",
-          "PnL (€/$)": f"{{:+,.2f}} {curr_symbol}",
-          "PnL (%)": "{:+.2f}%",
-          "TP1": f"{{:.4f}} {curr_symbol}",
-          "Stop-Loss": f"{{:.4f}} {curr_symbol}",
-          "Marge SL": "{:+.1f}%",
-      })
+                stat_idx = row.index.get_loc("Statut")
+                if "FREE RIDE" in str(statut):
+                    styles[stat_idx] = (
+                        "background-color: rgba(0, 255, 102, 0.2); color: #00ff66;"
+                        " font-weight: bold;"
+                    )
+                elif "SL FRÔLÉ" in str(statut):
+                    styles[stat_idx] = (
+                        "background-color: rgba(255, 165, 0, 0.2); color: #ffa500;"
+                        " font-weight: bold;"
+                    )
 
-      st.dataframe(styler, width="stretch", hide_index=True)
-    else:
-      st.markdown("### 📱 Cartes de suivi mobile temps réel")
-      for row in enriched_positions:
-        pnl_color = "#00ffcc" if row["PnL (%)"] >= 0 else "#ff4d4d"
-        with st.container():
-          st.markdown(
-              f"""
-                    <div style="padding: 15px; border-radius: 10px; border: 1px solid #303030; margin-bottom: 10px; background-color: #1e1e1e;">
-                        <h4 style="margin: 0; color: #00ffcc;">{row['Symbole']} <span style="font-size: 12px; color: #888;">({row['Exchange']})</span> — <span style="color: #00ffcc;">[{row['Mode']}]</span> — <span style="color: {pnl_color};">{row['Statut']}</span></h4>
-                        <p style="margin: 5px 0 0 0; font-size: 14px;">
-                            <b>Valeur :</b> {row['Valeur Actuelle']:,.2f} {curr_symbol} | <b>PnL :</b> <span style="color: {pnl_color};">{row['PnL (%)']:+.2f}% ({row['PnL (€/$)']:+,.2f} {curr_symbol})</span><br>
-                            <b>Prix Actuel :</b> {row['Prix Actuel']:.4f} {curr_symbol} (Entrée : {row['Prix Entrée']:.4f})<br>
-                            <b>TP1 :</b> {row['TP1']:.4f} {curr_symbol} | <b>SL :</b> {row['Stop-Loss']:.4f} {curr_symbol}
-                        </p>
-                    </div>
-                    """,
-              unsafe_allow_html=True,
-          )
+                return styles
+
+            styler = df_display.style.apply(style_tp_sl, axis=1)
+            styler = styler.map(style_pnl, subset=["PnL (€/$)", "PnL (%)"])
+
+            styler = styler.format({
+                "Prix Entrée": f"{{:.4f}} {curr_symbol}",
+                "Prix Actuel": f"{{:.4f}} {curr_symbol}",
+                "Montant Initial": f"{{:,.2f}} {curr_symbol}",
+                "Valeur Actuelle": f"{{:,.2f}} {curr_symbol}",
+                "PnL (€/$)": f"{{:+,.2f}} {curr_symbol}",
+                "PnL (%)": "{:+.2f}%",
+                "TP1": f"{{:.4f}} {curr_symbol}",
+                "Stop-Loss": f"{{:.4f}} {curr_symbol}",
+                "Marge SL": "{:+.1f}%",
+            })
+
+            st.dataframe(styler, width="stretch", hide_index=True)
+        else:
+            st.markdown("### 📱 Cartes de suivi mobile temps réel")
+            for row in enriched_positions:
+                pnl_color = "#00ffcc" if row["PnL (%)"] >= 0 else "#ff4d4d"
+                with st.container():
+                    st.markdown(
+                        f"""
+                        <div style="padding: 15px; border-radius: 10px; border: 1px solid #303030; margin-bottom: 10px; background-color: #1e1e1e;">
+                            <h4 style="margin: 0; color: #00ffcc;">{row['Symbole']} <span style="font-size: 12px; color: #888;">({row['Exchange']})</span> — <span style="color: #00ffcc;">[{row['Mode']}]</span> — <span style="color: {pnl_color};">{row['Statut']}</span></h4>
+                            <p style="margin: 5px 0 0 0; font-size: 14px;">
+                                <b>Valeur :</b> {row['Valeur Actuelle']:,.2f} {curr_symbol} | <b>PnL :</b> <span style="color: {pnl_color};">{row['PnL (%)']:+.2f}% ({row['PnL (€/$)']:+,.2f} {curr_symbol})</span><br>
+                                <b>Prix Actuel :</b> {row['Prix Actuel']:.4f} {curr_symbol} (Entrée : {row['Prix Entrée']:.4f})<br>
+                                <b>TP1 :</b> {row['TP1']:.4f} {curr_symbol} | <b>SL :</b> {row['Stop-Loss']:.4f} {curr_symbol}
+                            </p>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
     st.markdown("---")
     st.subheader("⚡ Actions & Gestion Dynamique des Positions")
@@ -968,264 +957,261 @@ with tab_live:
     ])
 
     with act_tab1:
-      c_col1, c_col2 = st.columns([2, 1])
-      with c_col1:
-        selected_close_id = st.selectbox(
-            "Position à clôturer",
+        c_col1, c_col2 = st.columns([2, 1])
+        with c_col1:
+            selected_close_id = st.selectbox(
+                "Position à clôturer",
+                options=df_pos["ID"].tolist(),
+                format_func=lambda x: (
+                    f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
+                    f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]})"
+                ),
+                key="close_select",
+            )
+        with c_col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🔒 Clôturer la position", type="secondary"):
+                close_sym = df_pos[df_pos["ID"] == selected_close_id][
+                    "Symbole"
+                ].values[0]
+                close_trade(selected_close_id)
+                st.cache_data.clear()
+                send_telegram_notify(
+                    f"🔒 *POSITION CLÔTURÉE VIA DASHBOARD*\n• **{close_sym}** (ID"
+                    f" {selected_close_id}) a été fermée en base de données."
+                )
+                st.success(f"Position ID {selected_close_id} clôturée en BDD !")
+                st.rerun()
+
+    with act_tab2:
+        st.markdown(
+            "**Caler le Stop-Loss sur le Prix d'Entrée** pour éliminer 100% du"
+            " risque sur une position en gain."
+        )
+        be_col1, be_col2 = st.columns([2, 1])
+        with be_col1:
+            selected_be_id = st.selectbox(
+                "Position à sécuriser (Break-Even)",
+                options=df_pos["ID"].tolist(),
+                format_func=lambda x: (
+                    f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]} |"
+                    f" Entrée:"
+                    f" {df_pos[df_pos['ID'] == x]['Prix Entrée'].values[0]} | PnL:"
+                    f" {df_pos[df_pos['ID'] == x]['PnL (%)'].values[0]}"
+                ),
+                key="be_select",
+            )
+        with be_col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🛡️ Passer en Break-Even", type="primary"):
+                be_row = df_pos[df_pos["ID"] == selected_be_id].iloc[0]
+                set_trade_break_even(selected_be_id)
+                st.cache_data.clear()
+                send_telegram_notify(
+                    f"🛡️ *POSITION SÉCURISÉE (BREAK-EVEN)*\n•"
+                    f" **{be_row['Symbole']}** (ID {selected_be_id})\n• Nouveau SL"
+                    f" calé sur prix d'entrée : *{be_row['Prix Entrée']}*"
+                )
+                st.success(
+                    f"✅ Stop-Loss de la position ID {selected_be_id} ajusté au prix"
+                    " d'entrée !"
+                )
+                st.rerun()
+
+    with act_tab3:
+        st.markdown(
+            "**Ajuster manuellement ou via les raccourcis (-10%, -15%, -20%) les"
+            " paliers TP / SL**"
+        )
+        selected_edit_id = st.selectbox(
+            "Position à modifier",
             options=df_pos["ID"].tolist(),
             format_func=lambda x: (
                 f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
                 f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]})"
             ),
-            key="close_select",
-        )
-      with c_col2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔒 Clôturer la position", type="secondary"):
-          close_sym = df_pos[df_pos["ID"] == selected_close_id][
-              "Symbole"
-          ].values[0]
-          close_trade(selected_close_id)
-          st.cache_data.clear()
-          send_telegram_notify(
-              f"🔒 *POSITION CLÔTURÉE VIA DASHBOARD*\n• **{close_sym}** (ID"
-              f" {selected_close_id}) a été fermée en base de données."
-          )
-          st.success(f"Position ID {selected_close_id} clôturée en BDD !")
-          st.rerun()
-
-    with act_tab2:
-      st.markdown(
-          "**Caler le Stop-Loss sur le Prix d'Entrée** pour éliminer 100% du"
-          " risque sur une position en gain."
-      )
-      be_col1, be_col2 = st.columns([2, 1])
-      with be_col1:
-        selected_be_id = st.selectbox(
-            "Position à sécuriser (Break-Even)",
-            options=df_pos["ID"].tolist(),
-            format_func=lambda x: (
-                f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]} |"
-                f" Entrée:"
-                f" {df_pos[df_pos['ID'] == x]['Prix Entrée'].values[0]} | PnL:"
-                f" {df_pos[df_pos['ID'] == x]['PnL (%)'].values[0]}"
-            ),
-            key="be_select",
-        )
-      with be_col2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🛡️ Passer en Break-Even", type="primary"):
-          be_row = df_pos[df_pos["ID"] == selected_be_id].iloc[0]
-          set_trade_break_even(selected_be_id)
-          st.cache_data.clear()
-          send_telegram_notify(
-              f"🛡️ *POSITION SÉCURISÉE (BREAK-EVEN)*\n•"
-              f" **{be_row['Symbole']}** (ID {selected_be_id})\n• Nouveau SL"
-              f" calé sur prix d'entrée : *{be_row['Prix Entrée']}*"
-          )
-          st.success(
-              f"✅ Stop-Loss de la position ID {selected_be_id} ajusté au prix"
-              " d'entrée !"
-          )
-          st.rerun()
-
-    with act_tab3:
-      st.markdown(
-          "**Ajuster manuellement ou via les raccourcis (-10%, -15%, -20%) les"
-          " paliers TP / SL**"
-      )
-      selected_edit_id = st.selectbox(
-          "Position à modifier",
-          options=df_pos["ID"].tolist(),
-          format_func=lambda x: (
-              f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
-              f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]})"
-          ),
-          key="edit_select",
-      )
-
-      curr_row = df_pos[df_pos["ID"] == selected_edit_id].iloc[0]
-      raw_entry = curr_row["Prix Entrée"]
-      raw_tp1 = curr_row["TP1"]
-      raw_sl = curr_row["Stop-Loss"]
-
-      # Clé de session unique par position pour maintenir l'état du SL
-      state_key = f"preset_sl_val_{selected_edit_id}"
-      if state_key not in st.session_state:
-        st.session_state[state_key] = (
-            float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70)
+            key="edit_select",
         )
 
-      st.markdown(
-          "**⚡ Raccourcis de calcul SL rapide (par rapport au prix d'entrée)"
-          " :**"
-      )
-      r_c1, r_c2, r_c3, r_c4 = st.columns(4)
+        curr_row = df_pos[df_pos["ID"] == selected_edit_id].iloc[0]
+        raw_entry = curr_row["Prix Entrée"]
+        raw_tp1 = curr_row["TP1"]
+        raw_sl = curr_row["Stop-Loss"]
 
-      if r_c1.button("-10% (Resserré)", key="btn_sl_10"):
-        st.session_state[state_key] = float(raw_entry * 0.90)
-        st.rerun()
-      if r_c2.button("-15% (Standard)", key="btn_sl_15"):
-        st.session_state[state_key] = float(raw_entry * 0.85)
-        st.rerun()
-      if r_c3.button("-20% (Modéré)", key="btn_sl_20"):
-        st.session_state[state_key] = float(raw_entry * 0.80)
-        st.rerun()
-      if r_c4.button("-30% (Large)", key="btn_sl_30"):
-        st.session_state[state_key] = float(raw_entry * 0.70)
-        st.rerun()
+        state_key = f"preset_sl_val_{selected_edit_id}"
+        if state_key not in st.session_state:
+            st.session_state[state_key] = (
+                float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70)
+            )
 
-      e_col1, e_col2, e_col3 = st.columns(3)
-      with e_col1:
-        new_tp1 = st.number_input(
-            f"Nouveau TP1 ({curr_symbol})",
-            value=float(raw_tp1) if raw_tp1 > 0 else float(raw_entry * 2.0),
-            format="%.4f",
-            key=f"input_tp1_{selected_edit_id}",
+        st.markdown(
+            "**⚡ Raccourcis de calcul SL rapide (par rapport au prix d'entrée)"
+            " :**"
         )
-      with e_col2:
-        new_tp2 = st.number_input(
-            f"Nouveau TP2 ({curr_symbol})",
-            value=float(raw_entry * 4.0),
-            format="%.4f",
-            key=f"input_tp2_{selected_edit_id}",
-        )
-      with e_col3:
-        new_sl = st.number_input(
-            f"Nouveau Stop-Loss ({curr_symbol})",
-            value=st.session_state[state_key],
-            format="%.4f",
-            key=f"input_sl_field_{selected_edit_id}",
-        )
+        r_c1, r_c2, r_c3, r_c4 = st.columns(4)
 
-      if st.button("💾 Enregistrer les nouveaux paliers"):
-        # Utiliser la valeur saisie dans le champ new_sl
-        update_trade_levels(
-            selected_edit_id,
-            tp1_price=new_tp1 / curr_multiplier,
-            tp2_price=new_tp2 / curr_multiplier,
-            sl_price=new_sl / curr_multiplier,
-        )
+        if r_c1.button("-10% (Resserré)", key="btn_sl_10"):
+            st.session_state[state_key] = float(raw_entry * 0.90)
+            st.rerun()
+        if r_c2.button("-15% (Standard)", key="btn_sl_15"):
+            st.session_state[state_key] = float(raw_entry * 0.85)
+            st.rerun()
+        if r_c3.button("-20% (Modéré)", key="btn_sl_20"):
+            st.session_state[state_key] = float(raw_entry * 0.80)
+            st.rerun()
+        if r_c4.button("-30% (Large)", key="btn_sl_30"):
+            st.session_state[state_key] = float(raw_entry * 0.70)
+            st.rerun()
 
-        # Nettoyage de l'état de session après enregistrement
-        if state_key in st.session_state:
-          del st.session_state[state_key]
+        e_col1, e_col2, e_col3 = st.columns(3)
+        with e_col1:
+            new_tp1 = st.number_input(
+                f"Nouveau TP1 ({curr_symbol})",
+                value=float(raw_tp1) if raw_tp1 > 0 else float(raw_entry * 2.0),
+                format="%.4f",
+                key=f"input_tp1_{selected_edit_id}",
+            )
+        with e_col2:
+            new_tp2 = st.number_input(
+                f"Nouveau TP2 ({curr_symbol})",
+                value=float(raw_entry * 4.0),
+                format="%.4f",
+                key=f"input_tp2_{selected_edit_id}",
+            )
+        with e_col3:
+            new_sl = st.number_input(
+                f"Nouveau Stop-Loss ({curr_symbol})",
+                value=st.session_state[state_key],
+                format="%.4f",
+                key=f"input_sl_field_{selected_edit_id}",
+            )
 
-        st.cache_data.clear()
-        send_telegram_notify(
-            f"✏️ *PALIERS MIS À JOUR VIA DASHBOARD*\n•"
-            f" **{curr_row['Symbole']}** (ID {selected_edit_id})\n• Nouveau TP1"
-            f" : {new_tp1:.4f} {curr_symbol}\n• Nouveau SL : {new_sl:.4f}"
-            f" {curr_symbol}"
-        )
-        st.success(
-            f"✅ Paliers mis à jour pour {curr_row['Symbole']} (ID"
-            f" {selected_edit_id}) !"
-        )
-        st.rerun()
+        if st.button("💾 Enregistrer les nouveaux paliers"):
+            update_trade_levels(
+                selected_edit_id,
+                tp1_price=new_tp1 / curr_multiplier,
+                tp2_price=new_tp2 / curr_multiplier,
+                sl_price=new_sl / curr_multiplier,
+            )
+
+            if state_key in st.session_state:
+                del st.session_state[state_key]
+
+            st.cache_data.clear()
+            send_telegram_notify(
+                f"✏️ *PALIERS MIS À JOUR VIA DASHBOARD*\n•"
+                f" **{curr_row['Symbole']}** (ID {selected_edit_id})\n• Nouveau TP1"
+                f" : {new_tp1:.4f} {curr_symbol}\n• Nouveau SL : {new_sl:.4f}"
+                f" {curr_symbol}"
+            )
+            st.success(
+                f"✅ Paliers mis à jour pour {curr_row['Symbole']} (ID"
+                f" {selected_edit_id}) !"
+            )
+            st.rerun()
 
     with act_tab4:
-      st.markdown(
-          "**Activer / Désactiver la gestion automatique TP/SL par l'IA**"
-          " pour chaque position :"
-      )
-      selected_auto_id = st.selectbox(
-          "Position à modifier",
-          options=df_pos["ID"].tolist(),
-          format_func=lambda x: (
-              f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
-              f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]}) | Mode"
-              f" actuel : {df_pos[df_pos['ID'] == x]['Mode'].values[0]}"
-          ),
-          key="auto_select",
-      )
-      auto_row = df_pos[df_pos["ID"] == selected_auto_id].iloc[0]
-      is_currently_auto = "Auto IA" in str(auto_row["Mode"])
+        st.markdown(
+            "**Activer / Désactiver la gestion automatique TP/SL par l'IA**"
+            " pour chaque position :"
+        )
+        selected_auto_id = st.selectbox(
+            "Position à modifier",
+            options=df_pos["ID"].tolist(),
+            format_func=lambda x: (
+                f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
+                f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]}) | Mode"
+                f" actuel : {df_pos[df_pos['ID'] == x]['Mode'].values[0]}"
+            ),
+            key="auto_select",
+        )
+        auto_row = df_pos[df_pos["ID"] == selected_auto_id].iloc[0]
+        is_currently_auto = "Auto IA" in str(auto_row["Mode"])
 
-      a_col1, a_col2 = st.columns(2)
-      with a_col1:
-        if st.button(
-            "🤖 Activer le mode Auto IA",
-            type="primary",
-            disabled=is_currently_auto,
-            key="btn_enable_auto",
-        ):
-          toggle_auto_tp_sl(selected_auto_id, True)
-          st.cache_data.clear()
-          send_telegram_notify(
-              f"🤖 *MODE AUTO TP/SL ACTIVÉ VIA WEB*\n•"
-              f" **{auto_row['Symbole']}** (ID {selected_auto_id}) est désormais"
-              " géré automatiquement par l'IA."
-          )
-          st.success(
-              f"✅ Position ID {selected_auto_id} ({auto_row['Symbole']})"
-              " passée en mode Auto IA !"
-          )
-          st.rerun()
-      with a_col2:
-        if st.button(
-            "👤 Repasser en Gestion Manuelle",
-            type="secondary",
-            disabled=not is_currently_auto,
-            key="btn_disable_auto",
-        ):
-          toggle_auto_tp_sl(selected_auto_id, False)
-          st.cache_data.clear()
-          send_telegram_notify(
-              f"👤 *MODE AUTO TP/SL DÉSACTIVÉ VIA WEB*\n•"
-              f" **{auto_row['Symbole']}** (ID {selected_auto_id}) repasse en"
-              " gestion manuelle."
-          )
-          st.info(
-              f"ℹ️ Position ID {selected_auto_id} ({auto_row['Symbole']})"
-              " repassée en gestion manuelle."
-          )
-          st.rerun()
+        a_col1, a_col2 = st.columns(2)
+        with a_col1:
+            if st.button(
+                "🤖 Activer le mode Auto IA",
+                type="primary",
+                disabled=is_currently_auto,
+                key="btn_enable_auto",
+            ):
+                toggle_auto_tp_sl(selected_auto_id, True)
+                st.cache_data.clear()
+                send_telegram_notify(
+                    f"🤖 *MODE AUTO TP/SL ACTIVÉ VIA WEB*\n•"
+                    f" **{auto_row['Symbole']}** (ID {selected_auto_id}) est désormais"
+                    " géré automatiquement par l'IA."
+                )
+                st.success(
+                    f"✅ Position ID {selected_auto_id} ({auto_row['Symbole']})"
+                    " passée en mode Auto IA !"
+                )
+                st.rerun()
+        with a_col2:
+            if st.button(
+                "👤 Repasser en Gestion Manuelle",
+                type="secondary",
+                disabled=not is_currently_auto,
+                key="btn_disable_auto",
+            ):
+                toggle_auto_tp_sl(selected_auto_id, False)
+                st.cache_data.clear()
+                send_telegram_notify(
+                    f"👤 *MODE AUTO TP/SL DÉSACTIVÉ VIA WEB*\n•"
+                    f" **{auto_row['Symbole']}** (ID {selected_auto_id}) repasse en"
+                    " gestion manuelle."
+                )
+                st.info(
+                    f"ℹ️ Position ID {selected_auto_id} ({auto_row['Symbole']})"
+                    " repassée en gestion manuelle."
+                )
+                st.rerun()
 
     with act_tab5:
-      st.markdown(
-          "**Fusionner deux lignes du même actif sur un même exchange** en une"
-          " seule position avec PRU pondéré."
-      )
-
-      duplicates = df_pos.groupby(["Symbole", "Exchange"]).filter(
-          lambda x: len(x) > 1
-      )
-
-      if not duplicates.empty:
-        st.warning("⚠️ Doublon(s) de position détecté(s) !")
-        dup_symbols = duplicates["Symbole"].unique()
-
-        for d_sym in dup_symbols:
-          sub_dup = duplicates[duplicates["Symbole"] == d_sym]
-          ids = sub_dup["ID"].tolist()
-          primary_id = ids[0]
-          secondary_id = ids[1]
-
-          st.markdown(
-              f"• **{d_sym} ({sub_dup['Exchange'].values[0]})** : Ligne"
-              f" principale ID **{primary_id}** & Secondaire ID"
-              f" **{secondary_id}**"
-          )
-
-          if st.button(
-              f"🔀 Fusionner les lignes {d_sym} (ID {primary_id} + ID"
-              f" {secondary_id})",
-              key=f"merge_btn_{d_sym}",
-          ):
-            if merge_duplicate_trades(primary_id, secondary_id):
-              st.cache_data.clear()
-              send_telegram_notify(
-                  f"🔀 *FUSION DE DOUBLONS EFFECTUÉE*\n• **{d_sym}** : Lignes"
-                  f" ID {secondary_id} fusionnée dans ID {primary_id}.\n•"
-                  " PRU et volumes consolidés avec succès."
-              )
-              st.success(f"✅ Positions {d_sym} fusionnées avec succès !")
-              st.rerun()
-      else:
-        st.info(
-            "✅ Aucun doublon de position actuellement dans le portefeuille."
+        st.markdown(
+            "**Fusionner deux lignes du même actif sur un même exchange** en une"
+            " seule position avec PRU pondéré."
         )
+
+        duplicates = df_pos.groupby(["Symbole", "Exchange"]).filter(
+            lambda x: len(x) > 1
+        )
+
+        if not duplicates.empty:
+            st.warning("⚠️ Doublon(s) de position détecté(s) !")
+            dup_symbols = duplicates["Symbole"].unique()
+
+            for d_sym in dup_symbols:
+                sub_dup = duplicates[duplicates["Symbole"] == d_sym]
+                ids = sub_dup["ID"].tolist()
+                primary_id = ids[0]
+                secondary_id = ids[1]
+
+                st.markdown(
+                    f"• **{d_sym} ({sub_dup['Exchange'].values[0]})** : Ligne"
+                    f" principale ID **{primary_id}** & Secondaire ID"
+                    f" **{secondary_id}**"
+                )
+
+                if st.button(
+                    f"🔀 Fusionner les lignes {d_sym} (ID {primary_id} + ID"
+                    f" {secondary_id})",
+                    key=f"merge_btn_{d_sym}",
+                ):
+                    if merge_duplicate_trades(primary_id, secondary_id):
+                        st.cache_data.clear()
+                        send_telegram_notify(
+                            f"🔀 *FUSION DE DOUBLONS EFFECTUÉE*\n• **{d_sym}** : Lignes"
+                            f" ID {secondary_id} fusionnée dans ID {primary_id}.\n•"
+                            " PRU et volumes consolidés avec succès."
+                        )
+                        st.success(f"✅ Positions {d_sym} fusionnées avec succès !")
+                        st.rerun()
+        else:
+            st.info(
+                "✅ Aucun doublon de position actuellement dans le portefeuille."
+            )
 
   else:
     st.info("Aucune position active trouvée.")
@@ -1234,783 +1220,772 @@ with tab_live:
   with st.expander(
       "📋 Journal & Historique des Positions Clôturées", expanded=False
   ):
-    from db_manager import get_closed_trades_history
-
     closed_history = get_closed_trades_history()
 
     if not closed_history:
-      st.info(
-          "Aucune position clôturée enregistrée dans l'historique pour le"
-          " moment."
-      )
+        st.info(
+            "Aucune position clôturée enregistrée dans l'historique pour le"
+            " moment."
+        )
     else:
-      df_closed = pd.DataFrame(
-          closed_history,
-          columns=[
-              "ID",
-              "Symbole",
-              "Exchange",
-              "Prix Entrée (€)",
-              "Prix Sortie (€)",
-              "Investi (€)",
-              "PnL (€)",
-              "PnL (%)",
-              "Ouverture",
-              "Clôture",
-              "Raison",
-          ],
-      )
+        df_closed = pd.DataFrame(
+            closed_history,
+            columns=[
+                "ID",
+                "Symbole",
+                "Exchange",
+                "Prix Entrée (€)",
+                "Prix Sortie (€)",
+                "Investi (€)",
+                "PnL (€)",
+                "PnL (%)",
+                "Ouverture",
+                "Clôture",
+                "Raison",
+            ],
+        )
 
-      total_pnl = df_closed["PnL (€)"].sum()
-      wins = len(df_closed[df_closed["PnL (€)"] >= 0])
-      losses = len(df_closed[df_closed["PnL (€)"] < 0])
-      total_trades = len(df_closed)
-      win_rate = (wins / total_trades * 100.0) if total_trades > 0 else 0.0
+        total_pnl = df_closed["PnL (€)"].sum()
+        wins = len(df_closed[df_closed["PnL (€)"] >= 0])
+        losses = len(df_closed[df_closed["PnL (€)"] < 0])
+        total_trades = len(df_closed)
+        win_rate = (wins / total_trades * 100.0) if total_trades > 0 else 0.0
 
-      m1, m2, m3, m4 = st.columns(4)
-      m1.metric("PnL Cumulé Réalisé", f"{total_pnl:+,.2f} €")
-      m2.metric("Win Rate", f"{win_rate:.1f} %")
-      m3.metric("Ratio W / L", f"{wins}W / {losses}L")
-      m4.metric("Total Clôturés", f"{total_trades}")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("PnL Cumulé Réalisé", f"{total_pnl:+,.2f} €")
+        m2.metric("Win Rate", f"{win_rate:.1f} %")
+        m3.metric("Ratio W / L", f"{wins}W / {losses}L")
+        m4.metric("Total Clôturés", f"{total_trades}")
 
-      df_display = df_closed[[
-          "Symbole",
-          "Exchange",
-          "Prix Entrée (€)",
-          "Prix Sortie (€)",
-          "Investi (€)",
-          "PnL (€)",
-          "PnL (%)",
-          "Clôture",
-          "Raison",
-      ]].copy()
+        df_display = df_closed[[
+            "Symbole",
+            "Exchange",
+            "Prix Entrée (€)",
+            "Prix Sortie (€)",
+            "Investi (€)",
+            "PnL (€)",
+            "PnL (%)",
+            "Clôture",
+            "Raison",
+        ]].copy()
 
-      def style_pnl_val(val):
-        if isinstance(val, (int, float)):
-          color = "#00FF00" if val >= 0 else "#FF4B4B"
-          return f"color: {color}; font-weight: bold;"
-        return ""
+        def style_pnl_val(val):
+            if isinstance(val, (int, float)):
+                color = "#00FF00" if val >= 0 else "#FF4B4B"
+                return f"color: {color}; font-weight: bold;"
+            return ""
 
-      styled_df = df_display.style.format({
-          "Prix Entrée (€)": "{:.4f} €",
-          "Prix Sortie (€)": "{:.4f} €",
-          "Investi (€)": "{:.2f} €",
-          "PnL (€)": "{:+,.2f} €",
-          "PnL (%)": "{:+.2f} %",
-      }).map(style_pnl_val, subset=["PnL (€)", "PnL (%)"])
+        styled_df = df_display.style.format({
+            "Prix Entrée (€)": "{:.4f} €",
+            "Prix Sortie (€)": "{:.4f} €",
+            "Investi (€)": "{:.2f} €",
+            "PnL (€)": "{:+,.2f} €",
+            "PnL (%)": "{:+.2f} %",
+        }).map(style_pnl_val, subset=["PnL (€)", "PnL (%)"])
 
-      st.dataframe(styled_df, use_container_width=True)
+        st.dataframe(styled_df, use_container_width=True)
 
 
 # ==========================================
 # ONGLET 2 : MICROSTRUCTURE & DÉRIVÉS
 # ==========================================
 with tab_micro:
-  with st.expander("📖 Guide de lecture — Microstructure & Dérivés"):
-    st.markdown("""
-        Analyse du sentiment de marché dérivés sur les actifs de votre portefeuille :
-        * **Funding Rate (8h) :** Taux d'intérêt payé entre Longs et Shorts. 
-          * **> +0.03%** : Surchauffe acheteuse (risque de Long Squeeze).
-          * **< -0.01%** : Surchauffe vendeuse (opportunité de Short Squeeze).
-        * **Open Interest (OI) :** Capital total engagé sur les marchés à terme.
-        """)
+    with st.expander("📖 Guide de lecture — Microstructure & Dérivés"):
+        st.markdown("""
+            Analyse du sentiment de marché dérivés sur les actifs de votre portefeuille :
+            * **Funding Rate (8h) :** Taux d'intérêt payé entre Longs et Shorts. 
+              * **> +0.03%** : Surchauffe acheteuse (risque de Long Squeeze).
+              * **< -0.01%** : Surchauffe vendeuse (opportunité de Short Squeeze).
+            * **Open Interest (OI) :** Capital total engagé sur les marchés à terme.
+            """)
 
-  st.subheader("🔥 Microstructure de Marché — Funding Rates & Open Interest")
+    st.subheader("🔥 Microstructure de Marché — Funding Rates & Open Interest")
 
-  if not FUNDING_ENGINE_AVAILABLE:
-    st.warning("⚠️ Le module `funding_oi_engine.py` est introuvable.")
-  else:
-    user_crypto_list = set()
-    if "enriched_positions" in locals() and enriched_positions:
-      for p in enriched_positions:
-        user_crypto_list.add(p["Symbole"])
-
-    if "all_crypto_balances" in locals() and all_crypto_balances:
-      for asset in all_crypto_balances.keys():
-        if asset not in ["USDT", "USDC", "EUR", "USD"]:
-          user_crypto_list.add(asset)
-
-    if not user_crypto_list:
-      user_crypto_list = {
-          "BTC",
-          "ETH",
-          "SOL",
-          "NEAR",
-          "ONDO",
-          "PENDLE",
-          "SUI",
-          "AVAX",
-      }
-
-    col_btn, col_info = st.columns([1, 4])
-    with col_btn:
-      refresh_foi = st.button("🔄 Rafraîchir Funding/OI", key="btn_refresh_foi")
-
-    if refresh_foi or "funding_data" not in st.session_state:
-      with st.spinner(
-          f"Analyse des dérivés pour vos {len(user_crypto_list)} actifs..."
-      ):
-        try:
-          st.session_state["funding_data"] = get_funding_oi_summary(
-              symbols=list(user_crypto_list)
-          )
-        except Exception as e:
-          st.error(
-              "Erreur lors de la récupération des données microstructure :"
-              f" {e}"
-          )
-
-    data_foi = st.session_state.get("funding_data", {})
-
-    if not data_foi or "pairs" not in data_foi or not data_foi["pairs"]:
-      st.info(
-          "Cliquez sur 'Rafraîchir Funding/OI' pour analyser vos actifs en"
-          " direct."
-      )
+    if not FUNDING_ENGINE_AVAILABLE:
+        st.warning("⚠️ Le module `funding_oi_engine.py` est introuvable.")
     else:
-      avg_fr = data_foi.get("avg_funding_rate", 0.0)
-      total_oi = data_foi.get("total_open_interest_usd", 0.0)
-      overheated_longs = data_foi.get("overheated_longs_count", 0)
-      short_squeeze_candidates = data_foi.get("short_squeeze_count", 0)
+        user_crypto_list = set()
+        if "enriched_positions" in locals() and enriched_positions:
+            for p in enriched_positions:
+                user_crypto_list.add(p["Symbole"])
 
-      m1, m2, m3, m4 = st.columns(4)
-      m1.metric(
-          "Funding Rate Moyen (8h)",
-          f"{avg_fr:+.4f} %",
-          delta=(
-              "Surchauffe Acheteuse"
-              if avg_fr > 0.03
-              else ("Neutre / Sain" if avg_fr >= 0 else "Dominance Vendeuse")
-          ),
-          delta_color="inverse" if avg_fr > 0.03 else "normal",
-      )
-      m2.metric(
-          "Open Interest Total (Portefeuille)",
-          f"{total_oi / 1e6:,.1f} M$",
-      )
-      m3.metric(
-          "Risque Long Squeeze",
-          f"{overheated_longs} pair(s)",
-          delta="Alerte Surchauffe" if overheated_longs > 0 else "Niveau Sain",
-          delta_color="inverse" if overheated_longs > 0 else "normal",
-      )
-      m4.metric(
-          "Potentiel Short Squeeze",
-          f"{short_squeeze_candidates} pair(s)",
-          delta=(
-              "Opportunité Rebond" if short_squeeze_candidates > 0 else "Calme"
-          ),
-          delta_color="normal" if short_squeeze_candidates > 0 else "off",
-      )
+        if "all_crypto_balances" in locals() and all_crypto_balances:
+            for asset in all_crypto_balances.keys():
+                if asset not in ["USDT", "USDC", "EUR", "USD"]:
+                    user_crypto_list.add(asset)
 
-      st.markdown("---")
+        if not user_crypto_list:
+            user_crypto_list = {
+                "BTC", "ETH", "SOL", "NEAR", "ONDO", "PENDLE", "SUI", "AVAX",
+            }
 
-      df_funding = pd.DataFrame(data_foi["pairs"])
+        col_btn, col_info = st.columns([1, 4])
+        with col_btn:
+            refresh_foi = st.button("🔄 Rafraîchir Funding/OI", key="btn_refresh_foi")
 
-      if not df_funding.empty:
+        if refresh_foi or "funding_data" not in st.session_state:
+            with st.spinner(
+                f"Analyse des dérivés pour vos {len(user_crypto_list)} actifs..."
+            ):
+                try:
+                    st.session_state["funding_data"] = get_funding_oi_summary(
+                        symbols=list(user_crypto_list)
+                    )
+                except Exception as e:
+                    st.error(
+                        "Erreur lors de la récupération des données microstructure :"
+                        f" {e}"
+                    )
 
-        def style_funding_rate(val):
-          if isinstance(val, (int, float)):
-            if val > 0.03:
-              return (
-                  "color: #FF4B4B; font-weight: bold; background-color:"
-                  " rgba(255, 75, 75, 0.12);"
-              )
-            elif val < -0.01:
-              return (
-                  "color: #00FF00; font-weight: bold; background-color:"
-                  " rgba(0, 255, 0, 0.12);"
-              )
-            elif val >= 0:
-              return "color: #FFA500;"
-          return ""
+        data_foi = st.session_state.get("funding_data", {})
 
-        df_display_foi = df_funding[[
-            "symbol",
-            "exchange",
-            "funding_rate_8h_pct",
-            "funding_rate_annual_pct",
-            "open_interest_usd",
-            "bias_status",
-        ]].copy()
+        if not data_foi or "pairs" not in data_foi or not data_foi["pairs"]:
+            st.info(
+                "Cliquez sur 'Rafraîchir Funding/OI' pour analyser vos actifs en"
+                " direct."
+            )
+        else:
+            avg_fr = data_foi.get("avg_funding_rate", 0.0)
+            total_oi = data_foi.get("total_open_interest_usd", 0.0)
+            overheated_longs = data_foi.get("overheated_longs_count", 0)
+            short_squeeze_candidates = data_foi.get("short_squeeze_count", 0)
 
-        df_display_foi.columns = [
-            "Symbole",
-            "Exchange",
-            "Funding 8h (%)",
-            "Funding Annuel (%)",
-            "Open Interest ($)",
-            "Biais Microstructure",
-        ]
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric(
+                "Funding Rate Moyen (8h)",
+                f"{avg_fr:+.4f} %",
+                delta=(
+                    "Surchauffe Acheteuse"
+                    if avg_fr > 0.03
+                    else ("Neutre / Sain" if avg_fr >= 0 else "Dominance Vendeuse")
+                ),
+                delta_color="inverse" if avg_fr > 0.03 else "normal",
+            )
+            m2.metric(
+                "Open Interest Total (Portefeuille)",
+                f"{total_oi / 1e6:,.1f} M$",
+            )
+            m3.metric(
+                "Risque Long Squeeze",
+                f"{overheated_longs} pair(s)",
+                delta="Alerte Surchauffe" if overheated_longs > 0 else "Niveau Sain",
+                delta_color="inverse" if overheated_longs > 0 else "normal",
+            )
+            m4.metric(
+                "Potentiel Short Squeeze",
+                f"{short_squeeze_candidates} pair(s)",
+                delta=(
+                    "Opportunité Rebond" if short_squeeze_candidates > 0 else "Calme"
+                ),
+                delta_color="normal" if short_squeeze_candidates > 0 else "off",
+            )
 
-        styled_df_foi = df_display_foi.style.format({
-            "Funding 8h (%)": "{:+,.4f} %",
-            "Funding Annuel (%)": "{:+,.2f} %",
-            "Open Interest ($)": "{:,.0f} $",
-        }).map(style_funding_rate, subset=["Funding 8h (%)"])
+            st.markdown("---")
 
-        st.dataframe(styled_df_foi, use_container_width=True)
+            df_funding = pd.DataFrame(data_foi["pairs"])
+
+            if not df_funding.empty:
+                def style_funding_rate(val):
+                    if isinstance(val, (int, float)):
+                        if val > 0.03:
+                            return (
+                                "color: #FF4B4B; font-weight: bold; background-color:"
+                                " rgba(255, 75, 75, 0.12);"
+                            )
+                        elif val < -0.01:
+                            return (
+                                "color: #00FF00; font-weight: bold; background-color:"
+                                " rgba(0, 255, 0, 0.12);"
+                            )
+                        elif val >= 0:
+                            return "color: #FFA500;"
+                    return ""
+
+                df_display_foi = df_funding[[
+                    "symbol",
+                    "exchange",
+                    "funding_rate_8h_pct",
+                    "funding_rate_annual_pct",
+                    "open_interest_usd",
+                    "bias_status",
+                ]].copy()
+
+                df_display_foi.columns = [
+                    "Symbole",
+                    "Exchange",
+                    "Funding 8h (%)",
+                    "Funding Annuel (%)",
+                    "Open Interest ($)",
+                    "Biais Microstructure",
+                ]
+
+                styled_df_foi = df_display_foi.style.format({
+                    "Funding 8h (%)": "{:+,.4f} %",
+                    "Funding Annuel (%)": "{:+,.2f} %",
+                    "Open Interest ($)": "{:,.0f} $",
+                }).map(style_funding_rate, subset=["Funding 8h (%)"])
+
+                st.dataframe(styled_df_foi, use_container_width=True)
 
 
 # ==========================================
 # ONGLET 3 : DAILY BRIEFING PRO (19H)
 # ==========================================
 with tab_digest:
-  with st.expander("📖 Guide du Daily Briefing Pro (Rapport de 19h)"):
-    st.markdown("""
-        Tour de contrôle quotidienne :
-        * **Climat & Marché :** Suivi de l'indice Fear & Greed et du Circuit Breaker BTC.
-        * **Répartition des Poches :** Ventilation précise des actifs.
-        * **Règle Cash-Neutral & Arbitrages :** Validation des opportunités et plans Moonbag.
-        """)
+    with st.expander("📖 Guide du Daily Briefing Pro (Rapport de 19h)"):
+        st.markdown("""
+            Tour de contrôle quotidienne :
+            * **Climat & Marché :** Suivi de l'indice Fear & Greed et du Circuit Breaker BTC.
+            * **Répartition des Poches :** Ventilation précise des actifs.
+            * **Règle Cash-Neutral & Arbitrages :** Validation des opportunités et plans Moonbag.
+            """)
 
-  st.subheader(
-      f"📰 Rapport d'Arbitrage Quotidien — Stratégie Moonbag ({curr_symbol})"
-  )
-
-  fng_data = {"value": 59, "classification": "Greed"}
-  is_crash, crash_val = False, 1.5
-
-  if EXPERT_ENGINE_AVAILABLE:
-    try:
-      fng_data = fetch_fear_and_greed_index()
-      is_crash, crash_val = check_circuit_breaker()
-    except Exception:
-      pass
-
-  m_col1, m_col2, m_col3 = st.columns(3)
-  m_col1.metric(
-      "Indice Fear & Greed",
-      f"{fng_data['value']}/100",
-      delta=f"{fng_data['classification']}",
-  )
-  m_col2.metric(
-      "Circuit Breaker BTC (24h)",
-      f"{crash_val:+.2f}%",
-      delta="NORMAL 🟢" if not is_crash else "DÉFENSIF 🚨",
-      delta_color="normal" if not is_crash else "inverse",
-  )
-  cash_eur = (
-      val_stables_cash
-      if "val_stables_cash" in locals()
-      else cash_info.get("total_cash", 0.0)
-  )
-  m_col3.metric(
-      f"Liquidités Cash Réel ({curr_symbol})",
-      f"{cash_eur * curr_multiplier:,.2f} {curr_symbol}",
-      delta="Cash-Neutral Strict",
-  )
-
-  st.markdown("---")
-  st.subheader("🎯 Opportunités & Plan d'Arbitrage Explicite (Moonbag)")
-  open_trades_digest = get_open_positions()
-  if open_trades_digest:
-    for t in open_trades_digest:
-      rec_id, sym, exch, entry, amt, tp1, sl = (
-          t[0],
-          t[1],
-          t[2],
-          t[3],
-          t[4],
-          t[5] if len(t) > 5 else 0,
-          t[7] if len(t) > 7 else 0,
-      )
-      val_amt = (amt if amt else 0.0) * curr_multiplier
-      val_ent = (entry if entry else 0.0) * curr_multiplier
-      val_tp = (tp1 if tp1 else 0.0) * curr_multiplier
-      val_sl = (sl if sl else 0.0) * curr_multiplier
-
-      with st.container():
-        st.markdown(
-            f"""
-                <div style="padding: 15px; border-radius: 10px; border: 1px solid #00ffcc; margin-bottom: 15px; background-color: #161a1e;">
-                    <h4 style="margin: 0; color: #00ffcc;">Focus : {sym} <span style="font-size: 12px; color: #aaa;">({exch})</span></h4>
-                    <p style="margin: 8px 0 0 0; font-size: 14px;">
-                        <b>Montant engagé :</b> {val_amt:,.2f} {curr_symbol} @ {val_ent:.4f} {curr_symbol}<br>
-                        <b>Plan Moonbag :</b> 🎯 TP1 (x2) : {val_tp:.4f} {curr_symbol} (Vente 50% -> Free Ride) | 🛑 SL : {val_sl:.4f} {curr_symbol}
-                    </p>
-                </div>
-                """,
-            unsafe_allow_html=True,
-        )
-        bc1, bc2 = st.columns(2)
-        with bc1:
-          if st.button(
-              f"✅ Marquer comme Pris (ID {rec_id})", key=f"digest_take_{rec_id}"
-          ):
-            mark_trade_taken(rec_id)
-            st.cache_data.clear()
-            st.success(f"Position {sym} enregistrée comme prise !")
-            st.rerun()
-        with bc2:
-          if st.button(
-              f"❌ Ignorer l'opportunité (ID {rec_id})",
-              key=f"digest_ignore_{rec_id}",
-          ):
-            mark_trade_ignored(rec_id)
-            st.cache_data.clear()
-            st.warning(f"Opportunité {sym} ignorée.")
-            st.rerun()
-  else:
-    st.info(
-        "Aucune opportunité spéculative active en attente dans la base de"
-        " données."
+    st.subheader(
+        f"📰 Rapport d'Arbitrage Quotidien — Stratégie Moonbag ({curr_symbol})"
     )
+
+    fng_data = {"value": 59, "classification": "Greed"}
+    is_crash, crash_val = False, 1.5
+
+    if EXPERT_ENGINE_AVAILABLE:
+        try:
+            fng_data = fetch_fear_and_greed_index()
+            is_crash, crash_val = check_circuit_breaker()
+        except Exception:
+            pass
+
+    m_col1, m_col2, m_col3 = st.columns(3)
+    m_col1.metric(
+        "Indice Fear & Greed",
+        f"{fng_data['value']}/100",
+        delta=f"{fng_data['classification']}",
+    )
+    m_col2.metric(
+        "Circuit Breaker BTC (24h)",
+        f"{crash_val:+.2f}%",
+        delta="NORMAL 🟢" if not is_crash else "DÉFENSIF 🚨",
+        delta_color="normal" if not is_crash else "inverse",
+    )
+    cash_eur = (
+        val_stables_cash
+        if "val_stables_cash" in locals()
+        else cash_info.get("total_cash", 0.0)
+    )
+    m_col3.metric(
+        f"Liquidités Cash Réel ({curr_symbol})",
+        f"{cash_eur * curr_multiplier:,.2f} {curr_symbol}",
+        delta="Cash-Neutral Strict",
+    )
+
+    st.markdown("---")
+    st.subheader("🎯 Opportunités & Plan d'Arbitrage Explicite (Moonbag)")
+    open_trades_digest = get_open_positions()
+    if open_trades_digest:
+        for t in open_trades_digest:
+            rec_id, sym, exch, entry, amt, tp1, sl = (
+                t[0],
+                t[1],
+                t[2],
+                t[3],
+                t[4],
+                t[5] if len(t) > 5 else 0,
+                t[7] if len(t) > 7 else 0,
+            )
+            val_amt = (amt if amt else 0.0) * curr_multiplier
+            val_ent = (entry if entry else 0.0) * curr_multiplier
+            val_tp = (tp1 if tp1 else 0.0) * curr_multiplier
+            val_sl = (sl if sl else 0.0) * curr_multiplier
+
+            with st.container():
+                st.markdown(
+                    f"""
+                    <div style="padding: 15px; border-radius: 10px; border: 1px solid #00ffcc; margin-bottom: 15px; background-color: #161a1e;">
+                        <h4 style="margin: 0; color: #00ffcc;">Focus : {sym} <span style="font-size: 12px; color: #aaa;">({exch})</span></h4>
+                        <p style="margin: 8px 0 0 0; font-size: 14px;">
+                            <b>Montant engagé :</b> {val_amt:,.2f} {curr_symbol} @ {val_ent:.4f} {curr_symbol}<br>
+                            <b>Plan Moonbag :</b> 🎯 TP1 (x2) : {val_tp:.4f} {curr_symbol} (Vente 50% -> Free Ride) | 🛑 SL : {val_sl:.4f} {curr_symbol}
+                        </p>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    if st.button(
+                        f"✅ Marquer comme Pris (ID {rec_id})", key=f"digest_take_{rec_id}"
+                    ):
+                        mark_trade_taken(rec_id)
+                        st.cache_data.clear()
+                        st.success(f"Position {sym} enregistrée comme prise !")
+                        st.rerun()
+                with bc2:
+                    if st.button(
+                        f"❌ Ignorer l'opportunité (ID {rec_id})",
+                        key=f"digest_ignore_{rec_id}",
+                    ):
+                        mark_trade_ignored(rec_id)
+                        st.cache_data.clear()
+                        st.warning(f"Opportunité {sym} ignorée.")
+                        st.rerun()
+    else:
+        st.info(
+            "Aucune opportunité spéculative active en attente dans la base de"
+            " données."
+        )
 
 # ==========================================
 # ONGLET 4 : CENTRE D'ALERTES & RAPPROCHEMENT
 # ==========================================
 with tab_alerts:
-  with st.expander("📖 Guide du Centre d'Alertes & Réconciliation"):
-    st.markdown("""
-        Vigie automatisée de votre cockpit :
-        * **Rapprochement BDD vs Exchanges :** Détecte les lignes fantômes, les écarts de volumes et les nouveaux trades manuels.
-        * **Alerte d'Exposition Spéculative :** Surveille si la poche dépasse les seuils de tolérance (12% et 15%), basée sur le calcul live exact.
-        * **Radar TP / SL en Direct :** Détecte si vos actifs ouverts frôlent les Stop-Loss ou atteignent les Take-Profits.
-        """)
+    with st.expander("📖 Guide du Centre d'Alertes & Réconciliation"):
+        st.markdown("""
+            Vigie automatisée de votre cockpit :
+            * **Rapprochement BDD vs Exchanges :** Détecte les lignes fantômes, les écarts de volumes et les nouveaux trades manuels.
+            * **Alerte d'Exposition Spéculative :** Surveille si la poche dépasse les seuils de tolérance (12% et 15%), basée sur le calcul live exact.
+            * **Radar TP / SL en Direct :** Détecte si vos actifs ouverts frôlent les Stop-Loss ou atteignent les Take-Profits.
+            """)
 
-  st.subheader("🕵️ Rapprochement BDD vs Réalité des Exchanges")
-  st.markdown(
-      "Audit automatique des écarts entre vos positions en base et vos avoirs"
-      " réels :"
-  )
-
-  discrepancies = get_cached_reconciliation_audit()
-
-  if discrepancies:
-    st.error(
-        f"🚨 {len(discrepancies)} anomalie(s) ou écart(s) détecté(s) dans le"
-        " portefeuille !"
+    st.subheader("🕵️ Rapprochement BDD vs Réalité des Exchanges")
+    st.markdown(
+        "Audit automatique des écarts entre vos positions en base et vos avoirs"
+        " réels :"
     )
-    for disc in discrepancies:
-      d_id = disc.get("id")
-      d_sym = disc["symbol"]
-      d_exch = disc["exchange"]
-      d_type = disc["type"]
-      if d_type == "MANUAL_TRADE_DETECTED":
-        border_color, bg_color, badge = (
-            "#00ffcc",
-            "#152a26",
-            "💡 NOUVEAU TRADE MANUEL DÉTECTÉ",
+
+    discrepancies = get_cached_reconciliation_audit()
+
+    if discrepancies:
+        st.error(
+            f"🚨 {len(discrepancies)} anomalie(s) ou écart(s) détecté(s) dans le"
+            " portefeuille !"
         )
-      elif d_type == "GHOST_POSITION":
-        border_color, bg_color, badge = "#ff4d4d", "#2a1515", "🔴 LIGNE FANTÔME"
-      else:
-        border_color, bg_color, badge = "#ffa500", "#2a2215", "🟡 ÉCART DE VOLUME"
+        for disc in discrepancies:
+            d_id = disc.get("id")
+            d_sym = disc["symbol"]
+            d_exch = disc["exchange"]
+            d_type = disc["type"]
+            if d_type == "MANUAL_TRADE_DETECTED":
+                border_color, bg_color, badge = (
+                    "#00ffcc",
+                    "#152a26",
+                    "💡 NOUVEAU TRADE MANUEL DÉTECTÉ",
+                )
+            elif d_type == "GHOST_POSITION":
+                border_color, bg_color, badge = "#ff4d4d", "#2a1515", "🔴 LIGNE FANTÔME"
+            else:
+                border_color, bg_color, badge = "#ffa500", "#2a2215", "🟡 ÉCART DE VOLUME"
 
-      display_id_str = (
-          f"[ID BDD: {d_id}]" if d_id is not None else "[ID BDD: None]"
-      )
-      st.markdown(
-          f"""
-            <div style="padding: 12px; border-radius: 8px; border: 1px solid {border_color}; margin-bottom: 10px; background-color: {bg_color};">
-                <h4 style="margin: 0; color: {border_color};">{badge} — {d_sym} ({d_exch}) {display_id_str}</h4>
-                <p style="margin: 4px 0 0 0; font-size: 13px; color: #ddd;">
-                    {disc['desc']}
-                </p>
-            </div>
-            """,
-          unsafe_allow_html=True,
-      )
-
-      if d_type == "GHOST_POSITION":
-        if st.button(
-            f"🧹 Purger / Clôturer la ligne fantôme ID {d_id} ({d_sym})",
-            key=f"web_clean_ghost_{d_id}",
-        ):
-          close_trade(d_id)
-          st.cache_data.clear()
-          send_telegram_notify(
-              f"🧹 *LIGNE FANTÔME PURGÉE VIA WEB*\n• **{d_sym}** (ID {d_id})"
-              " supprimée."
-          )
-          st.success(
-              f"Position ID {d_id} ({d_sym}) clôturée et nettoyée de la base"
-              " de données avec succès !"
-          )
-          st.rerun()
-
-      if d_type == "VOLUME_MISMATCH":
-        adj_amt = disc.get("adjusted_amount_eur", disc["db_amount"])
-        disp_adj_amt = adj_amt * curr_multiplier
-        if st.button(
-            f"🔄 Synchroniser le volume ID {d_id} ({d_sym}) ->"
-            f" {disp_adj_amt:,.2f} {curr_symbol}",
-            key=f"web_sync_vol_{d_id}",
-        ):
-          update_trade_amount(d_id, adj_amt)
-          st.cache_data.clear()
-          send_telegram_notify(
-              f"🔄 *VOLUME RESYNCHRONISÉ VIA WEB*\n• **{d_sym}** (ID {d_id})"
-              f" ajusté à {disp_adj_amt:,.2f} {curr_symbol}."
-          )
-          st.success(
-              f"Position ID {d_id} ({d_sym}) resynchronisée avec succès au"
-              f" montant de {disp_adj_amt:,.2f} {curr_symbol} !"
-          )
-          st.rerun()
-
-      if d_type == "MANUAL_TRADE_DETECTED":
-        cost_eur = disc.get("cost", 0.0)
-        price_eur = disc.get("price", 0.0)
-        disp_cost = cost_eur * curr_multiplier
-        disp_price = price_eur * curr_multiplier
-
-        b_col1, b_col2 = st.columns(2)
-        with b_col1:
-          if st.button(
-              f"🎯 Activer Moonbag ({d_sym} — {disp_cost:,.2f} {curr_symbol})",
-              key=f"web_add_manual_{d_sym}_{d_exch}",
-          ):
-            from db_manager import add_recommendation, mark_trade_taken
-
-            rec_id = add_recommendation(
-                symbol=d_sym,
-                exchange=d_exch,
-                price=price_eur,
-                amount_eur=cost_eur,
-                tp1_price=price_eur * 2.0,
-                tp2_price=price_eur * 4.0,
-                sl_price=price_eur * 0.60,
-                sl_type="invalidation",
+            display_id_str = (
+                f"[ID BDD: {d_id}]" if d_id is not None else "[ID BDD: None]"
             )
-            mark_trade_taken(rec_id)
-            st.cache_data.clear()
-            send_telegram_notify(
-                f"🎯 *TRADE MOONBAG ONBOARDÉ VIA WEB*\n• **{d_sym}**"
-                f" ({disp_cost:,.2f} {curr_symbol} @ {disp_price:.4f}"
-                f" {curr_symbol}) ajouté au cockpit."
+            st.markdown(
+                f"""
+                <div style="padding: 12px; border-radius: 8px; border: 1px solid {border_color}; margin-bottom: 10px; background-color: {bg_color};">
+                    <h4 style="margin: 0; color: {border_color};">{badge} — {d_sym} ({d_exch}) {display_id_str}</h4>
+                    <p style="margin: 4px 0 0 0; font-size: 13px; color: #ddd;">
+                        {disc['desc']}
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
-            st.success(
-                f"✅ Position {d_sym} intégrée avec succès au cockpit Moonbag !"
-            )
-            st.rerun()
 
-        with b_col2:
-          if st.button(
-              f"💎 Conserver en Poche CORE ({d_sym})",
-              key=f"web_core_manual_{d_sym}_{d_exch}",
-          ):
-            from db_manager import mark_manual_trade_core
+            if d_type == "GHOST_POSITION":
+                if st.button(
+                    f"🧹 Purger / Clôturer la ligne fantôme ID {d_id} ({d_sym})",
+                    key=f"web_clean_ghost_{d_id}",
+                ):
+                    close_trade(d_id)
+                    st.cache_data.clear()
+                    send_telegram_notify(
+                        f"🧹 *LIGNE FANTÔME PURGÉE VIA WEB*\n• **{d_sym}** (ID {d_id})"
+                        " supprimée."
+                    )
+                    st.success(
+                        f"Position ID {d_id} ({d_sym}) clôturée et nettoyée de la base"
+                        " de données avec succès !"
+                    )
+                    st.rerun()
 
-            mark_manual_trade_core(
-                d_sym, d_exch, cost_eur, price_eur, reason="CORE"
-            )
-            st.cache_data.clear()
-            send_telegram_notify(
-                f"💎 *TRADE CLASSÉ POCHE CORE VIA WEB*\n• **{d_sym}**"
-                f" ({disp_cost:,.2f} {curr_symbol}) conservé en investissement"
-                " long terme."
-            )
-            st.success(f"✅ Trade {d_sym} classé en Poche CORE (alerte masquée) !")
-            st.rerun()
-  else:
-    st.success(
-        "✅ Parfaite synchronisation : aucune ligne fantôme ni écart"
-        " significatif détecté."
-    )
+            if d_type == "VOLUME_MISMATCH":
+                adj_amt = disc.get("adjusted_amount_eur", disc["db_amount"])
+                disp_adj_amt = adj_amt * curr_multiplier
+                if st.button(
+                    f"🔄 Synchroniser le volume ID {d_id} ({d_sym}) ->"
+                    f" {disp_adj_amt:,.2f} {curr_symbol}",
+                    key=f"web_sync_vol_{d_id}",
+                ):
+                    update_trade_amount(d_id, adj_amt)
+                    st.cache_data.clear()
+                    send_telegram_notify(
+                        f"🔄 *VOLUME RESYNCHRONISÉ VIA WEB*\n• **{d_sym}** (ID {d_id})"
+                        f" ajusté à {disp_adj_amt:,.2f} {curr_symbol}."
+                    )
+                    st.success(
+                        f"Position ID {d_id} ({d_sym}) resynchronisée avec succès au"
+                        f" montant de {disp_adj_amt:,.2f} {curr_symbol} !"
+                    )
+                    st.rerun()
 
-  st.markdown("---")
-  st.subheader("🔥 Heatmap RSI Multi-Timeframe (Screener v2.9)")
-  st.markdown(
-      "Cartographie en temps réel du RSI (15m, 1h, 4h, 1D) sur vos actifs et"
-      " positions actives :"
-  )
+            if d_type == "MANUAL_TRADE_DETECTED":
+                cost_eur = disc.get("cost", 0.0)
+                price_eur = disc.get("price", 0.0)
+                disp_cost = cost_eur * curr_multiplier
+                disp_price = price_eur * curr_multiplier
 
-  if RSI_ENGINE_AVAILABLE:
-    tracked_symbols = list(
-        {p["Symbole"] for p in enriched_positions}
-        | {"BTC", "ETH", "SOL", "NEAR", "ONDO", "PENDLE", "SUI", "AVAX"}
-    )
+                b_col1, b_col2 = st.columns(2)
+                with b_col1:
+                    if st.button(
+                        f"🎯 Activer Moonbag ({d_sym} — {disp_cost:,.2f} {curr_symbol})",
+                        key=f"web_add_manual_{d_sym}_{d_exch}",
+                    ):
+                        from db_manager import add_recommendation, mark_trade_taken
 
-    if st.button("🔄 Actualiser la Heatmap RSI"):
-      st.cache_data.clear()
-      st.rerun()
+                        rec_id = add_recommendation(
+                            symbol=d_sym,
+                            exchange=d_exch,
+                            price=price_eur,
+                            amount_eur=cost_eur,
+                            tp1_price=price_eur * 2.0,
+                            tp2_price=price_eur * 4.0,
+                            sl_price=price_eur * 0.60,
+                            sl_type="invalidation",
+                        )
+                        mark_trade_taken(rec_id)
+                        st.cache_data.clear()
+                        send_telegram_notify(
+                            f"🎯 *TRADE MOONBAG ONBOARDÉ VIA WEB*\n• **{d_sym}**"
+                            f" ({disp_cost:,.2f} {curr_symbol} @ {disp_price:.4f}"
+                            f" {curr_symbol}) ajouté au cockpit."
+                        )
+                        st.success(
+                            f"✅ Position {d_sym} intégrée avec succès au cockpit Moonbag !"
+                        )
+                        st.rerun()
 
-    @st.cache_data(ttl=120, show_spinner="Calcul des indicateurs RSI...")
-    def get_cached_rsi_matrix(symbols):
-      return build_rsi_heatmap_dataframe(symbols)
+                with b_col2:
+                    if st.button(
+                        f"💎 Conserver en Poche CORE ({d_sym})",
+                        key=f"web_core_manual_{d_sym}_{d_exch}",
+                    ):
+                        from db_manager import mark_manual_trade_core
 
-    df_rsi = get_cached_rsi_matrix(tracked_symbols)
-
-    if not df_rsi.empty:
-      styled_df = df_rsi.style.map(color_rsi, subset=["15m", "1h", "4h", "1d"])
-      st.dataframe(styled_df, width="stretch", hide_index=True)
-
-      survendu_list = df_rsi[df_rsi["15m"] <= 30]["Actif"].tolist()
-      surachete_list = df_rsi[df_rsi["4h"] >= 75]["Actif"].tolist()
-
-      if survendu_list:
+                        mark_manual_trade_core(
+                            d_sym, d_exch, cost_eur, price_eur, reason="CORE"
+                        )
+                        st.cache_data.clear()
+                        send_telegram_notify(
+                            f"💎 *TRADE CLASSÉ POCHE CORE VIA WEB*\n• **{d_sym}**"
+                            f" ({disp_cost:,.2f} {curr_symbol}) conservé en investissement"
+                            " long terme."
+                        )
+                        st.success(f"✅ Trade {d_sym} classé en Poche CORE (alerte masquée) !")
+                        st.rerun()
+    else:
         st.success(
-            "💡 **Opportunité de rebond court terme (RSI 15m ≤ 30)** :"
-            f" {', '.join(survendu_list)}"
+            "✅ Parfaite synchronisation : aucune ligne fantôme ni écart"
+            " significatif détecté."
         )
-      if surachete_list:
-        st.warning(
-            "⚠️ **Zone de surachat / Prise de profit recommandée (RSI 4h ≥"
-            f" 75)** : {', '.join(surachete_list)}"
+
+    st.markdown("---")
+    st.subheader("🔥 Heatmap RSI Multi-Timeframe (Screener v2.9)")
+    st.markdown(
+        "Cartographie en temps réel du RSI (15m, 1h, 4h, 1D) sur vos actifs et"
+        " positions actives :"
+    )
+
+    if RSI_ENGINE_AVAILABLE:
+        tracked_symbols = list(
+            {p["Symbole"] for p in enriched_positions}
+            | {"BTC", "ETH", "SOL", "NEAR", "ONDO", "PENDLE", "SUI", "AVAX"}
         )
-  else:
-    st.info("Module RSI Engine non disponible.")
 
-  st.markdown("---")
-  st.subheader("🔔 Vigie des Risques & Marché")
+        if st.button("🔄 Actualiser la Heatmap RSI"):
+            st.cache_data.clear()
+            st.rerun()
 
-  alerts_list = []
-  spec_pct = pct_spec if "pct_spec" in locals() else 10.0
+        @st.cache_data(ttl=120, show_spinner="Calcul des indicateurs RSI...")
+        def get_cached_rsi_matrix(symbols):
+            return build_rsi_heatmap_dataframe(symbols)
 
-  if spec_pct > 15.0:
-    alerts_list.append({
-        "level": "CRITICAL",
-        "title": f"Surconcentration Spéculative Critique ({spec_pct:.2f}%)",
-        "desc": (
-            "La poche spéculative dépasse 15% du portefeuille (Cible : 10%)."
-            " Risque de volatilité excessive."
-        ),
-    })
-  elif spec_pct > 12.0:
-    alerts_list.append({
-        "level": "WARNING",
-        "title": f"Alerte Exposition Spéculative Élevée ({spec_pct:.2f}%)",
-        "desc": (
-            "La part spéculative franchit le seuil de tolérance des 12%."
-            " Surveillez vos lignes."
-        ),
-    })
-  else:
-    alerts_list.append({
-        "level": "INFO",
-        "title": f"Allocation Spéculative Saine ({spec_pct:.2f}%)",
-        "desc": (
-            "La part de la poche spéculative est alignée avec l'enveloppe"
-            " cible."
-        ),
-    })
+        df_rsi = get_cached_rsi_matrix(tracked_symbols)
 
-  if positions and enriched_positions:
-    for row in enriched_positions:
-      sym = row["Symbole"]
-      exch = row["Exchange"]
-      current_price = row["Prix Actuel"] / curr_multiplier
-      tp1 = row["TP1"] / curr_multiplier
-      sl = row["Stop-Loss"] / curr_multiplier
+        if not df_rsi.empty:
+            styled_df = df_rsi.style.map(color_rsi, subset=["15m", "1h", "4h", "1d"])
+            st.dataframe(styled_df, width="stretch", hide_index=True)
 
-      if sl <= 0.0:
+            survendu_list = df_rsi[df_rsi["15m"] <= 30]["Actif"].tolist()
+            surachete_list = df_rsi[df_rsi["4h"] >= 75]["Actif"].tolist()
+
+            if survendu_list:
+                st.success(
+                    "💡 **Opportunité de rebond court terme (RSI 15m ≤ 30)** :"
+                    f" {', '.join(survendu_list)}"
+                )
+            if surachete_list:
+                st.warning(
+                    "⚠️ **Zone de surachat / Prise de profit recommandée (RSI 4h ≥"
+                    f" 75)** : {', '.join(surachete_list)}"
+                )
+    else:
+        st.info("Module RSI Engine non disponible.")
+
+    st.markdown("---")
+    st.subheader("🔔 Vigie des Risques & Marché")
+
+    alerts_list = []
+    spec_pct = pct_spec if "pct_spec" in locals() else 10.0
+
+    if spec_pct > 15.0:
         alerts_list.append({
             "level": "CRITICAL",
-            "title": f"Stop-Loss manquant pour {sym} ({exch})",
-            "desc": f"La position ID {row['ID']} n'a aucun Stop-Loss défini.",
+            "title": f"Surconcentration Spéculative Critique ({spec_pct:.2f}%)",
+            "desc": (
+                "La poche spéculative dépasse 15% du portefeuille (Cible : 10%)."
+                " Risque de volatilité excessive."
+            ),
         })
-      if tp1 <= 0.0:
+    elif spec_pct > 12.0:
         alerts_list.append({
             "level": "WARNING",
-            "title": f"Take-Profit non configuré pour {sym} ({exch})",
-            "desc": f"La position ID {row['ID']} n'a aucun palier TP1 défini.",
+            "title": f"Alerte Exposition Spéculative Élevée ({spec_pct:.2f}%)",
+            "desc": (
+                "La part spéculative franchit le seuil de tolérance des 12%."
+                " Surveillez vos lignes."
+            ),
+        })
+    else:
+        alerts_list.append({
+            "level": "INFO",
+            "title": f"Allocation Spéculative Saine ({spec_pct:.2f}%)",
+            "desc": (
+                "La part de la poche spéculative est alignée avec l'enveloppe"
+                " cible."
+            ),
         })
 
-      if current_price and current_price > 0:
-        if sl > 0 and current_price <= (sl * 1.05):
-          alerts_list.append({
-              "level": "CRITICAL",
-              "title": f"DANGER : Stop-Loss frôlé sur {sym} ({exch}) !",
-              "desc": (
-                  f"Prix actuel ({current_price:.4f} {curr_symbol}) proche du"
-                  f" Stop-Loss ({sl:.4f} {curr_symbol})."
-              ),
-          })
-        elif tp1 > 0 and current_price >= tp1:
-          alerts_list.append({
-              "level": "INFO",
-              "title": f"OBJECTIF ATTEINT : TP1 Validé sur {sym} ({exch}) 🎯",
-              "desc": (
-                  f"Prix actuel ({current_price:.4f} {curr_symbol}) a atteint"
-                  f" le TP1 ({tp1:.4f} {curr_symbol})."
-              ),
-          })
-        elif tp1 > 0 and current_price >= (tp1 * 0.95):
-          alerts_list.append({
-              "level": "WARNING",
-              "title": f"APPROCHE CIBLE : {sym} ({exch}) proche du TP1 🚀",
-              "desc": (
-                  f"Prix actuel ({current_price:.4f} {curr_symbol}) est proche"
-                  f" du TP1 ({tp1:.4f} {curr_symbol})."
-              ),
-          })
-  else:
-    alerts_list.append({
-        "level": "INFO",
-        "title": "Aucune position active en BDD",
-        "desc": "Le portefeuille spéculatif ne comporte aucune ligne active.",
-    })
+    if positions and enriched_positions:
+        for row in enriched_positions:
+            sym = row["Symbole"]
+            exch = row["Exchange"]
+            current_price = row["Prix Actuel"] / curr_multiplier
+            tp1 = row["TP1"] / curr_multiplier
+            sl = row["Stop-Loss"] / curr_multiplier
 
-  if "is_crash" in locals() and is_crash:
-    alerts_list.append({
-        "level": "CRITICAL",
-        "title": "Alerte Crash / Circuit Breaker activé",
-        "desc": (
-            f"Le Bitcoin chute de {crash_val:+.2f}% sur 24h. Mode défensif"
-            " enclenché."
-        ),
-    })
-  else:
-    crash_display_val = crash_val if "crash_val" in locals() else 1.5
-    alerts_list.append({
-        "level": "INFO",
-        "title": "Marché stable (Circuit Breaker Normal)",
-        "desc": (
-            f"Variation BTC 24h : {crash_display_val:+.2f}%. Conditions"
-            " nominales."
-        ),
-    })
+            if sl <= 0.0:
+                alerts_list.append({
+                    "level": "CRITICAL",
+                    "title": f"Stop-Loss manquant pour {sym} ({exch})",
+                    "desc": f"La position ID {row['ID']} n'a aucun Stop-Loss défini.",
+                })
+            if tp1 <= 0.0:
+                alerts_list.append({
+                    "level": "WARNING",
+                    "title": f"Take-Profit non configuré pour {sym} ({exch})",
+                    "desc": f"La position ID {row['ID']} n'a aucun palier TP1 défini.",
+                })
 
-  if alerts_list:
-    for alert in alerts_list:
-      lvl = alert["level"]
-      if lvl == "CRITICAL":
-        border_color, bg_color, badge = "#ff4d4d", "#2a1515", "🔴 CRITIQUE"
-      elif lvl == "WARNING":
-        border_color, bg_color, badge = "#ffa500", "#2a2215", "🟡 ATTENTION"
-      else:
-        border_color, bg_color, badge = "#00ffcc", "#152a26", "🟢 INFORMATION"
+            if current_price and current_price > 0:
+                if sl > 0 and current_price <= (sl * 1.05):
+                    alerts_list.append({
+                        "level": "CRITICAL",
+                        "title": f"DANGER : Stop-Loss frôlé sur {sym} ({exch}) !",
+                        "desc": (
+                            f"Prix actuel ({current_price:.4f} {curr_symbol}) proche du"
+                            f" Stop-Loss ({sl:.4f} {curr_symbol})."
+                        ),
+                    })
+                elif tp1 > 0 and current_price >= tp1:
+                    alerts_list.append({
+                        "level": "INFO",
+                        "title": f"OBJECTIF ATTEINT : TP1 Validé sur {sym} ({exch}) 🎯",
+                        "desc": (
+                            f"Prix actuel ({current_price:.4f} {curr_symbol}) a atteint"
+                            f" le TP1 ({tp1:.4f} {curr_symbol})."
+                        ),
+                    })
+                elif tp1 > 0 and current_price >= (tp1 * 0.95):
+                    alerts_list.append({
+                        "level": "WARNING",
+                        "title": f"APPROCHE CIBLE : {sym} ({exch}) proche du TP1 🚀",
+                        "desc": (
+                            f"Prix actuel ({current_price:.4f} {curr_symbol}) est proche"
+                            f" du TP1 ({tp1:.4f} {curr_symbol})."
+                        ),
+                    })
+    else:
+        alerts_list.append({
+            "level": "INFO",
+            "title": "Aucune position active en BDD",
+            "desc": "Le portefeuille spéculatif ne comporte aucune ligne active.",
+        })
 
-      st.markdown(
-          f"""
-            <div style="padding: 15px; border-radius: 10px; border: 1px solid {border_color}; margin-bottom: 12px; background-color: {bg_color};">
-                <h4 style="margin: 0; color: {border_color};">{badge} — {alert['title']}</h4>
-                <p style="margin: 6px 0 0 0; font-size: 14px; color: #ddd;">
-                    {alert['desc']}
-                </p>
-            </div>
-            """,
-          unsafe_allow_html=True,
-      )
+    if "is_crash" in locals() and is_crash:
+        alerts_list.append({
+            "level": "CRITICAL",
+            "title": "Alerte Crash / Circuit Breaker activé",
+            "desc": (
+                f"Le Bitcoin chute de {crash_val:+.2f}% sur 24h. Mode défensif"
+                " enclenché."
+            ),
+        })
+    else:
+        crash_display_val = crash_val if "crash_val" in locals() else 1.5
+        alerts_list.append({
+            "level": "INFO",
+            "title": "Marché stable (Circuit Breaker Normal)",
+            "desc": (
+                f"Variation BTC 24h : {crash_display_val:+.2f}%. Conditions"
+                " nominales."
+            ),
+        })
+
+    if alerts_list:
+        for alert in alerts_list:
+            lvl = alert["level"]
+            if lvl == "CRITICAL":
+                border_color, bg_color, badge = "#ff4d4d", "#2a1515", "🔴 CRITIQUE"
+            elif lvl == "WARNING":
+                border_color, bg_color, badge = "#ffa500", "#2a2215", "🟡 ATTENTION"
+            else:
+                border_color, bg_color, badge = "#00ffcc", "#152a26", "🟢 INFORMATION"
+
+            st.markdown(
+                f"""
+                <div style="padding: 15px; border-radius: 10px; border: 1px solid {border_color}; margin-bottom: 12px; background-color: {bg_color};">
+                    <h4 style="margin: 0; color: {border_color};">{badge} — {alert['title']}</h4>
+                    <p style="margin: 6px 0 0 0; font-size: 14px; color: #ddd;">
+                        {alert['desc']}
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 # ==========================================
 # ONGLET 5 : ASSISTANT IA PRO (SSOT EXTERNALISÉ v3.2)
 # ==========================================
 with tab_ai:
-  with st.expander("📖 Guide de l'Assistant IA Conversationnel (Architecture SSOT)"):
-    st.markdown("""
-        Votre stratège crypto personnel en direct :
-        * **Prompts Rapides :** Lancez des analyses complexes en un clic sans rien saisir.
-        * **Prompts Externalisés (SSOT) :** Les règles métier immuables et rôles IA sont stockés dans le dossier `prompts/`.
-        * **Chat Libre :** Posez n'importe quelle question sur vos positions et votre gestion du risque.
-        """)
+    with st.expander("📖 Guide de l'Assistant IA Conversationnel (Architecture SSOT)"):
+        st.markdown("""
+            Votre stratège crypto personnel en direct :
+            * **Prompts Rapides :** Lancez des analyses complexes en un clic sans rien saisir.
+            * **Prompts Externalisés (SSOT) :** Les règles métier immuables et rôles IA sont stockés dans le dossier `prompts/`.
+            * **Chat Libre :** Posez n'importe quelle question sur vos positions et votre gestion du risque.
+            """)
 
-  st.subheader("🤖 Assistant IA & Stratège Crypto (Propulsé par Gemini & Prompts SSOT)")
-  st.markdown(
-      "Discutez en direct ou lancez une analyse pré-configurée en 1 clic :"
-  )
+    st.subheader("🤖 Assistant IA & Stratège Crypto (Propulsé par Gemini & Prompts SSOT)")
+    st.markdown(
+        "Discutez en direct ou lancez une analyse pré-configurée en 1 clic :"
+    )
 
-  if AUTO_TPSL_AVAILABLE:
-    st.markdown("##### ⚡ Gestion Automatique des Paliers TP/SL (IA)")
-    col_auto1, col_auto2 = st.columns([2, 3])
-    with col_auto1:
-      if st.button(
-          "🤖 Lancer le Recalibrage Auto TP/SL (IA)",
-          type="primary",
-          use_container_width=True,
-      ):
-        with st.spinner("Analyse du marché et recalibrage des positions Auto..."):
-          res_tpsl = run_auto_tpsl_cycle(manual_trigger=True)
-          if res_tpsl["updated_count"] > 0:
-            st.success(
-                f"✅ {res_tpsl['updated_count']} position(s) mise(s) à jour par l'IA !"
+    if AUTO_TPSL_AVAILABLE:
+        st.markdown("##### ⚡ Gestion Automatique des Paliers TP/SL (IA)")
+        col_auto1, col_auto2 = st.columns([2, 3])
+        with col_auto1:
+            if st.button(
+                "🤖 Lancer le Recalibrage Auto TP/SL (IA)",
+                type="primary",
+                use_container_width=True,
+            ):
+                with st.spinner("Analyse du marché et recalibrage des positions Auto..."):
+                    res_tpsl = run_auto_tpsl_cycle(manual_trigger=True)
+                    if res_tpsl["updated_count"] > 0:
+                        st.success(
+                            f"✅ {res_tpsl['updated_count']} position(s) mise(s) à jour par l'IA !"
+                        )
+                        for log_entry in res_tpsl["logs"]:
+                            st.write(log_entry)
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.info(
+                            "ℹ️ Aucune modification nécessaire par l'IA ou aucune position"
+                            " en mode Auto."
+                        )
+                        for log_entry in res_tpsl["logs"]:
+                            st.write(log_entry)
+        with col_auto2:
+            st.caption(
+                "💡 Le recalibrage s'exécute automatiquement toutes les 8h (lors des"
+                " clôtures de Funding Rate). Vous pouvez également forcer un cycle"
+                " à tout moment ci-contre."
             )
-            for log_entry in res_tpsl["logs"]:
-              st.write(log_entry)
-            st.cache_data.clear()
-            st.rerun()
-          else:
-            st.info(
-                "ℹ️ Aucune modification nécessaire par l'IA ou aucune position"
-                " en mode Auto."
-            )
-            for log_entry in res_tpsl["logs"]:
-              st.write(log_entry)
-    with col_auto2:
-      st.caption(
-          "💡 Le recalibrage s'exécute automatiquement toutes les 8h (lors des"
-          " clôtures de Funding Rate). Vous pouvez également forcer un cycle"
-          " à tout moment ci-contre."
-      )
-    st.markdown("---")
+        st.markdown("---")
 
-  st.markdown("##### ⚡ Prompts Rapides & Analyses en 1 Clic")
-  col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+    st.markdown("##### ⚡ Prompts Rapides & Analyses en 1 Clic")
+    col_p1, col_p2, col_p3, col_p4 = st.columns(4)
 
-  preset_prompt = None
-  preset_context = None
+    preset_prompt = None
+    preset_context = None
 
-  open_pos = get_open_positions()
-  try:
-    all_balances = get_cached_crypto_balances()
-  except Exception:
-    all_balances = {}
+    open_pos = get_open_positions()
+    try:
+        all_balances = get_cached_crypto_balances()
+    except Exception:
+        all_balances = {}
 
-  with col_p1:
-    if st.button("📰 Rapport & Évaluation Spéculative", width="stretch"):
-      with st.spinner(
-          "Analyse impartiale des opportunités, RSI et microstructure..."
-      ):
-        tech_micro_block = build_market_tech_micro_context(
-            open_pos=open_pos, balances=all_balances
-        )
-        from crypto_speculative_advisor import (
-            check_circuit_breaker,
-            fetch_coingecko_trending_and_markets,
-            fetch_fear_and_greed_index,
-            get_kraken_spot_symbols,
-            get_okx_spot_symbols,
-        )
+    with col_p1:
+        if st.button("📰 Rapport & Évaluation Spéculative", width="stretch"):
+            with st.spinner(
+                "Analyse impartiale des opportunités, RSI et microstructure..."
+            ):
+                tech_micro_block = build_market_tech_micro_context(
+                    open_pos=open_pos, balances=all_balances
+                )
+                from crypto_speculative_advisor import (
+                    check_circuit_breaker,
+                    fetch_coingecko_trending_and_markets,
+                    fetch_fear_and_greed_index,
+                    get_kraken_spot_symbols,
+                    get_okx_spot_symbols,
+                )
 
-        is_crash, crash_pct = check_circuit_breaker()
-        fng = fetch_fear_and_greed_index()
+                is_crash, crash_pct = check_circuit_breaker()
+                fng = fetch_fear_and_greed_index()
 
-        live_positions_for_ai = (
-            [
-                {
-                    "Symbole": p["Symbole"],
-                    "Exchange": p["Exchange"],
-                    "Valeur_Actuelle_Marché_EUR": round(
-                        p["Valeur Actuelle"], 2
-                    ),
-                    "Montant_Investi_Initial_EUR": round(
-                        p["Montant Initial"], 2
-                    ),
-                    "Prix_Entree": round(p["Prix Entrée"], 4),
-                    "Prix_Actuel_Live": round(p["Prix Actuel"], 4),
-                    "PnL_Pct": round(p["PnL (%)"], 2),
-                    "TP1": round(p["TP1"], 4),
-                    "Stop_Loss": round(p["Stop-Loss"], 4),
-                }
-                for p in enriched_positions
-            ]
-            if "enriched_positions" in locals() and enriched_positions
-            else open_pos
-        )
+                live_positions_for_ai = (
+                    [
+                        {
+                            "Symbole": p["Symbole"],
+                            "Exchange": p["Exchange"],
+                            "Valeur_Actuelle_Marché_EUR": round(
+                                p["Valeur Actuelle"], 2
+                            ),
+                            "Montant_Investi_Initial_EUR": round(
+                                p["Montant Initial"], 2
+                            ),
+                            "Prix_Entree": round(p["Prix Entrée"], 4),
+                            "Prix_Actuel_Live": round(p["Prix Actuel"], 4),
+                            "PnL_Pct": round(p["PnL (%)"], 2),
+                            "TP1": round(p["TP1"], 4),
+                            "Stop_Loss": round(p["Stop-Loss"], 4),
+                        }
+                        for p in enriched_positions
+                    ]
+                    if "enriched_positions" in locals() and enriched_positions
+                    else open_pos
+                )
 
-        fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
-            compute_ai_liquidities(
-                all_balances,
-                eur_usd_rate=eur_usd_rate,
-                fallback_cash_eur=(
-                    total_cash_eur
-                    if "total_cash_eur" in locals()
-                    else cash_info.get("total_cash", 0.0)
-                ),
-            )
-        )
+                fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
+                    compute_ai_liquidities(
+                        all_balances,
+                        eur_usd_rate=eur_usd_rate,
+                        fallback_cash_eur=(
+                            total_cash_eur
+                            if "total_cash_eur" in locals()
+                            else cash_info.get("total_cash", 0.0)
+                        ),
+                    )
+                )
 
-        # Chargement des règles métier et instructions de rôle (SSOT)
-        system_rules = get_system_prompt("advisor_speculative")
+                system_rules = get_system_prompt("advisor_speculative")
 
-        preset_prompt = (
-            "Analyse la pertinence spéculative globale de mon portefeuille"
-            " face aux opportunités actuelles du marché."
-        )
+                preset_prompt = (
+                    "Analyse la pertinence spéculative globale de mon portefeuille"
+                    " face aux opportunités actuelles du marché."
+                )
 
-        preset_context = f"""{system_rules}
+                preset_context = f"""{system_rules}
 
 ---
 
@@ -2028,84 +2003,84 @@ DONNÉES DU MARCHÉ ET CONTEXTE :
 {tech_micro_block}
 """
 
-  with col_p2:
-    if st.button("🛡️ Audit de Protection & SL", width="stretch"):
-      with st.spinner("Analyse de la sécurité de vos positions en direct..."):
-        tech_micro_block = build_market_tech_micro_context(
-            open_pos=open_pos, balances=all_balances
-        )
-        system_rules = get_system_prompt("risk_manager")
+    with col_p2:
+        if st.button("🛡️ Audit de Protection & SL", width="stretch"):
+            with st.spinner("Analyse de la sécurité de vos positions en direct..."):
+                tech_micro_block = build_market_tech_micro_context(
+                    open_pos=open_pos, balances=all_balances
+                )
+                system_rules = get_system_prompt("risk_manager")
 
-        if open_pos:
-          pos_audit_data = []
-          total_risk_weight = 0.0
-          weighted_sl_dist = 0.0
-          missing_sl_count = 0
+                if open_pos:
+                    pos_audit_data = []
+                    total_risk_weight = 0.0
+                    weighted_sl_dist = 0.0
+                    missing_sl_count = 0
 
-          for p in open_pos:
-            (
-                p_id,
-                sym,
-                exch,
-                entry,
-                amt,
-                tp1,
-                tp2,
-                sl,
-                sl_type,
-                step,
-                taken_at,
-                alert_stat,
-            ) = p
-            entry = float(entry) if entry else 0.0
-            amt = float(amt) if amt else 0.0
-            tp1 = float(tp1) if tp1 else 0.0
-            sl = float(sl) if sl else 0.0
+                    for p in open_pos:
+                        (
+                            p_id,
+                            sym,
+                            exch,
+                            entry,
+                            amt,
+                            tp1,
+                            tp2,
+                            sl,
+                            sl_type,
+                            step,
+                            taken_at,
+                            alert_stat,
+                        ) = p
+                        entry = float(entry) if entry else 0.0
+                        amt = float(amt) if amt else 0.0
+                        tp1 = float(tp1) if tp1 else 0.0
+                        sl = float(sl) if sl else 0.0
 
-            lp = fetch_live_price(sym, exch) or entry
-            qty = (amt / entry) if entry > 0 else 0.0
-            curr_val = qty * lp
-            pnl_pct = ((lp - entry) / entry) * 100.0 if entry > 0 else 0.0
+                        lp = fetch_live_price(sym, exch) or entry
+                        qty = (amt / entry) if entry > 0 else 0.0
+                        curr_val = qty * lp
+                        pnl_pct = ((lp - entry) / entry) * 100.0 if entry > 0 else 0.0
 
-            if sl > 0 and lp > 0:
-              dist_sl_pct = ((lp - sl) / lp) * 100.0
-              if dist_sl_pct > 0:
-                weighted_sl_dist += dist_sl_pct * curr_val
-                total_risk_weight += curr_val
-            else:
-              dist_sl_pct = None
-              missing_sl_count += 1
+                        if sl > 0 and lp > 0:
+                            dist_sl_pct = ((lp - sl) / lp) * 100.0
+                            if dist_sl_pct > 0:
+                                weighted_sl_dist += dist_sl_pct * curr_val
+                                total_risk_weight += curr_val
+                        else:
+                            dist_sl_pct = None
+                            missing_sl_count += 1
 
-            pos_audit_data.append({
-                "id": p_id,
-                "symbole": sym,
-                "exchange": exch,
-                "prix_entree_eur": round(entry, 4),
-                "prix_actuel_eur": round(lp, 4),
-                "valeur_actuelle_eur": round(curr_val, 2),
-                "pnl_pct": round(pnl_pct, 2),
-                "tp1_eur": round(tp1, 4),
-                "sl_eur": round(sl, 4),
-                "distance_sl_pct": (
-                    round(dist_sl_pct, 2)
-                    if dist_sl_pct is not None
-                    else "MANQUANT"
-                ),
-                "etape": step,
-            })
+                        pos_audit_data.append({
+                            "id": p_id,
+                            "symbole": sym,
+                            "exchange": exch,
+                            "prix_entree_eur": round(entry, 4),
+                            "prix_actuel_eur": round(lp, 4),
+                            "valeur_actuelle_eur": round(curr_val, 2),
+                            "pnl_pct": round(pnl_pct, 2),
+                            "tp1_eur": round(tp1, 4),
+                            "sl_eur": round(sl, 4),
+                            "distance_sl_pct": (
+                                round(dist_sl_pct, 2)
+                                if dist_sl_pct is not None
+                                else "MANQUANT"
+                            ),
+                            "etape": step,
+                        })
 
-          global_buffer = (
-              (weighted_sl_dist / total_risk_weight)
-              if total_risk_weight > 0
-              else 0.0
-          )
+                    global_buffer = (
+                        (weighted_sl_dist / total_risk_weight)
+                        if total_risk_weight > 0
+                        else 0.0
+                    )
 
-          preset_prompt = (
-              "Exécute un audit strict de protection et de sécurité sur"
-              " l'ensemble de mes positions actives."
-          )
+                    preset_prompt = (
+                        "Exécute un audit strict de protection et de sécurité sur"
+                        " l'ensemble de mes positions actives."
+                    )
 
-          preset_context = f"""{system_rules}
+                    preset_context = f"""{system_rules}
 
 ---
 
@@ -2119,9 +2094,9 @@ DÉTAIL DES POSITIONS EN PORTEFEUILLE :
 
 {tech_micro_block}
 """
-        else:
-          preset_prompt = "Fais un audit de sécurité de mes positions."
-          preset_context = f"""{system_rules}
+                else:
+                    preset_prompt = "Fais un audit de sécurité de mes positions."
+                    preset_context = f"""{system_rules}
 
 ---
 
@@ -2129,35 +2104,35 @@ Aucune position active n'est actuellement enregistrée en BDD.
 Indique à l'utilisateur que son portefeuille spéculatif est totalement liquide et sécurisé.
 """
 
-  with col_p3:
-    if st.button("🔄 Arbitrages & Arbitrages Tactiques", width="stretch"):
-      with st.spinner(
-          "Analyse des arbitrages tactiques sous règle Cash-Neutral..."
-      ):
-        tech_micro_block = build_market_tech_micro_context(
-            open_pos=open_pos, balances=all_balances
-        )
-        from crypto_speculative_advisor import (
-            calculate_unfied_crypto_categories,
-        )
+    with col_p3:
+        if st.button("🔄 Arbitrages & Arbitrages Tactiques", width="stretch"):
+            with st.spinner(
+                "Analyse des arbitrages tactiques sous règle Cash-Neutral..."
+            ):
+                tech_micro_block = build_market_tech_micro_context(
+                    open_pos=open_pos, balances=all_balances
+                )
+                from crypto_speculative_advisor import (
+                    calculate_unfied_crypto_categories,
+                )
 
-        cats = calculate_unfied_crypto_categories()
-        system_rules = get_system_prompt("advisor_speculative")
+                cats = calculate_unfied_crypto_categories()
+                system_rules = get_system_prompt("advisor_speculative")
 
-        fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
-            compute_ai_liquidities(
-                all_balances,
-                eur_usd_rate=eur_usd_rate,
-                fallback_cash_eur=cats.get("stables_cash", 0.0),
-            )
-        )
+                fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
+                    compute_ai_liquidities(
+                        all_balances,
+                        eur_usd_rate=eur_usd_rate,
+                        fallback_cash_eur=cats.get("stables_cash", 0.0),
+                    )
+                )
 
-        preset_prompt = (
-            "Quels sont les arbitrages spéculatifs les plus pertinents à"
-            " effectuer aujourd'hui ?"
-        )
+                preset_prompt = (
+                    "Quels sont les arbitrages spéculatifs les plus pertinents à"
+                    " effectuer aujourd'hui ?"
+                )
 
-        preset_context = f"""{system_rules}
+                preset_context = f"""{system_rules}
 
 ---
 
@@ -2170,45 +2145,45 @@ DONNÉES PORTEFEUILLE & LIQUIDITÉS TEMPS RÉEL :
 {tech_micro_block}
 """
 
-  with col_p4:
-    if st.button("🧭 Plan d'Exécution Pas-à-Pas", width="stretch"):
-      with st.spinner(
-          "Calcul du plan d'exécution et dispatching par exchange..."
-      ):
-        tech_micro_block = build_market_tech_micro_context(
-            open_pos=open_pos, balances=all_balances
-        )
-        from crypto_speculative_advisor import (
-            calculate_unfied_crypto_categories,
-        )
+    with col_p4:
+        if st.button("🧭 Plan d'Exécution Pas-à-Pas", width="stretch"):
+            with st.spinner(
+                "Calcul du plan d'exécution et dispatching par exchange..."
+            ):
+                tech_micro_block = build_market_tech_micro_context(
+                    open_pos=open_pos, balances=all_balances
+                )
+                from crypto_speculative_advisor import (
+                    calculate_unfied_crypto_categories,
+                )
 
-        cats = calculate_unfied_crypto_categories()
-        system_rules = get_system_prompt("project_rules")
+                cats = calculate_unfied_crypto_categories()
+                system_rules = get_system_prompt("project_rules")
 
-        fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
-            compute_ai_liquidities(
-                all_balances,
-                eur_usd_rate=eur_usd_rate,
-                fallback_cash_eur=cats.get("stables_cash", 0.0),
-            )
-        )
+                fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
+                    compute_ai_liquidities(
+                        all_balances,
+                        eur_usd_rate=eur_usd_rate,
+                        fallback_cash_eur=cats.get("stables_cash", 0.0),
+                    )
+                )
 
-        target_spec = cats["total_crypto"] * 0.10
-        target_majors = cats["total_crypto"] * 0.55
-        target_core = cats["total_crypto"] * 0.22
-        target_cash = cats["total_crypto"] * 0.13
+                target_spec = cats["total_crypto"] * 0.10
+                target_majors = cats["total_crypto"] * 0.55
+                target_core = cats["total_crypto"] * 0.22
+                target_cash = cats["total_crypto"] * 0.13
 
-        delta_majors = cats["btc_eth"] - target_majors
-        delta_spec = cats["speculative"] - target_spec
-        delta_core = target_core - cats["core"]
-        delta_cash = target_cash - total_liquidites_dispo
+                delta_majors = cats["btc_eth"] - target_majors
+                delta_spec = cats["speculative"] - target_spec
+                delta_core = target_core - cats["core"]
+                delta_cash = target_cash - total_liquidites_dispo
 
-        preset_prompt = (
-            "Génère ma feuille de route d'exécution tactique pas-à-pas pour"
-            " rééquilibrer le portefeuille sur mes exchanges."
-        )
+                preset_prompt = (
+                    "Génère ma feuille de route d'exécution tactique pas-à-pas pour"
+                    " rééquilibrer le portefeuille sur mes exchanges."
+                )
 
-        preset_context = f"""{system_rules}
+                preset_context = f"""{system_rules}
 
 ---
 
@@ -2231,58 +2206,58 @@ POSITIONS SPÉCULATIVES ACTIVES EN BDD :
 {tech_micro_block}
 """
 
-  st.markdown("---")
+    st.markdown("---")
 
-  if "messages" not in st.session_state:
-    st.session_state.messages = [{
-        "role": "assistant",
-        "content": (
-            "Bonjour ! Je suis ton assistant trader expert. Sélectionne une"
-            " analyse rapide ci-dessus ou pose-moi directement ta question."
-        ),
-    }]
+    if "messages" not in st.session_state:
+        st.session_state.messages = [{
+            "role": "assistant",
+            "content": (
+                "Bonjour ! Je suis ton assistant trader expert. Sélectionne une"
+                " analyse rapide ci-dessus ou pose-moi directement ta question."
+            ),
+        }]
 
-  for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-      st.markdown(message["content"])
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-  user_input = st.chat_input(
-      "Ex: Analyse mes risques actuels ou donne-moi ton avis sur mon"
-      " allocation..."
-  )
-
-  prompt_to_process = user_input or preset_prompt
-
-  if prompt_to_process:
-    st.session_state.messages.append(
-        {"role": "user", "content": prompt_to_process}
+    user_input = st.chat_input(
+        "Ex: Analyse mes risques actuels ou donne-moi ton avis sur mon"
+        " allocation..."
     )
-    with st.chat_message("user"):
-      st.markdown(prompt_to_process)
 
-    if not preset_context:
-      current_positions = get_open_positions()
-      current_cash = get_cached_verified_cash()
-      current_balances = get_cached_crypto_balances()
+    prompt_to_process = user_input or preset_prompt
 
-      fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
-          compute_ai_liquidities(
-              current_balances,
-              eur_usd_rate=eur_usd_rate,
-              fallback_cash_eur=(
-                  current_cash.get("total_cash", 0.0)
-                  if isinstance(current_cash, dict)
-                  else 0.0
-              ),
-          )
-      )
+    if prompt_to_process:
+        st.session_state.messages.append(
+            {"role": "user", "content": prompt_to_process}
+        )
+        with st.chat_message("user"):
+            st.markdown(prompt_to_process)
 
-      system_rules = get_system_prompt("project_rules")
-      tech_micro_block = build_market_tech_micro_context(
-          open_pos=current_positions, balances=current_balances
-      )
+        if not preset_context:
+            current_positions = get_open_positions()
+            current_cash = get_cached_verified_cash()
+            current_balances = get_cached_crypto_balances()
 
-      preset_context = f"""{system_rules}
+            fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
+                compute_ai_liquidities(
+                    current_balances,
+                    eur_usd_rate=eur_usd_rate,
+                    fallback_cash_eur=(
+                        current_cash.get("total_cash", 0.0)
+                        if isinstance(current_cash, dict)
+                        else 0.0
+                    ),
+                )
+            )
+
+            system_rules = get_system_prompt("project_rules")
+            tech_micro_block = build_market_tech_micro_context(
+                open_pos=current_positions, balances=current_balances
+            )
+
+            preset_context = f"""{system_rules}
 
 ---
 
@@ -2296,160 +2271,253 @@ DONNÉES DU PORTEFEUILLE ACTUEL (TEMPS RÉEL) :
 {tech_micro_block}
 """
 
-    with st.chat_message("assistant"):
-      with st.spinner("Analyse des marchés et génération du rapport..."):
-        try:
-          answer, used_model = call_gemini_with_fallback(
-              prompt_text=prompt_to_process,
-              system_instruction=preset_context,
-          )
+        with st.chat_message("assistant"):
+            with st.spinner("Analyse des marchés et génération du rapport..."):
+                try:
+                    answer, used_model = call_gemini_with_fallback(
+                        prompt_text=prompt_to_process,
+                        system_instruction=preset_context,
+                    )
 
-          st.markdown(answer)
-          st.caption(f"🤖 *Réponse générée avec succès via `{used_model}`*")
+                    st.markdown(answer)
+                    st.caption(f"🤖 *Réponse générée avec succès via `{used_model}`*")
 
-          st.session_state.messages.append(
-              {"role": "assistant", "content": answer}
-          )
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": answer}
+                    )
 
-        except Exception as e:
-          error_msg = f"⚠️ Impossible d'obtenir une réponse de Gemini : {e}"
-          st.error(error_msg)
+                except Exception as e:
+                    error_msg = f"⚠️ Impossible d'obtenir une réponse de Gemini : {e}"
+                    st.error(error_msg)
 
 # ==========================================
 # ONGLET 6 : MONITORING & SANTÉ APIS
 # ==========================================
 with tab_monitor:
-  with st.expander("📖 Guide du Monitoring Technique"):
-    st.markdown("""
-        Surveillez l'état de santé de vos connecteurs et services système :
-        * **Connecteurs API :** Vérification de la disponibilité des exchanges.
-        * **Configuration Gemini SSOT :** Ajustez dynamiquement la priorité des modèles et timeouts.
-        * **Journaux Système (Logs) :** Visualisez les derniers événements des services en arrière-plan.
-        """)
+    with st.expander("📖 Guide du Monitoring Technique"):
+        st.markdown("""
+            Surveillez l'état de santé de vos connecteurs et services système :
+            * **Connecteurs API :** Vérification de la disponibilité des exchanges.
+            * **Configuration Gemini SSOT :** Ajustez dynamiquement la priorité des modèles et timeouts.
+            * **Administration Prompts SSOT :** Éditez et restaurez les prompts Markdown (`.md`) d'expertise IA.
+            * **Journaux Système (Logs) :** Visualisez les derniers événements des services en arrière-plan.
+            """)
 
-  st.subheader("🔌 État de Santé des Connecteurs API")
-  col_m1, col_m2, col_m3 = st.columns(3)
-  with col_m1:
-    st.markdown("#### 🐙 Kraken")
-    st.metric("Statut API", "Opérationnel 🟢", delta="Latence < 150ms")
-  with col_m2:
-    st.markdown("#### 🅾️ OKX")
-    st.metric("Statut API", "Opérationnel 🟢", delta="Latence < 120ms")
-  with col_m3:
-    st.markdown("#### Ⓜ️ MEXC")
-    st.metric("Statut API", "Opérationnel 🟢", delta="Latence < 200ms")
+    st.subheader("🔌 État de Santé des Connecteurs API")
+    col_m1, col_m2, col_m3 = st.columns(3)
+    with col_m1:
+        st.markdown("#### 🐙 Kraken")
+        st.metric("Statut API", "Opérationnel 🟢", delta="Latence < 150ms")
+    with col_m2:
+        st.markdown("#### 🅾️ OKX")
+        st.metric("Statut API", "Opérationnel 🟢", delta="Latence < 120ms")
+    with col_m3:
+        st.markdown("#### Ⓜ️ MEXC")
+        st.metric("Statut API", "Opérationnel 🟢", delta="Latence < 200ms")
 
-  st.markdown("---")
-  st.subheader("⚙️ Configuration Centralisée des Modèles Gemini (SSOT)")
-  st.markdown("Ajustez la priorité des modèles Gemini et le timeout appliqués à l'ensemble des moteurs du projet :")
+    st.markdown("---")
+    st.subheader("⚙️ Configuration Centralisée des Modèles Gemini (SSOT)")
+    st.markdown("Ajustez la priorité des modèles Gemini et le timeout appliqués à l'ensemble des moteurs du projet :")
 
-  gemini_cfg = load_gemini_config()
-  models_list_str = "\n".join(gemini_cfg.get("models_priority", []))
+    gemini_cfg = load_gemini_config()
+    models_list_str = "\n".join(gemini_cfg.get("models_priority", []))
 
-  col_cfg1, col_cfg2 = st.columns([2, 1])
-  with col_cfg1:
-    new_models_str = st.text_area(
-        "Ordre de priorité des modèles Gemini (1 par ligne)",
-        value=models_list_str,
-        height=140,
-        help="En cas de surcharge ou timeout, le système bascule automatiquement sur le modèle suivant.",
+    col_cfg1, col_cfg2 = st.columns([2, 1])
+    with col_cfg1:
+        new_models_str = st.text_area(
+            "Ordre de priorité des modèles Gemini (1 par ligne)",
+            value=models_list_str,
+            height=140,
+            help="En cas de surcharge ou timeout, le système bascule automatiquement sur le modèle suivant.",
+        )
+    with col_cfg2:
+        new_timeout = st.number_input(
+            "Timeout par modèle (secondes)",
+            min_value=10,
+            max_value=120,
+            value=int(gemini_cfg.get("timeout_seconds", 45)),
+            step=5,
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("💾 Enregistrer la Configuration Gemini", type="primary"):
+            parsed_models = [m.strip() for m in new_models_str.split("\n") if m.strip()]
+            updated_cfg = {
+                "models_priority": parsed_models,
+                "timeout_seconds": new_timeout,
+                "max_retries_per_model": gemini_cfg.get("max_retries_per_model", 1),
+            }
+            if save_gemini_config(updated_cfg):
+                st.success("✅ Configuration Gemini mise à jour et appliquée à tous les services !")
+                send_telegram_notify("⚙️ *CONFIGURATION GEMINI MISE À JOUR VIA WEB*\nNouvelle priorité : " + ", ".join(parsed_models))
+                st.rerun()
+            else:
+                st.error("❌ Erreur lors de la sauvegarde de la configuration.")
+
+    # --- ADMINISTRATION & ÉDITION DYNAMIQUE DES PROMPTS SSOT (.md) ---
+    st.markdown("---")
+    st.subheader("📜 Administration & Édition des Prompts System SSOT (.md)")
+    st.markdown(
+        "Consultez, modifiez et restaurez en direct les consignes métier, les rôles IA et les verrous de Risk Management "
+        "qui pilotent l'ensemble de vos analyses."
     )
-  with col_cfg2:
-    new_timeout = st.number_input(
-        "Timeout par modèle (secondes)",
-        min_value=10,
-        max_value=120,
-        value=int(gemini_cfg.get("timeout_seconds", 45)),
-        step=5,
-    )
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("💾 Enregistrer la Configuration Gemini", type="primary"):
-      parsed_models = [m.strip() for m in new_models_str.split("\n") if m.strip()]
-      updated_cfg = {
-          "models_priority": parsed_models,
-          "timeout_seconds": new_timeout,
-          "max_retries_per_model": gemini_cfg.get("max_retries_per_model", 1),
-      }
-      if save_gemini_config(updated_cfg):
-        st.success("✅ Configuration Gemini mise à jour et appliquée à tous les services !")
-        send_telegram_notify("⚙️ *CONFIGURATION GEMINI MISE À JOUR VIA WEB*\nNouvelle priorité : " + ", ".join(parsed_models))
-        st.rerun()
-      else:
-        st.error("❌ Erreur lors de la sauvegarde de la configuration.")
 
-  st.markdown("---")
-  st.subheader("📜 Journaux Système en Direct (Systemd Logs)")
-  log_service = st.selectbox(
-      "Sélectionner le service à inspecter",
-      ["streamlit.service", "finary-bot.service", "cloudflare.service"],
-  )
-
-  if st.button("🔄 Rafraîchir les logs"):
-    st.rerun()
-
-  try:
-    cmd = f"journalctl -u {log_service} -n 30 --no-pager"
-    result = subprocess.run(
-        cmd, shell=True, capture_output=True, text=True, timeout=3
-    )
-    if result.returncode != 0 or not result.stdout.strip():
-      log_output = (
-          "⚠️ Impossible de lire les logs systemd directement via l'interface"
-          " web.\n💡 Astuce SSH : sudo journalctl -u"
-          f" {log_service} -n 30"
-      )
+    if not PROMPT_LOADER_AVAILABLE:
+        st.error("⚠️ Le module `prompt_loader.py` n'est pas disponible.")
     else:
-      log_output = result.stdout
-  except Exception as e:
-    log_output = f"Erreur lors de la récupération des logs : {e}"
+        available_prompts = list_available_prompts()
 
-  st.text_area(
-      f"Dernières lignes de log pour {log_service}", log_output, height=300
-  )
+        prompt_descriptions = {
+            "advisor_speculative": "🎯 Rapport Spéculatif (19h) & Analyse des opportunités de marché",
+            "auto_tpsl": "🤖 Moteur de recalibrage automatique TP/SL (Cron 8h & Manuel)",
+            "project_rules": "⚙️ Règles fondamentales du projet, arbitrages & Cash-Neutral strict",
+            "risk_manager": "🛡️ Audit de sécurité, vérification des Stop-Loss et de l'exposition",
+        }
+
+        selected_prompt_key = st.selectbox(
+            "Sélectionnez le fichier de prompt à administrer",
+            options=available_prompts,
+            format_func=lambda x: f"{x}.md — {prompt_descriptions.get(x, 'Prompt personnalisé')}",
+            key="select_prompt_admin",
+        )
+
+        current_raw_text = get_raw_prompt(selected_prompt_key)
+
+        st.info(
+            f"📌 **Fichier actif :** `prompts/{selected_prompt_key}.md` | **Taille :** {len(current_raw_text)} caractères"
+        )
+
+        st.warning(
+            "⚠️ **PRÉCAUTIONS D'USAGE CRITIQUES :**\n"
+            "• Toute modification prend effet **immédiatement** pour tous les rapports Telegram, le cron de 8h et l'assistant IA.\n"
+            "• Ne supprimez pas les consignes de formatage JSON ni les verrous de sécurité.\n"
+            "• Un fichier de secours (`.bak`) est automatiquement généré à chaque sauvegarde pour permettre une restauration en 1 clic."
+        )
+
+        edited_prompt_text = st.text_area(
+            f"Éditeur de contenu — prompts/{selected_prompt_key}.md",
+            value=current_raw_text,
+            height=320,
+            key=f"text_area_{selected_prompt_key}",
+        )
+
+        p_col1, p_col2, p_col3 = st.columns([2, 1, 1])
+        with p_col1:
+            confirm_save = st.checkbox(
+                f"Je confirme vouloir modifier les consignes système de `{selected_prompt_key}.md`",
+                key=f"chk_confirm_{selected_prompt_key}",
+            )
+        with p_col2:
+            if st.button(
+                "💾 Enregistrer le Prompt",
+                type="primary",
+                disabled=not confirm_save,
+                key=f"btn_save_{selected_prompt_key}",
+            ):
+                if save_system_prompt(selected_prompt_key, edited_prompt_text):
+                    st.cache_data.clear()
+                    send_telegram_notify(
+                        f"📜 *PROMPT SYSTEM MODIFIÉ VIA DASHBOARD*\n"
+                        f"• Fichier : `prompts/{selected_prompt_key}.md`\n"
+                        f"• Un backup `.bak` a été créé automatiquement."
+                    )
+                    st.success(
+                        f"✅ Prompt `{selected_prompt_key}.md` mis à jour avec succès ! Cache purgé."
+                    )
+                    st.rerun()
+                else:
+                    st.error(
+                        f"❌ Échec de la sauvegarde du fichier `prompts/{selected_prompt_key}.md`."
+                    )
+        with p_col3:
+            if st.button("🔄 Restaurer Backup (.bak)", key=f"btn_restore_{selected_prompt_key}"):
+                if restore_backup_prompt(selected_prompt_key):
+                    st.cache_data.clear()
+                    send_telegram_notify(
+                        f"🔄 *PROMPT SYSTEM RESTAURÉ VIA DASHBOARD*\n"
+                        f"• Fichier : `prompts/{selected_prompt_key}.md` restauré depuis son backup `.bak`."
+                    )
+                    st.success(
+                        f"✅ Prompt `{selected_prompt_key}.md` restauré avec succès depuis sa sauvegarde `.bak` !"
+                    )
+                    st.rerun()
+                else:
+                    st.warning(
+                        f"⚠️ Aucune sauvegarde `.bak` disponible pour `{selected_prompt_key}.md`."
+                    )
+
+    st.markdown("---")
+    st.subheader("📜 Journaux Système en Direct (Systemd Logs)")
+    log_service = st.selectbox(
+        "Sélectionner le service à inspecter",
+        ["streamlit.service", "finary-bot.service", "cloudflare.service"],
+    )
+
+    if st.button("🔄 Rafraîchir les logs"):
+        st.rerun()
+
+    try:
+        cmd = f"journalctl -u {log_service} -n 30 --no-pager"
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=3
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            log_output = (
+                "⚠️ Impossible de lire les logs systemd directement via l'interface"
+                " web.\n💡 Astuce SSH : sudo journalctl -u"
+                f" {log_service} -n 30"
+            )
+        else:
+            log_output = result.stdout
+    except Exception as e:
+        log_output = f"Erreur lors de la récupération des logs : {e}"
+
+    st.text_area(
+        f"Dernières lignes de log pour {log_service}", log_output, height=300
+    )
 
 
 # ==========================================
 # ONGLET 7 : EXPORT COMPTABLE & FISCAL
 # ==========================================
 with tab_fiscal:
-  with st.expander("📖 Guide de l'Assistant Fiscal Avancé"):
-    st.markdown("Outil d'aide à la déclaration et export CSV normalisé.")
+    with st.expander("📖 Guide de l'Assistant Fiscal Avancé"):
+        st.markdown("Outil d'aide à la déclaration et export CSV normalisé.")
 
-  st.subheader("🧾 Assistant d'Export Fiscal & Comptable (v3.0)")
-  year_selected = st.selectbox(
-      "Sélectionner l'année fiscale", [2026, 2025, 2024]
-  )
-
-  col_f1, col_f2 = st.columns(2)
-  with col_f1:
-    include_fees = st.checkbox(
-        "Inclure le détail des frais de transaction (API fees)",
-        value=True,
-        key="chk_fees",
-    )
-  with col_f2:
-    only_closed = st.checkbox(
-        "Isoler uniquement les positions clôturées (réalisées)",
-        value=True,
-        key="chk_closed",
+    st.subheader("🧾 Assistant d'Export Fiscal & Comptable (v3.0)")
+    year_selected = st.selectbox(
+        "Sélectionner l'année fiscale", [2026, 2025, 2024]
     )
 
-  if st.button("📥 Générer et télécharger le rapport fiscal certifié (CSV)"):
-    trades_hist = get_all_trades_history()
-    df_export = pd.DataFrame(trades_hist)
-    if not df_export.empty:
-      csv_data = df_export.to_csv(index=False).encode("utf-8")
-      st.download_button(
-          label=(
-              f"💾 Télécharger le rapport de cessions {year_selected} (Format"
-              " CSV)"
-          ),
-          data=csv_data,
-          file_name=f"rapport_fiscal_crypto_{year_selected}.csv",
-          mime="text/css",
-      )
-      st.success(f"Rapport fiscal {year_selected} généré avec succès !")
-    else:
-      st.warning(
-          "Aucune donnée historique disponible pour générer ce rapport."
-      )
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        include_fees = st.checkbox(
+            "Inclure le détail des frais de transaction (API fees)",
+            value=True,
+            key="chk_fees",
+        )
+    with col_f2:
+        only_closed = st.checkbox(
+            "Isoler uniquement les positions clôturées (réalisées)",
+            value=True,
+            key="chk_closed",
+        )
+
+    if st.button("📥 Générer et télécharger le rapport fiscal certifié (CSV)"):
+        trades_hist = get_all_trades_history()
+        df_export = pd.DataFrame(trades_hist)
+        if not df_export.empty:
+            csv_data = df_export.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label=(
+                    f"💾 Télécharger le rapport de cessions {year_selected} (Format"
+                    " CSV)"
+                ),
+                data=csv_data,
+                file_name=f"rapport_fiscal_crypto_{year_selected}.csv",
+                mime="text/css",
+            )
+            st.success(f"Rapport fiscal {year_selected} généré avec succès !")
+        else:
+            st.warning(
+                "Aucune donnée historique disponible pour générer ce rapport."
+            )
