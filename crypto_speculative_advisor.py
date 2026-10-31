@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Moteur d'analyse et de recommandation spéculative Crypto v3.2 (Architecture SSOT)."""
+"""Moteur d'analyse et de recommandation spéculative Crypto v3.2 (Architecture SSOT & Centralisation Gemini)."""
 
-import concurrent.futures
 import datetime
 import json
 import logging
 import os
 import re
 from dotenv import load_dotenv
-from google import genai
 import requests
 
 from db_manager import add_recommendation, get_open_positions, init_db
@@ -18,6 +16,7 @@ from exchange_connectors import (
     get_all_trades_history,
     get_total_verified_cash,
 )
+from gemini_manager import call_gemini_with_fallback
 from pnl_engine import calculate_pnl
 from prompt_loader import get_system_prompt
 
@@ -30,7 +29,6 @@ logging.basicConfig(
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 SPECULATIVE_PCT = float(os.getenv("CRYPTO_SPECULATIVE_PCT", "0.10"))
 
@@ -40,7 +38,7 @@ def check_circuit_breaker():
     change_24h = 0.0
     try:
         res = requests.get(
-            "[https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur&include_24hr_change=true](https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur&include_24hr_change=true)",
+            "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur&include_24hr_change=true",
             timeout=5,
         )
         if res.status_code == 200:
@@ -53,7 +51,7 @@ def check_circuit_breaker():
 
     try:
         res = requests.get(
-            "[https://api.okx.com/api/v5/market/ticker?instId=BTC-USDC](https://api.okx.com/api/v5/market/ticker?instId=BTC-USDC)", timeout=5
+            "https://api.okx.com/api/v5/market/ticker?instId=BTC-USDC", timeout=5
         )
         if res.status_code == 200:
             data = res.json().get("data", [])[0]
@@ -71,7 +69,7 @@ def check_circuit_breaker():
 def fetch_fear_and_greed_index():
     """Récupère l'indice Fear & Greed global du marché crypto."""
     try:
-        res = requests.get("[https://api.alternative.me/fng/](https://api.alternative.me/fng/)", timeout=5)
+        res = requests.get("https://api.alternative.me/fng/", timeout=5)
         if res.status_code == 200:
             data = res.json().get("data", [])[0]
             return {
@@ -89,7 +87,7 @@ def fetch_live_price(sym, exch="OKX"):
     price = None
     try:
         res_okx = requests.get(
-            f"[https://www.okx.com/api/v5/market/ticker?instId=](https://www.okx.com/api/v5/market/ticker?instId=){clean_sym}-USDT",
+            f"https://www.okx.com/api/v5/market/ticker?instId={clean_sym}-USDT",
             timeout=1.5,
         )
         if res_okx.status_code == 200:
@@ -103,7 +101,7 @@ def fetch_live_price(sym, exch="OKX"):
     if not price:
         try:
             res_k = requests.get(
-                f"[https://api.kraken.com/0/public/Ticker?pair=](https://api.kraken.com/0/public/Ticker?pair=){clean_sym}EUR",
+                f"https://api.kraken.com/0/public/Ticker?pair={clean_sym}EUR",
                 timeout=1.5,
             )
             if res_k.status_code == 200:
@@ -120,7 +118,7 @@ def fetch_live_price(sym, exch="OKX"):
 def get_kraken_spot_symbols():
     """Récupère la liste des symboles éligibles au trading Spot sur Kraken."""
     try:
-        res = requests.get("[https://api.kraken.com/0/public/AssetPairs](https://api.kraken.com/0/public/AssetPairs)", timeout=5)
+        res = requests.get("https://api.kraken.com/0/public/AssetPairs", timeout=5)
         if res.status_code == 200:
             pairs = res.json().get("result", {})
             symbols = set()
@@ -140,7 +138,7 @@ def get_okx_spot_symbols():
     """Récupère la liste des symboles éligibles au trading Spot sur OKX."""
     try:
         res = requests.get(
-            "[https://www.okx.com/api/v5/public/instruments?instType=SPOT](https://www.okx.com/api/v5/public/instruments?instType=SPOT)",
+            "https://www.okx.com/api/v5/public/instruments?instType=SPOT",
             timeout=5,
         )
         if res.status_code == 200:
@@ -164,7 +162,7 @@ def fetch_coingecko_trending_and_markets():
     opportunities = []
     try:
         res_tr = requests.get(
-            "[https://api.coingecko.com/api/v3/search/trending](https://api.coingecko.com/api/v3/search/trending)",
+            "https://api.coingecko.com/api/v3/search/trending",
             headers=headers,
             timeout=5,
         )
@@ -174,7 +172,7 @@ def fetch_coingecko_trending_and_markets():
         coin_ids = [c["item"]["id"] for c in trending_coins[:10]]
 
         if coin_ids:
-            url_mk = f"[https://api.coingecko.com/api/v3/coins/markets?vs_currency=eur&ids=](https://api.coingecko.com/api/v3/coins/markets?vs_currency=eur&ids=){','.join(coin_ids)}&price_change_percentage=24h"
+            url_mk = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency=eur&ids={','.join(coin_ids)}&price_change_percentage=24h"
             res_mk = requests.get(url_mk, headers=headers, timeout=5)
             if res_mk.status_code == 200:
                 for coin in res_mk.json():
@@ -193,7 +191,7 @@ def fetch_coingecko_trending_and_markets():
 
 def send_telegram_with_inline_buttons(text, inline_keyboard=None):
     """Envoie un message formaté sur Telegram avec boutons d'action 1-click."""
-    url = f"[https://api.telegram.org/bot](https://api.telegram.org/bot){BOT_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     html_text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     html_text = re.sub(r"\*(.*?)\*", r"<b>\1</b>", html_text)
     html_text = re.sub(r"_(.*?)_", r"<i>\1</i>", html_text)
@@ -320,7 +318,7 @@ calculate_exact_crypto_categories = calculate_unfied_crypto_categories
 
 def generate_crypto_speculative_report():
     """Génère le rapport quotidien spéculatif de 19h via Gemini et l'envoie sur Telegram avec boutons 1-click."""
-    logging.info("🚀 Démarrage de l'analyse spéculative Crypto v3.2 (Prompt Externalisé SSOT)...")
+    logging.info("🚀 Démarrage de l'analyse spéculative Crypto v3.2 (Prompt SSOT + Centralisation Gemini)...")
 
     is_crash, crash_pct = check_circuit_breaker()
     fng = fetch_fear_and_greed_index()
@@ -397,44 +395,23 @@ GÉNÈRE LA RÉPONSE JSON STRICTE SUIVANTE :
   ]
 }}"""
 
-    full_prompt = f"{system_instruction}\n\n---\n\n{user_context}"
-
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    modeles = [
-        "gemini-3.8-flash",
-        "gemini-3.6-flash",
-        "gemini-3.5-flash",
-        "gemini-3.5-flash-lite",
-    ]
-
     report_text = None
     recs = []
+    used_model = "Inconnu"
 
-    def call_llm(model_name):
-        res = client.models.generate_content(
-            model=model_name,
-            contents=full_prompt,
-            config={"response_mime_type": "application/json"},
+    try:
+        raw_response, used_model = call_gemini_with_fallback(
+            prompt_text=user_context,
+            system_instruction=system_instruction,
+            json_mode=True,
         )
-        return res.text
-
-    for mod in modeles:
-        try:
-            logging.info(f"🔄 Tentative appel LLM avec {mod} (Timeout 45s)...")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(call_llm, mod)
-                raw_response = future.result(timeout=45)
-
-            if raw_response:
-                data = parse_llm_json(raw_text=raw_response)
-                report_text = data.get("report_markdown", "")
-                recs = data.get("recommendations", [])
-                logging.info(f"✅ Rapport généré avec succès via {mod}")
-                break
-        except concurrent.futures.TimeoutError:
-            logging.warning(f"⏱️ Timeout dépassé (45s) sur {mod}. Passage au modèle suivant...")
-        except Exception as e:
-            logging.warning(f"⚠️ Erreur sur {mod} ({e}). Passage au suivant...")
+        if raw_response:
+            data = parse_llm_json(raw_text=raw_response)
+            report_text = data.get("report_markdown", "")
+            recs = data.get("recommendations", [])
+            logging.info(f"✅ Rapport généré avec succès via le modèle Gemini centralisé [{used_model}]")
+    except Exception as e:
+        logging.error(f"❌ Échec critique lors de la génération par Gemini : {e}")
 
     if report_text:
         inline_keyboard = []
@@ -466,15 +443,15 @@ GÉNÈRE LA RÉPONSE JSON STRICTE SUIVANTE :
 
         header = (
             "🎯 *RAPPORT CRYPTO SPÉCULATIF (19H) — v3.2*\n"
-            f"_Données du {datetime.date.today().strftime('%d/%m/%Y')} | Fear &"
-            f" Greed: {fng['value']}/100_\n\n"
+            f"_Données du {datetime.date.today().strftime('%d/%m/%Y')} | Fear & Greed: {fng['value']}/100_\n"
+            f"_🤖 IA : `{used_model}`_\n\n"
         )
 
         send_telegram_with_inline_buttons(
             header + report_text, inline_keyboard=inline_keyboard
         )
     else:
-        logging.error("❌ Échec critique : tous les modèles LLM ont échoué ou fait un timeout.")
+        logging.error("❌ Échec critique : la génération de rapport a échoué.")
 
 
 if __name__ == "__main__":

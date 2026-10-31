@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.2 (Architecture SSOT / Externalisation des Prompts)."""
+"""Cockpit Spéculatif & Analytics Streamlit v3.2 (Architecture SSOT / Externalisation Prompts & Centralisation Gemini)."""
 
 import datetime
 import json
@@ -8,7 +8,6 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
-from google import genai
 import pandas as pd
 import plotly.express as px
 import requests
@@ -32,6 +31,12 @@ from exchange_connectors import (
     get_all_exchange_crypto_balances,
     get_all_trades_history,
     get_total_verified_cash,
+)
+# Import du gestionnaire centralisé Gemini
+from gemini_manager import (
+    call_gemini_with_fallback,
+    load_gemini_config,
+    save_gemini_config,
 )
 
 # Import du module central d'externalisation des prompts (SSOT)
@@ -87,57 +92,6 @@ try:
   AUTO_TPSL_AVAILABLE = True
 except ImportError:
   AUTO_TPSL_AVAILABLE = False
-
-
-def call_gemini_with_fallback(
-    client,
-    prompt_text,
-    system_instruction=None,
-    models=None,
-    max_retries_per_model=1,
-):
-  """Exécute une requête Gemini avec bascule automatique sur les modèles de secours en cas d'indisponibilité."""
-  if models is None:
-    models = [
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-3.8-flash",
-        "gemini-3.5-flash-lite",
-    ]
-
-  last_error = None
-
-  for model_name in models:
-    for attempt in range(max_retries_per_model + 1):
-      try:
-        contents = (
-            f"{system_instruction}\n\nDemande utilisateur :\n{prompt_text}"
-            if system_instruction
-            else prompt_text
-        )
-
-        response = client.models.generate_content(
-            model=model_name,
-            contents=contents,
-        )
-
-        if response and response.text:
-          return response.text, model_name
-
-      except Exception as e:
-        last_error = e
-        err_str = str(e)
-
-        if "503" in err_str or "429" in err_str or "UNAVAILABLE" in err_str:
-          time.sleep(1.0)
-          break
-
-        break
-
-  raise Exception(
-      f"Tous les modèles Gemini ont échoué. Dernière erreur : {last_error}"
-  )
 
 
 def color_rsi(val):
@@ -261,7 +215,6 @@ def compute_ai_liquidities(balances, eur_usd_rate=1.12, fallback_cash_eur=0.0):
 
 
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 st.set_page_config(
     page_title="Crypto Speculative Monitor & Analytics",
@@ -1096,20 +1049,31 @@ with tab_live:
       raw_tp1 = curr_row["TP1"]
       raw_sl = curr_row["Stop-Loss"]
 
+      # Clé de session unique par position pour maintenir l'état du SL
+      state_key = f"preset_sl_val_{selected_edit_id}"
+      if state_key not in st.session_state:
+        st.session_state[state_key] = (
+            float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70)
+        )
+
       st.markdown(
           "**⚡ Raccourcis de calcul SL rapide (par rapport au prix d'entrée)"
           " :**"
       )
       r_c1, r_c2, r_c3, r_c4 = st.columns(4)
-      sl_preset = None
+
       if r_c1.button("-10% (Resserré)", key="btn_sl_10"):
-        sl_preset = raw_entry * 0.90
+        st.session_state[state_key] = float(raw_entry * 0.90)
+        st.rerun()
       if r_c2.button("-15% (Standard)", key="btn_sl_15"):
-        sl_preset = raw_entry * 0.85
+        st.session_state[state_key] = float(raw_entry * 0.85)
+        st.rerun()
       if r_c3.button("-20% (Modéré)", key="btn_sl_20"):
-        sl_preset = raw_entry * 0.80
+        st.session_state[state_key] = float(raw_entry * 0.80)
+        st.rerun()
       if r_c4.button("-30% (Large)", key="btn_sl_30"):
-        sl_preset = raw_entry * 0.70
+        st.session_state[state_key] = float(raw_entry * 0.70)
+        st.rerun()
 
       e_col1, e_col2, e_col3 = st.columns(3)
       with e_col1:
@@ -1117,32 +1081,36 @@ with tab_live:
             f"Nouveau TP1 ({curr_symbol})",
             value=float(raw_tp1) if raw_tp1 > 0 else float(raw_entry * 2.0),
             format="%.4f",
+            key=f"input_tp1_{selected_edit_id}",
         )
       with e_col2:
         new_tp2 = st.number_input(
             f"Nouveau TP2 ({curr_symbol})",
             value=float(raw_entry * 4.0),
             format="%.4f",
+            key=f"input_tp2_{selected_edit_id}",
         )
       with e_col3:
-        target_sl = (
-            sl_preset
-            if sl_preset is not None
-            else (float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70))
-        )
         new_sl = st.number_input(
             f"Nouveau Stop-Loss ({curr_symbol})",
-            value=target_sl,
+            value=st.session_state[state_key],
             format="%.4f",
+            key=f"input_sl_field_{selected_edit_id}",
         )
 
       if st.button("💾 Enregistrer les nouveaux paliers"):
+        # Utiliser la valeur saisie dans le champ new_sl
         update_trade_levels(
             selected_edit_id,
             tp1_price=new_tp1 / curr_multiplier,
             tp2_price=new_tp2 / curr_multiplier,
             sl_price=new_sl / curr_multiplier,
         )
+
+        # Nettoyage de l'état de session après enregistrement
+        if state_key in st.session_state:
+          del st.session_state[state_key]
+
         st.cache_data.clear()
         send_telegram_notify(
             f"✏️ *PALIERS MIS À JOUR VIA DASHBOARD*\n•"
@@ -2331,21 +2299,9 @@ DONNÉES DU PORTEFEUILLE ACTUEL (TEMPS RÉEL) :
     with st.chat_message("assistant"):
       with st.spinner("Analyse des marchés et génération du rapport..."):
         try:
-          client = genai.Client(api_key=GEMINI_API_KEY)
-
-          preferred_models = [
-              "gemini-2.5-flash",
-              "gemini-2.0-flash",
-              "gemini-1.5-flash",
-              "gemini-3.8-flash",
-              "gemini-3.5-flash-lite",
-          ]
-
           answer, used_model = call_gemini_with_fallback(
-              client=client,
               prompt_text=prompt_to_process,
               system_instruction=preset_context,
-              models=preferred_models,
           )
 
           st.markdown(answer)
@@ -2367,6 +2323,7 @@ with tab_monitor:
     st.markdown("""
         Surveillez l'état de santé de vos connecteurs et services système :
         * **Connecteurs API :** Vérification de la disponibilité des exchanges.
+        * **Configuration Gemini SSOT :** Ajustez dynamiquement la priorité des modèles et timeouts.
         * **Journaux Système (Logs) :** Visualisez les derniers événements des services en arrière-plan.
         """)
 
@@ -2381,6 +2338,44 @@ with tab_monitor:
   with col_m3:
     st.markdown("#### Ⓜ️ MEXC")
     st.metric("Statut API", "Opérationnel 🟢", delta="Latence < 200ms")
+
+  st.markdown("---")
+  st.subheader("⚙️ Configuration Centralisée des Modèles Gemini (SSOT)")
+  st.markdown("Ajustez la priorité des modèles Gemini et le timeout appliqués à l'ensemble des moteurs du projet :")
+
+  gemini_cfg = load_gemini_config()
+  models_list_str = "\n".join(gemini_cfg.get("models_priority", []))
+
+  col_cfg1, col_cfg2 = st.columns([2, 1])
+  with col_cfg1:
+    new_models_str = st.text_area(
+        "Ordre de priorité des modèles Gemini (1 par ligne)",
+        value=models_list_str,
+        height=140,
+        help="En cas de surcharge ou timeout, le système bascule automatiquement sur le modèle suivant.",
+    )
+  with col_cfg2:
+    new_timeout = st.number_input(
+        "Timeout par modèle (secondes)",
+        min_value=10,
+        max_value=120,
+        value=int(gemini_cfg.get("timeout_seconds", 45)),
+        step=5,
+    )
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("💾 Enregistrer la Configuration Gemini", type="primary"):
+      parsed_models = [m.strip() for m in new_models_str.split("\n") if m.strip()]
+      updated_cfg = {
+          "models_priority": parsed_models,
+          "timeout_seconds": new_timeout,
+          "max_retries_per_model": gemini_cfg.get("max_retries_per_model", 1),
+      }
+      if save_gemini_config(updated_cfg):
+        st.success("✅ Configuration Gemini mise à jour et appliquée à tous les services !")
+        send_telegram_notify("⚙️ *CONFIGURATION GEMINI MISE À JOUR VIA WEB*\nNouvelle priorité : " + ", ".join(parsed_models))
+        st.rerun()
+      else:
+        st.error("❌ Erreur lors de la sauvegarde de la configuration.")
 
   st.markdown("---")
   st.subheader("📜 Journaux Système en Direct (Systemd Logs)")
