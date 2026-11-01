@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.2 (Architecture SSOT / Externalisation Prompts, Administration Prompts & Centralisation Gemini)."""
+"""Cockpit Spéculatif & Analytics Streamlit v3.2.2 (Architecture SSOT / Dashboard Assaini & Optimisé)."""
 
 import datetime
 import json
@@ -72,7 +72,6 @@ try:
         check_circuit_breaker,
         fetch_fear_and_greed_index,
     )
-    from daily_digest_engine import build_current_snapshot, init_finary_session
     from exchange_connectors import get_all_open_orders
     from sl_audit_engine import audit_positions_protection
     EXPERT_ENGINE_AVAILABLE = True
@@ -395,9 +394,9 @@ if not check_password():
 
 init_db()
 
-st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.2)")
+st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.2.2)")
 st.markdown(
-    "*Suivi multi-exchange temps réel, Microstructure, Journal FIFO, Assistant IA (SSOT) & Reporting*"
+    "*Suivi multi-exchange temps réel, Microstructure, Journal FIFO, Assistant IA (SSOT) & Risk Management*"
 )
 st.markdown("---")
 
@@ -478,7 +477,6 @@ st.sidebar.info(
 (
     tab_live,
     tab_micro,
-    tab_digest,
     tab_alerts,
     tab_ai,
     tab_monitor,
@@ -486,7 +484,6 @@ st.sidebar.info(
 ) = st.tabs([
     "📊 Positions Actives (Live)",
     "🔥 Microstructure & Dérivés",
-    "📰 Daily Briefing (19h Pro)",
     "🔔 Centre d'Alertes",
     "🤖 Assistant IA Pro",
     "🛠️ Monitoring & Santé APIs",
@@ -544,6 +541,7 @@ with tab_live:
             * **Poche Core :** Vos actifs de conviction long terme (ex: ONDO, PENDLE).
             * **Poche Spéculative :** Votre poche à haute volatilité (Moonbag), pilotée par vos Stop-Loss et Take-Profits.
             * **Buffer de Risque :** Marge moyenne avant que vos Stop-Loss ne se déclenchent.
+            * **Sentiment Macro :** État du marché via l'indice Fear & Greed et la variation du Bitcoin sur 24h.
             """)
 
     positions = get_open_positions()
@@ -688,8 +686,13 @@ with tab_live:
     else:
         pct_majors = pct_core = pct_spec = pct_stables = 0.0
 
-    st.markdown("#### 🌐 Ventilation Globale du Capital")
-    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+    # Indice Fear & Greed et Circuit Breaker
+    fng_data = get_cached_fear_and_greed()
+    is_crash, crash_val = get_cached_circuit_breaker()
+
+    # --- LIGNE 1 : MACRO & ALLOCATION GLOBALE (6 colonnes) ---
+    st.markdown("#### 🌐 Allocation Globale & Sentiment Macro")
+    m_col1, m_col2, m_col3, m_col4, m_col5, m_col6 = st.columns(6)
     m_col1.metric(
         "Volume Total Crypto",
         f"{total_crypto_only_val * curr_multiplier:,.2f} {curr_symbol}",
@@ -698,21 +701,34 @@ with tab_live:
     m_col2.metric(
         "Majeures (BTC, ETH)",
         f"{val_majors * curr_multiplier:,.2f} {curr_symbol}",
-        delta=f"{pct_majors:.2f}% du portfolio",
+        delta=f"{pct_majors:.1f}% du portfolio",
     )
     m_col3.metric(
         "Poche CORE",
         f"{val_core * curr_multiplier:,.2f} {curr_symbol}",
-        delta=f"{pct_core:.2f}% du portfolio",
+        delta=f"{pct_core:.1f}% du portfolio",
     )
     m_col4.metric(
-        "Poche Spéculative",
-        f"{val_speculative * curr_multiplier:,.2f} {curr_symbol}",
-        delta=f"{pct_spec:.2f}% (Cible : 10%)",
-        delta_color="normal" if pct_spec <= 12 else "inverse",
+        "Cash & Stables",
+        f"{val_stables_cash * curr_multiplier:,.2f} {curr_symbol}",
+        delta=f"{pct_stables:.1f}% (Cible : 13%)",
+    )
+    m_col5.metric(
+        "Fear & Greed Index",
+        f"{fng_data['value']}/100",
+        delta=f"{fng_data['classification']}",
+    )
+    m_col6.metric(
+        "Circuit Breaker BTC",
+        f"{crash_val:+.2f}% (24h)",
+        delta="NORMAL 🟢" if not is_crash else "DÉFENSIF 🚨",
+        delta_color="normal" if not is_crash else "inverse",
     )
 
     st.markdown("")
+
+    # --- LIGNE 2 : PILOTAGE POCHE SPÉCULATIVE & RISQUE (3 colonnes) ---
+    st.markdown("#### 🚀 Pilotage de la Poche Spéculative (Moonbag)")
 
     total_invested_disp = total_invested_base * curr_multiplier
     total_market_disp = val_speculative * curr_multiplier
@@ -725,20 +741,21 @@ with tab_live:
     global_risk_buffer = (
         (weighted_sl_distance / total_weight_risk) if total_weight_risk > 0 else 0.0
     )
-    total_cash_disp = val_stables_cash * curr_multiplier
 
-    s_col1, s_col2, s_col3, s_col4 = st.columns(4)
+    s_col1, s_col2, s_col3 = st.columns(3)
     s_col1.metric(
-        "Positions Actives",
-        f"{len(positions)} lignes",
-        delta=f"🛡️ {free_ride_count} Free Ride | ⚠️ {at_risk_count} À Risque",
-    )
-    s_col2.metric(
-        f"Valeur Marché Spécu ({curr_symbol})",
+        f"Poche Spéculative Total ({curr_symbol})",
         f"{total_market_disp:,.2f} {curr_symbol}",
         delta=(
-            f"PnL : {total_pnl_pct:+.2f}% ({total_pnl_disp:+,.2f} {curr_symbol})"
+            f"{pct_spec:.1f}% du portfolio | PnL :"
+            f" {total_pnl_pct:+.2f}% ({total_pnl_disp:+,.2f} {curr_symbol})"
         ),
+        delta_color="normal" if pct_spec <= 12 else "inverse",
+    )
+    s_col2.metric(
+        "Positions Spéculatives Actives",
+        f"{len(positions)} ligne(s)",
+        delta=f"🎯 {free_ride_count} Free Ride | ⚠️ {at_risk_count} À Risque",
     )
     s_col3.metric(
         "Buffer de Risque Global",
@@ -749,10 +766,6 @@ with tab_live:
             else "Attention, proche des SL"
         ),
         delta_color="normal" if global_risk_buffer > 10 else "inverse",
-    )
-    s_col4.metric(
-        f"Cash Disponible Total ({curr_symbol})",
-        f"{total_cash_disp:,.2f} {curr_symbol}",
     )
 
     st.markdown("---")
@@ -1482,105 +1495,7 @@ with tab_micro:
 
 
 # ==========================================
-# ONGLET 3 : DAILY BRIEFING PRO (19H)
-# ==========================================
-with tab_digest:
-    with st.expander("📖 Guide du Daily Briefing Pro (Rapport de 19h)"):
-        st.markdown("""
-            Tour de contrôle quotidienne :
-            * **Climat & Marché :** Suivi de l'indice Fear & Greed et du Circuit Breaker BTC.
-            * **Répartition des Poches :** Ventilation précise des actifs.
-            * **Règle Cash-Neutral & Arbitrages :** Validation des opportunités et plans Moonbag.
-            """)
-
-    st.subheader(
-        f"📰 Rapport d'Arbitrage Quotidien — Stratégie Moonbag ({curr_symbol})"
-    )
-
-    fng_data = get_cached_fear_and_greed()
-    is_crash, crash_val = get_cached_circuit_breaker()
-
-    m_col1, m_col2, m_col3 = st.columns(3)
-    m_col1.metric(
-        "Indice Fear & Greed",
-        f"{fng_data['value']}/100",
-        delta=f"{fng_data['classification']}",
-    )
-    m_col2.metric(
-        "Circuit Breaker BTC (24h)",
-        f"{crash_val:+.2f}%",
-        delta="NORMAL 🟢" if not is_crash else "DÉFENSIF 🚨",
-        delta_color="normal" if not is_crash else "inverse",
-    )
-    cash_eur = (
-        val_stables_cash
-        if "val_stables_cash" in locals()
-        else cash_info.get("total_cash", 0.0)
-    )
-    m_col3.metric(
-        f"Liquidités Cash Réel ({curr_symbol})",
-        f"{cash_eur * curr_multiplier:,.2f} {curr_symbol}",
-        delta="Cash-Neutral Strict",
-    )
-
-    st.markdown("---")
-    st.subheader("🎯 Opportunités & Plan d'Arbitrage Explicite (Moonbag)")
-    open_trades_digest = get_open_positions()
-    if open_trades_digest:
-        for t in open_trades_digest:
-            rec_id, sym, exch, entry, amt, tp1, sl = (
-                t[0],
-                t[1],
-                t[2],
-                t[3],
-                t[4],
-                t[5] if len(t) > 5 else 0,
-                t[7] if len(t) > 7 else 0,
-            )
-            val_amt = (amt if amt else 0.0) * curr_multiplier
-            val_ent = (entry if entry else 0.0) * curr_multiplier
-            val_tp = (tp1 if tp1 else 0.0) * curr_multiplier
-            val_sl = (sl if sl else 0.0) * curr_multiplier
-
-            with st.container():
-                st.markdown(
-                    f"""
-                    <div style="padding: 15px; border-radius: 10px; border: 1px solid #00ffcc; margin-bottom: 15px; background-color: #161a1e;">
-                        <h4 style="margin: 0; color: #00ffcc;">Focus : {sym} <span style="font-size: 12px; color: #aaa;">({exch})</span></h4>
-                        <p style="margin: 8px 0 0 0; font-size: 14px;">
-                            <b>Montant engagé :</b> {val_amt:,.2f} {curr_symbol} @ {val_ent:.4f} {curr_symbol}<br>
-                            <b>Plan Moonbag :</b> 🎯 TP1 (x2) : {val_tp:.4f} {curr_symbol} (Vente 50% -> Free Ride) | 🛑 SL : {val_sl:.4f} {curr_symbol}
-                        </p>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                bc1, bc2 = st.columns(2)
-                with bc1:
-                    if st.button(
-                        f"✅ Marquer comme Pris (ID {rec_id})", key=f"digest_take_{rec_id}"
-                    ):
-                        mark_trade_taken(rec_id)
-                        st.cache_data.clear()
-                        st.success(f"Position {sym} enregistrée comme prise !")
-                        st.rerun()
-                with bc2:
-                    if st.button(
-                        f"❌ Ignorer l'opportunité (ID {rec_id})",
-                        key=f"digest_ignore_{rec_id}",
-                    ):
-                        mark_trade_ignored(rec_id)
-                        st.cache_data.clear()
-                        st.warning(f"Opportunité {sym} ignorée.")
-                        st.rerun()
-    else:
-        st.info(
-            "Aucune opportunité spéculative active en attente dans la base de"
-            " données."
-        )
-
-# ==========================================
-# ONGLET 4 : CENTRE D'ALERTES & RAPPROCHEMENT
+# ONGLET 3 : CENTRE D'ALERTES & RAPPROCHEMENT
 # ==========================================
 with tab_alerts:
     with st.expander("📖 Guide du Centre d'Alertes & Réconciliation"):
@@ -1908,7 +1823,7 @@ with tab_alerts:
             )
 
 # ==========================================
-# ONGLET 5 : ASSISTANT IA PRO (SSOT EXTERNALISÉ v3.2)
+# ONGLET 4 : ASSISTANT IA PRO (SSOT EXTERNALISÉ v3.2)
 # ==========================================
 with tab_ai:
     with st.expander("📖 Guide de l'Assistant IA Conversationnel (Architecture SSOT)"):
@@ -2417,7 +2332,7 @@ DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
                     st.error(error_msg)
 
 # ==========================================
-# ONGLET 6 : MONITORING & SANTÉ APIS
+# ONGLET 5 : MONITORING & SANTÉ APIS
 # ==========================================
 with tab_monitor:
     with st.expander("📖 Guide du Monitoring Technique"):
@@ -2606,7 +2521,7 @@ with tab_monitor:
 
 
 # ==========================================
-# ONGLET 7 : EXPORT COMPTABLE & FISCAL
+# ONGLET 6 : EXPORT COMPTABLE & FISCAL
 # ==========================================
 with tab_fiscal:
     with st.expander("📖 Guide de l'Assistant Fiscal Avancé"):
