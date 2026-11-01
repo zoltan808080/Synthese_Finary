@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.2.2 (Architecture SSOT / Dashboard Assaini & Optimisé)."""
+"""Cockpit Spéculatif & Analytics Streamlit v3.2.3 (Architecture SSOT / Dashboard Assaini & Optimisé)."""
 
-import datetime
 import json
 import os
 import subprocess
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 import pandas as pd
@@ -19,7 +17,6 @@ from db_manager import (
     get_closed_trades_history,
     get_open_positions,
     init_db,
-    mark_trade_ignored,
     mark_trade_taken,
     merge_duplicate_trades,
     set_trade_break_even,
@@ -29,7 +26,6 @@ from db_manager import (
 )
 from exchange_connectors import (
     get_all_exchange_crypto_balances,
-    get_all_trades_history,
     get_total_verified_cash,
 )
 # Import du gestionnaire centralisé Gemini
@@ -394,7 +390,7 @@ if not check_password():
 
 init_db()
 
-st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.2.2)")
+st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.2.3)")
 st.markdown(
     "*Suivi multi-exchange temps réel, Microstructure, Journal FIFO, Assistant IA (SSOT) & Risk Management*"
 )
@@ -480,14 +476,12 @@ st.sidebar.info(
     tab_alerts,
     tab_ai,
     tab_monitor,
-    tab_fiscal,
 ) = st.tabs([
     "📊 Positions Actives (Live)",
     "🔥 Microstructure & Dérivés",
     "🔔 Centre d'Alertes",
     "🤖 Assistant IA Pro",
-    "🛠️ Monitoring & Santé APIs",
-    "🧾 Export Fiscal & Comptable",
+    "🛠️ Administration & Monitoring",
 ])
 
 
@@ -2332,12 +2326,12 @@ DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
                     st.error(error_msg)
 
 # ==========================================
-# ONGLET 5 : MONITORING & SANTÉ APIS
+# ONGLET 5 : ADMINISTRATION & MONITORING
 # ==========================================
 with tab_monitor:
-    with st.expander("📖 Guide du Monitoring Technique"):
+    with st.expander("📖 Guide du Monitoring Technique & de l'Administration"):
         st.markdown("""
-            Surveillez l'état de santé de vos connecteurs et services système :
+            Surveillez l'état de santé de vos connecteurs et administrez votre cockpit :
             * **Connecteurs API :** Vérification de la disponibilité des exchanges.
             * **Configuration Gemini SSOT :** Ajustez dynamiquement la priorité des modèles et timeouts.
             * **Administration Prompts SSOT :** Éditez et restaurez les prompts Markdown (`.md`) d'expertise IA.
@@ -2518,50 +2512,3 @@ with tab_monitor:
     st.text_area(
         f"Dernières lignes de log pour {log_service}", log_output, height=300
     )
-
-
-# ==========================================
-# ONGLET 6 : EXPORT COMPTABLE & FISCAL
-# ==========================================
-with tab_fiscal:
-    with st.expander("📖 Guide de l'Assistant Fiscal Avancé"):
-        st.markdown("Outil d'aide à la déclaration et export CSV normalisé.")
-
-    st.subheader("🧾 Assistant d'Export Fiscal & Comptable (v3.0)")
-    year_selected = st.selectbox(
-        "Sélectionner l'année fiscale", [2026, 2025, 2024]
-    )
-
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        include_fees = st.checkbox(
-            "Inclure le détail des frais de transaction (API fees)",
-            value=True,
-            key="chk_fees",
-        )
-    with col_f2:
-        only_closed = st.checkbox(
-            "Isoler uniquement les positions clôturées (réalisées)",
-            value=True,
-            key="chk_closed",
-        )
-
-    if st.button("📥 Générer et télécharger le rapport fiscal certifié (CSV)"):
-        trades_hist = get_all_trades_history()
-        df_export = pd.DataFrame(trades_hist)
-        if not df_export.empty:
-            csv_data = df_export.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label=(
-                    f"💾 Télécharger le rapport de cessions {year_selected} (Format"
-                    " CSV)"
-                ),
-                data=csv_data,
-                file_name=f"rapport_fiscal_crypto_{year_selected}.csv",
-                mime="text/css",
-            )
-            st.success(f"Rapport fiscal {year_selected} généré avec succès !")
-        else:
-            st.warning(
-                "Aucune donnée historique disponible pour générer ce rapport."
-            )
