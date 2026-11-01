@@ -94,6 +94,28 @@ except ImportError:
     AUTO_TPSL_AVAILABLE = False
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def get_cached_fear_and_greed():
+    """Source Unique de Vérité (SSOT) pour l'indice Fear & Greed (Cache 5 min)."""
+    if EXPERT_ENGINE_AVAILABLE:
+        try:
+            return fetch_fear_and_greed_index()
+        except Exception:
+            pass
+    return {"value": 50, "classification": "Neutral"}
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_cached_circuit_breaker():
+    """Source Unique de Vérité (SSOT) pour le Circuit Breaker BTC (Cache 5 min)."""
+    if EXPERT_ENGINE_AVAILABLE:
+        try:
+            return check_circuit_breaker()
+        except Exception:
+            pass
+    return False, 0.0
+
+
 def color_rsi(val):
     """Applique un dégradé de couleur style Coinglass sur les cellules RSI."""
     if isinstance(val, (int, float)):
@@ -1444,15 +1466,8 @@ with tab_digest:
         f"📰 Rapport d'Arbitrage Quotidien — Stratégie Moonbag ({curr_symbol})"
     )
 
-    fng_data = {"value": 59, "classification": "Greed"}
-    is_crash, crash_val = False, 1.5
-
-    if EXPERT_ENGINE_AVAILABLE:
-        try:
-            fng_data = fetch_fear_and_greed_index()
-            is_crash, crash_val = check_circuit_breaker()
-        except Exception:
-            pass
+    fng_data = get_cached_fear_and_greed()
+    is_crash, crash_val = get_cached_circuit_breaker()
 
     m_col1, m_col2, m_col3 = st.columns(3)
     m_col1.metric(
@@ -1819,7 +1834,8 @@ with tab_alerts:
             "desc": "Le portefeuille spéculatif ne comporte aucune ligne active.",
         })
 
-    if "is_crash" in locals() and is_crash:
+    is_crash, crash_val = get_cached_circuit_breaker()
+    if is_crash:
         alerts_list.append({
             "level": "CRITICAL",
             "title": "Alerte Crash / Circuit Breaker activé",
@@ -1829,12 +1845,11 @@ with tab_alerts:
             ),
         })
     else:
-        crash_display_val = crash_val if "crash_val" in locals() else 1.5
         alerts_list.append({
             "level": "INFO",
             "title": "Marché stable (Circuit Breaker Normal)",
             "desc": (
-                f"Variation BTC 24h : {crash_display_val:+.2f}%. Conditions"
+                f"Variation BTC 24h : {crash_val:+.2f}%. Conditions"
                 " nominales."
             ),
         })
@@ -1924,6 +1939,9 @@ with tab_ai:
     except Exception:
         all_balances = {}
 
+    fng_data = get_cached_fear_and_greed()
+    is_crash, crash_pct = get_cached_circuit_breaker()
+
     with col_p1:
         if st.button("📰 Rapport & Évaluation Spéculative", width="stretch"):
             with st.spinner(
@@ -1933,15 +1951,10 @@ with tab_ai:
                     open_pos=open_pos, balances=all_balances
                 )
                 from crypto_speculative_advisor import (
-                    check_circuit_breaker,
-                    fetch_coingecko_trending_and_markets,
-                    fetch_fear_and_greed_index,
-                    get_kraken_spot_symbols,
-                    get_okx_spot_symbols,
+                    calculate_unfied_crypto_categories,
                 )
 
-                is_crash, crash_pct = check_circuit_breaker()
-                fng = fetch_fear_and_greed_index()
+                cats = calculate_unfied_crypto_categories()
 
                 live_positions_for_ai = (
                     [
@@ -1970,11 +1983,7 @@ with tab_ai:
                     compute_ai_liquidities(
                         all_balances,
                         eur_usd_rate=eur_usd_rate,
-                        fallback_cash_eur=(
-                            total_cash_eur
-                            if "total_cash_eur" in locals()
-                            else cash_info.get("total_cash", 0.0)
-                        ),
+                        fallback_cash_eur=cats.get("stables_cash", 0.0),
                     )
                 )
 
@@ -1989,16 +1998,21 @@ with tab_ai:
 
 ---
 
-SITUATION DU PORTEFEUILLE & LIQUIDITÉS (VALEURS MARCHANDE TEMPS RÉEL) :
-- Capital Spéculatif Enregistré (Valeur Live) : {total_market_disp:,.2f} €
+VENTILATION GLOBALE DU PORTEFEUILLE (VALEURS MARCHANDE TEMPS RÉEL) :
+- Capital Total Crypto : {cats['total_crypto']:,.2f} €
+- Majeures (BTC/ETH) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) [Cible : 55%]
+- Poche Core : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) [Cible : 22%]
+- Spéculatif (Moonbag BDD) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) [Cible : 10% / Max : 12%]
 - Solde Fiat Réel sur Exchanges (EUR/USD) : {fiat_real_eur:,.2f} €
 - Solde Stablecoins sur Exchanges (USDT/USDC) : {stables_real_eur:,.2f} €
-- TOTAL LIQUIDITÉS MOBILISABLES (Fiat + Stablecoins) : {total_liquidites_dispo:,.2f} €
-- Positions Spéculatives Actives : {json.dumps(live_positions_for_ai, indent=2, ensure_ascii=False)}
+- TOTAL LIQUIDITÉS MOBILISABLES : {total_liquidites_dispo:,.2f} €
 
-DONNÉES DU MARCHÉ ET CONTEXTE :
+POSITIONS SPÉCULATIVES ACTIVES (BDD) :
+{json.dumps(live_positions_for_ai, indent=2, ensure_ascii=False)}
+
+DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
 - Statut Circuit Breaker : {"🚨 DEFENSIVE MODE" if is_crash else "✅ NORMAL"} (Var BTC 24h : {crash_pct:+.2f}%)
-- Indice Fear & Greed : {fng['value']}/100 ({fng['classification']})
+- Indice Fear & Greed : {fng_data['value']}/100 ({fng_data['classification']})
 
 {tech_micro_block}
 """
@@ -2009,7 +2023,20 @@ DONNÉES DU MARCHÉ ET CONTEXTE :
                 tech_micro_block = build_market_tech_micro_context(
                     open_pos=open_pos, balances=all_balances
                 )
+                from crypto_speculative_advisor import (
+                    calculate_unfied_crypto_categories,
+                )
+
+                cats = calculate_unfied_crypto_categories()
                 system_rules = get_system_prompt("risk_manager")
+
+                fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
+                    compute_ai_liquidities(
+                        all_balances,
+                        eur_usd_rate=eur_usd_rate,
+                        fallback_cash_eur=cats.get("stables_cash", 0.0),
+                    )
+                )
 
                 if open_pos:
                     pos_audit_data = []
@@ -2084,13 +2111,24 @@ DONNÉES DU MARCHÉ ET CONTEXTE :
 
 ---
 
-SITUATION ACTUELLE DU PORTEFEUILLE À AUDITER :
+VENTILATION GLOBALE DU PORTEFEUILLE TEMPS RÉEL (SOURCES DIRECTES EXCHANGES) :
+- Capital Total Crypto : {cats['total_crypto']:,.2f} €
+- Majeures (BTC/ETH) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) [Cible : 55%]
+- Poche Core : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) [Cible : 22%]
+- Spéculatif (Moonbag BDD) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) [Cible : 10% / Max : 12%]
+- Liquidités Cash (Fiat + Stables) : {total_liquidites_dispo:,.2f} € (Fiat: {fiat_real_eur:,.2f} €, Stables: {stables_real_eur:,.2f} €) [Cible : 13%]
+
+SITUATION DES POSITIONS SPÉCULATIVES EN BDD À AUDITER :
 - Nombre de positions actives : {len(open_pos)}
 - Buffer de risque moyen global : {global_buffer:.1f}% (Marge avant déclenchement des SL)
 - Nombre de positions sans Stop-Loss : {missing_sl_count}
 
 DÉTAIL DES POSITIONS EN PORTEFEUILLE :
 {json.dumps(pos_audit_data, indent=2, ensure_ascii=False)}
+
+DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
+- Statut Circuit Breaker : {"🚨 DEFENSIVE MODE" if is_crash else "✅ NORMAL"} (Var BTC 24h : {crash_pct:+.2f}%)
+- Indice Fear & Greed : {fng_data['value']}/100 ({fng_data['classification']})
 
 {tech_micro_block}
 """
@@ -2136,11 +2174,21 @@ Indique à l'utilisateur que son portefeuille spéculatif est totalement liquide
 
 ---
 
-DONNÉES PORTEFEUILLE & LIQUIDITÉS TEMPS RÉEL :
+DONNÉES PORTEFEUILLE & VENTILATION DES POCHES TEMPS RÉEL :
+- Capital Total Crypto : {cats['total_crypto']:,.2f} €
+- Majeures (BTC/ETH) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) [Cible : 55%]
+- Poche Core : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) [Cible : 22%]
+- Spéculatif (Moonbag BDD) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) [Cible : 10%]
 - Solde Fiat Réel (EUR/USD) : {fiat_real_eur:,.2f} €
 - Solde Stablecoins (USDT/USDC) : {stables_real_eur:,.2f} €
 - Total Liquidités Immédiates Mobilisables : {total_liquidites_dispo:,.2f} €
-- Positions Spéculatives Actives : {open_pos}
+
+POSITIONS SPÉCULATIVES ACTIVES EN BDD :
+{open_pos}
+
+DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
+- Statut Circuit Breaker : {"🚨 DEFENSIVE MODE" if is_crash else "✅ NORMAL"} (Var BTC 24h : {crash_pct:+.2f}%)
+- Indice Fear & Greed : {fng_data['value']}/100 ({fng_data['classification']})
 
 {tech_micro_block}
 """
@@ -2158,7 +2206,7 @@ DONNÉES PORTEFEUILLE & LIQUIDITÉS TEMPS RÉEL :
                 )
 
                 cats = calculate_unfied_crypto_categories()
-                system_rules = get_system_prompt("project_rules")
+                system_rules = get_system_prompt("advisor_speculative")
 
                 fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
                     compute_ai_liquidities(
@@ -2187,21 +2235,22 @@ DONNÉES PORTEFEUILLE & LIQUIDITÉS TEMPS RÉEL :
 
 ---
 
-CONSIGNES DE FEUILLE DE ROUTE D'EXÉCUTION PAS-À-PAS :
-Convertis cette allocation en une FEUILLE DE ROUTE D'EXÉCUTION PAS-À-PAS, ultra-concrète et directement applicable sur les échanges de l'utilisateur.
-
-SITUATION DU PORTEFEUILLE & ÉCARTS CIBLES :
+SITUATION DU PORTEFEUILLE & ÉCARTS CIBLES À RÉÉQUILIBRER :
 - Valeur totale du capital : {cats['total_crypto']:,.2f} €
-- Majeures (BTC/ETH) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) | Cible 55% ({target_majors:,.2f} €) -> ÉCART : {delta_majors:+,.2f} € (À Alléger)
-- Poche Core : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) | Cible 22% ({target_core:,.2f} €) -> ÉCART : {delta_core:+,.2f} € (À Renforcer)
-- Spéculatif (Moonbag) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) | Cible 10% ({target_spec:,.2f} €) -> ÉCART : {delta_spec:+,.2f} € (À Écrêter)
-- Total Liquidités Mobilisables (Fiat + Stables) : {total_liquidites_dispo:,.2f} € (Fiat: {fiat_real_eur:,.2f} €, Stables: {stables_real_eur:,.2f} €) | Cible 13% ({target_cash:,.2f} €) -> ÉCART : {delta_cash:+,.2f} € (À Reconstituer)
+- Majeures (BTC/ETH) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) | Cible 55% ({target_majors:,.2f} €) ➔ ÉCART : {delta_majors:+,.2f} €
+- Poche Core : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) | Cible 22% ({target_core:,.2f} €) ➔ ÉCART : {delta_core:+,.2f} €
+- Spéculatif (Moonbag) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) | Cible 10% ({target_spec:,.2f} €) ➔ ÉCART : {delta_spec:+,.2f} €
+- Total Liquidités Mobilisables : {total_liquidites_dispo:,.2f} € | Cible 13% ({target_cash:,.2f} €) ➔ ÉCART : {delta_cash:+,.2f} €
 
 SOLDES RÉELS DÉTECTÉS PAR PLATEFORME :
 {json.dumps(all_balances, indent=2, ensure_ascii=False)}
 
 POSITIONS SPÉCULATIVES ACTIVES EN BDD :
 {open_pos}
+
+DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
+- Statut Circuit Breaker : {"🚨 DEFENSIVE MODE" if is_crash else "✅ NORMAL"} (Var BTC 24h : {crash_pct:+.2f}%)
+- Indice Fear & Greed : {fng_data['value']}/100 ({fng_data['classification']})
 
 {tech_micro_block}
 """
@@ -2240,15 +2289,16 @@ POSITIONS SPÉCULATIVES ACTIVES EN BDD :
             current_cash = get_cached_verified_cash()
             current_balances = get_cached_crypto_balances()
 
+            from crypto_speculative_advisor import (
+                calculate_unfied_crypto_categories,
+            )
+            cats = calculate_unfied_crypto_categories()
+
             fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
                 compute_ai_liquidities(
                     current_balances,
                     eur_usd_rate=eur_usd_rate,
-                    fallback_cash_eur=(
-                        current_cash.get("total_cash", 0.0)
-                        if isinstance(current_cash, dict)
-                        else 0.0
-                    ),
+                    fallback_cash_eur=cats.get("stables_cash", 0.0),
                 )
             )
 
@@ -2262,11 +2312,19 @@ POSITIONS SPÉCULATIVES ACTIVES EN BDD :
 ---
 
 DONNÉES DU PORTEFEUILLE ACTUEL (TEMPS RÉEL) :
-- Positions ouvertes en BDD : {current_positions}
+- Capital Total Crypto : {cats['total_crypto']:,.2f} €
+- Majeures (BTC/ETH) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) [Cible : 55%]
+- Poche Core : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) [Cible : 22%]
+- Spéculatif (Moonbag BDD) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) [Cible : 10%]
 - Solde Fiat Réel sur Exchanges (EUR/USD) : {fiat_real_eur:,.2f} €
 - Solde Stablecoins sur Exchanges (USDT/USDC) : {stables_real_eur:,.2f} €
 - TOTAL LIQUIDITÉS MOBILISABLES : {total_liquidites_dispo:,.2f} €
+- Positions ouvertes en BDD : {current_positions}
 - Devise active : {curr_label}
+
+DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
+- Statut Circuit Breaker : {"🚨 DEFENSIVE MODE" if is_crash else "✅ NORMAL"} (Var BTC 24h : {crash_pct:+.2f}%)
+- Indice Fear & Greed : {fng_data['value']}/100 ({fng_data['classification']})
 
 {tech_micro_block}
 """
