@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.2.3 (Architecture SSOT / Dashboard Assaini & Optimisé)."""
+"""Cockpit Spéculatif & Analytics Streamlit v3.3.0 (Architecture SSOT / Dashboard Macro Unifié)."""
 
 import json
 import os
@@ -35,6 +35,19 @@ from gemini_manager import (
     save_gemini_config,
 )
 
+# Import Moteur Macro SSOT (BTC.D, TOTAL3, Stablecoins, F&G, Circuit Breaker)
+try:
+    from macro_market_engine import (
+        get_complete_macro_context,
+        fetch_fear_and_greed_index,
+        check_circuit_breaker,
+        get_macro_market_indicators,
+        format_macro_context_for_prompt,
+    )
+    MACRO_ENGINE_AVAILABLE = True
+except ImportError:
+    MACRO_ENGINE_AVAILABLE = False
+
 # Import du module central d'externalisation et d'administration des prompts (SSOT v3.2)
 try:
     from prompt_loader import (
@@ -65,8 +78,8 @@ except ImportError:
 try:
     from crypto_speculative_advisor import (
         calculate_exact_crypto_categories,
-        check_circuit_breaker,
-        fetch_fear_and_greed_index,
+        fetch_fear_and_greed_index as advisor_fng,
+        check_circuit_breaker as advisor_cb,
     )
     from exchange_connectors import get_all_open_orders
     from sl_audit_engine import audit_positions_protection
@@ -90,11 +103,41 @@ except ImportError:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
+def get_cached_complete_macro_context():
+    """Source Unique de Vérité (SSOT) pour le Contexte Macro complet (Cache 5 min)."""
+    if MACRO_ENGINE_AVAILABLE:
+        try:
+            return get_complete_macro_context()
+        except Exception:
+            pass
+
+    # Fallback si le module n'est pas dispo ou en cas d'erreur
+    fng = get_cached_fear_and_greed()
+    is_crash, btc_24h = get_cached_circuit_breaker()
+    return {
+        "fear_and_greed": fng,
+        "circuit_breaker": {"is_crash": is_crash, "btc_24h_pct": btc_24h},
+        "metrics": {
+            "btc_dominance": 58.0,
+            "eth_dominance": 14.5,
+            "total3_usd_b": 650.0,
+            "stablecoins_cap_b": 170.0,
+            "status": "fallback",
+        },
+    }
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def get_cached_fear_and_greed():
     """Source Unique de Vérité (SSOT) pour l'indice Fear & Greed (Cache 5 min)."""
-    if EXPERT_ENGINE_AVAILABLE:
+    if MACRO_ENGINE_AVAILABLE:
         try:
             return fetch_fear_and_greed_index()
+        except Exception:
+            pass
+    elif EXPERT_ENGINE_AVAILABLE:
+        try:
+            return advisor_fng()
         except Exception:
             pass
     return {"value": 50, "classification": "Neutral"}
@@ -103,9 +146,14 @@ def get_cached_fear_and_greed():
 @st.cache_data(ttl=300, show_spinner=False)
 def get_cached_circuit_breaker():
     """Source Unique de Vérité (SSOT) pour le Circuit Breaker BTC (Cache 5 min)."""
-    if EXPERT_ENGINE_AVAILABLE:
+    if MACRO_ENGINE_AVAILABLE:
         try:
             return check_circuit_breaker()
+        except Exception:
+            pass
+    elif EXPERT_ENGINE_AVAILABLE:
+        try:
+            return advisor_cb()
         except Exception:
             pass
     return False, 0.0
@@ -390,9 +438,9 @@ if not check_password():
 
 init_db()
 
-st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.2.3)")
+st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.3.0)")
 st.markdown(
-    "*Suivi multi-exchange temps réel, Microstructure, Journal FIFO, Assistant IA (SSOT) & Risk Management*"
+    "*Suivi multi-exchange temps réel, Macro-Marché SSOT, Microstructure, Journal FIFO & Assistant IA*"
 )
 st.markdown("---")
 
@@ -530,12 +578,9 @@ with tab_live:
     with st.expander("📖 Guide de lecture & Répartition du Portefeuille"):
         st.markdown(f"""
             Inventaire global et ventilation de votre capital en temps réel (Autonome & 100% direct exchanges) :
-            * **Volume Total Crypto :** Valeur marchande cumulée de l'ensemble de vos actifs (Exchanges + Wallets froids Exodus).
-            * **Majeures (BTC, ETH) :** Vos réserves de valeur fondamentales.
-            * **Poche Core :** Vos actifs de conviction long terme (ex: ONDO, PENDLE).
-            * **Poche Spéculative :** Votre poche à haute volatilité (Moonbag), pilotée par vos Stop-Loss et Take-Profits.
+            * **Ligne 1 (Macro & Sentiment) :** Fear & Greed Index, Circuit Breaker BTC, Dominance BTC (BTC.D), TOTAL3 (Cap. Alts hors BTC/ETH) et Poudre sèche Stablecoins Globales.
+            * **Ligne 2 (Allocations) :** Volume Total Crypto, Majeures (BTC/ETH), Poche CORE et Poche Spéculative Total (Moonbag) avec PnL latent.
             * **Buffer de Risque :** Marge moyenne avant que vos Stop-Loss ne se déclenchent.
-            * **Sentiment Macro :** État du marché via l'indice Fear & Greed et la variation du Bitcoin sur 24h.
             """)
 
     positions = get_open_positions()
@@ -680,78 +725,110 @@ with tab_live:
     else:
         pct_majors = pct_core = pct_spec = pct_stables = 0.0
 
-    # Indice Fear & Greed et Circuit Breaker
-    fng_data = get_cached_fear_and_greed()
-    is_crash, crash_val = get_cached_circuit_breaker()
+    # --- OBTENTION DU CONTEXTE MACRO SSOT ---
+    macro_context = get_cached_complete_macro_context()
+    fng_data = macro_context.get("fear_and_greed", {"value": 50, "classification": "Neutral"})
+    cb_data = macro_context.get("circuit_breaker", {"is_crash": False, "btc_24h_pct": 0.0})
+    is_crash = cb_data.get("is_crash", False)
+    crash_val = cb_data.get("btc_24h_pct", 0.0)
+    macro_metrics = macro_context.get("metrics", {})
+    btc_d = macro_metrics.get("btc_dominance", 58.0)
+    total3_b = macro_metrics.get("total3_usd_b", 650.0)
+    stables_cap_b = macro_metrics.get("stablecoins_cap_b", 170.0)
 
-    # --- LIGNE 1 : MACRO & ALLOCATION GLOBALE (6 colonnes) ---
-    st.markdown("#### 🌐 Allocation Globale & Sentiment Macro")
-    m_col1, m_col2, m_col3, m_col4, m_col5, m_col6 = st.columns(6)
+    # -------------------------------------------------------------------------
+    # 1. LIGNE 1 : SENTIMENT & MACRO-MARCHÉ GLOBALE (5 Métriques)
+    # -------------------------------------------------------------------------
+    st.markdown("#### 🌐 Sentiment & Macro-Marché Globale")
+    m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
+    
     m_col1.metric(
-        "Volume Total Crypto",
-        f"{total_crypto_only_val * curr_multiplier:,.2f} {curr_symbol}",
-        delta="Exchanges + Exodus",
-    )
-    m_col2.metric(
-        "Majeures (BTC, ETH)",
-        f"{val_majors * curr_multiplier:,.2f} {curr_symbol}",
-        delta=f"{pct_majors:.1f}% du portfolio",
-    )
-    m_col3.metric(
-        "Poche CORE",
-        f"{val_core * curr_multiplier:,.2f} {curr_symbol}",
-        delta=f"{pct_core:.1f}% du portfolio",
-    )
-    m_col4.metric(
-        "Cash & Stables",
-        f"{val_stables_cash * curr_multiplier:,.2f} {curr_symbol}",
-        delta=f"{pct_stables:.1f}% (Cible : 13%)",
-    )
-    m_col5.metric(
         "Fear & Greed Index",
         f"{fng_data['value']}/100",
         delta=f"{fng_data['classification']}",
     )
-    m_col6.metric(
+    m_col2.metric(
         "Circuit Breaker BTC",
         f"{crash_val:+.2f}% (24h)",
         delta="NORMAL 🟢" if not is_crash else "DÉFENSIF 🚨",
         delta_color="normal" if not is_crash else "inverse",
     )
+    m_col3.metric(
+        "Dominance BTC (BTC.D)",
+        f"{btc_d:.1f} %",
+        delta="Altseason < 50%" if btc_d < 50 else "Concentration BTC",
+        delta_color="off",
+    )
+    m_col4.metric(
+        "TOTAL3 (Cap. Alts)",
+        f"{total3_b:,.1f} Mds $",
+        delta="Hors BTC & ETH",
+        delta_color="off",
+    )
+    m_col5.metric(
+        "Poudre Sèche Stables",
+        f"{stables_cap_b:,.1f} Mds $",
+        delta="USDT / USDC / DAI",
+        delta_color="off",
+    )
 
     st.markdown("")
 
-    # --- LIGNE 2 : PILOTAGE POCHE SPÉCULATIVE & RISQUE (3 colonnes) ---
-    st.markdown("#### 🚀 Pilotage de la Poche Spéculative (Moonbag)")
+    # -------------------------------------------------------------------------
+    # 2. LIGNE 2 : ALLOCATIONS & PORTEFEUILLE RÉEL (4 Métriques)
+    # -------------------------------------------------------------------------
+    st.markdown("#### 💼 Allocations & Portefeuille Réel")
 
     total_invested_disp = total_invested_base * curr_multiplier
     total_market_disp = val_speculative * curr_multiplier
-    total_pnl_disp = total_market_disp - (total_invested_base * curr_multiplier)
+    total_pnl_disp = total_market_disp - total_invested_disp
     total_pnl_pct = (
-        (total_pnl_disp / (total_invested_base * curr_multiplier)) * 100
-        if total_invested_base > 0
+        (total_pnl_disp / total_invested_disp) * 100
+        if total_invested_disp > 0
         else 0.0
     )
     global_risk_buffer = (
         (weighted_sl_distance / total_weight_risk) if total_weight_risk > 0 else 0.0
     )
 
-    s_col1, s_col2, s_col3 = st.columns(3)
-    s_col1.metric(
-        f"Poche Spéculative Total ({curr_symbol})",
+    p_col1, p_col2, p_col3, p_col4 = st.columns(4)
+    p_col1.metric(
+        "Volume Total Crypto",
+        f"{total_crypto_only_val * curr_multiplier:,.2f} {curr_symbol}",
+        delta="Exchanges + Exodus",
+    )
+    p_col2.metric(
+        "Majeures (BTC/ETH)",
+        f"{val_majors * curr_multiplier:,.2f} {curr_symbol}",
+        delta=f"{pct_majors:.1f}% du portfolio",
+    )
+    p_col3.metric(
+        "Poche CORE",
+        f"{val_core * curr_multiplier:,.2f} {curr_symbol}",
+        delta=f"{pct_core:.1f}% du portfolio",
+    )
+    p_col4.metric(
+        "Poche Spéculative Total",
         f"{total_market_disp:,.2f} {curr_symbol}",
         delta=(
             f"{pct_spec:.1f}% du portfolio | PnL :"
             f" {total_pnl_pct:+.2f}% ({total_pnl_disp:+,.2f} {curr_symbol})"
         ),
-        delta_color="normal" if pct_spec <= 12 else "inverse",
+        delta_color="normal" if total_pnl_pct >= 0 else "inverse",
     )
-    s_col2.metric(
+
+    st.markdown("")
+
+    # -------------------------------------------------------------------------
+    # SYNTHÈSE DU PILOTAGE & BUFFER DE RISQUE
+    # -------------------------------------------------------------------------
+    r_col1, r_col2 = st.columns(2)
+    r_col1.metric(
         "Positions Spéculatives Actives",
         f"{len(positions)} ligne(s)",
         delta=f"🎯 {free_ride_count} Free Ride | ⚠️ {at_risk_count} À Risque",
     )
-    s_col3.metric(
+    r_col2.metric(
         "Buffer de Risque Global",
         f"{global_risk_buffer:.1f}%",
         delta=(
@@ -1817,7 +1894,7 @@ with tab_alerts:
             )
 
 # ==========================================
-# ONGLET 4 : ASSISTANT IA PRO (SSOT EXTERNALISÉ v3.2)
+# ONGLET 4 : ASSISTANT IA PRO (SSOT EXTERNALISÉ v3.3)
 # ==========================================
 with tab_ai:
     with st.expander("📖 Guide de l'Assistant IA Conversationnel (Architecture SSOT)"):
@@ -1881,6 +1958,12 @@ with tab_ai:
 
     fng_data = get_cached_fear_and_greed()
     is_crash, crash_pct = get_cached_circuit_breaker()
+
+    macro_prompt_block = (
+        format_macro_context_for_prompt()
+        if MACRO_ENGINE_AVAILABLE
+        else f"DONNÉES DU MARCHÉ ET CONTEXTE MACRO :\n- Statut Circuit Breaker : {'🚨 DEFENSIVE MODE' if is_crash else '✅ NORMAL'} (Var BTC 24h : {crash_pct:+.2f}%)\n- Indice Fear & Greed : {fng_data['value']}/100 ({fng_data['classification']})"
+    )
 
     with col_p1:
         if st.button("📰 Rapport & Évaluation Spéculative", width="stretch"):
@@ -1954,9 +2037,7 @@ ACTIFS DÉTENUS EN POCHE CORE ET MAJEURES (FILTRE ANTI-DOUBLON IMPÉRATIF) :
 POSITIONS SPÉCULATIVES ACTIVES (BDD) :
 {json.dumps(live_positions_for_ai, indent=2, ensure_ascii=False)}
 
-DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
-- Statut Circuit Breaker : {"🚨 DEFENSIVE MODE" if is_crash else "✅ NORMAL"} (Var BTC 24h : {crash_pct:+.2f}%)
-- Indice Fear & Greed : {fng_data['value']}/100 ({fng_data['classification']})
+{macro_prompt_block}
 
 {tech_micro_block}
 """
@@ -2075,9 +2156,7 @@ SITUATION DES POSITIONS SPÉCULATIVES EN BDD À AUDITER :
 DÉTAIL DES POSITIONS EN PORTEFEUILLE :
 {json.dumps(pos_audit_data, indent=2, ensure_ascii=False)}
 
-DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
-- Statut Circuit Breaker : {"🚨 DEFENSIVE MODE" if is_crash else "✅ NORMAL"} (Var BTC 24h : {crash_pct:+.2f}%)
-- Indice Fear & Greed : {fng_data['value']}/100 ({fng_data['classification']})
+{macro_prompt_block}
 
 {tech_micro_block}
 """
@@ -2153,9 +2232,7 @@ DÉTAIL COMPLET DES ACTIFS DÉTENUS (POCHE CORE & MAJEURES À AUDITER) :
 POSITIONS SPÉCULATIVES ACTIVES EN BDD :
 {open_pos}
 
-DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
-- Statut Circuit Breaker : {"🚨 DEFENSIVE MODE" if is_crash else "✅ NORMAL"} (Var BTC 24h : {crash_pct:+.2f}%)
-- Indice Fear & Greed : {fng_data['value']}/100 ({fng_data['classification']})
+{macro_prompt_block}
 
 {tech_micro_block}
 """
@@ -2220,9 +2297,7 @@ SOLDES RÉELS DÉTECTÉS PAR PLATEFORME :
 POSITIONS SPÉCULATIVES ACTIVES EN BDD :
 {open_pos}
 
-DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
-- Statut Circuit Breaker : {"🚨 DEFENSIVE MODE" if is_crash else "✅ NORMAL"} (Var BTC 24h : {crash_pct:+.2f}%)
-- Indice Fear & Greed : {fng_data['value']}/100 ({fng_data['classification']})
+{macro_prompt_block}
 
 {tech_micro_block}
 """
@@ -2299,9 +2374,7 @@ ACTIFS DÉTENUS EN POCHE CORE ET MAJEURES (FILTRE ANTI-DOUBLON IMPÉRATIF) :
 - Positions ouvertes en BDD : {current_positions}
 - Devise active : {curr_label}
 
-DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
-- Statut Circuit Breaker : {"🚨 DEFENSIVE MODE" if is_crash else "✅ NORMAL"} (Var BTC 24h : {crash_pct:+.2f}%)
-- Indice Fear & Greed : {fng_data['value']}/100 ({fng_data['classification']})
+{macro_prompt_block}
 
 {tech_micro_block}
 """
