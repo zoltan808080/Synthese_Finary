@@ -225,6 +225,37 @@ def compute_ai_liquidities(balances, eur_usd_rate=1.12, fallback_cash_eur=0.0):
     return round(fiat_eur, 2), round(stables_eur, 2), round(total_liq, 2)
 
 
+def get_formatted_core_and_majors_breakdown(balances, eur_usd_rate=1.12, open_pos=None):
+    """Génère une synthèse textuelle claire des actifs détenus en CORE et Majeures (en excluant le Spéculatif BDD)."""
+    if not balances:
+        return "Aucun actif CORE ou Majeure détecté."
+    
+    speculative_symbols = set()
+    if open_pos:
+        for p in open_pos:
+            if len(p) > 1 and p[1]:
+                speculative_symbols.add(
+                    str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
+                )
+
+    breakdown = []
+    for asset, info in balances.items():
+        asset_u = str(asset).upper().strip()
+        # Ignorer le cash, les stablecoins et les actifs actuellement sous gestion spéculative BDD
+        if asset_u in ["EUR", "USD", "USDT", "USDC", "DAI", "FDUSD"] or asset_u in speculative_symbols:
+            continue
+        
+        amt = info.get("amount", 0.0) if isinstance(info, dict) else float(info)
+        exch = info.get("exchange", "") if isinstance(info, dict) else ""
+        lp = fetch_live_price(asset_u, exch) or 0.0
+        val_eur = amt * lp
+        
+        if val_eur >= 50.0:  # Seuil d'exposition significative
+            breakdown.append(f"• {asset_u} : {val_eur:,.2f} € ({exch})")
+            
+    return "\n".join(breakdown) if breakdown else "Aucun actif significatif uniquement détenu en CORE / Majeures."
+
+
 load_dotenv()
 
 st.set_page_config(
@@ -1987,6 +2018,7 @@ with tab_ai:
                     )
                 )
 
+                core_majors_str = get_formatted_core_and_majors_breakdown(all_balances, eur_usd_rate, open_pos=open_pos)
                 system_rules = get_system_prompt("advisor_speculative")
 
                 preset_prompt = (
@@ -2006,6 +2038,9 @@ VENTILATION GLOBALE DU PORTEFEUILLE (VALEURS MARCHANDE TEMPS RÉEL) :
 - Solde Fiat Réel sur Exchanges (EUR/USD) : {fiat_real_eur:,.2f} €
 - Solde Stablecoins sur Exchanges (USDT/USDC) : {stables_real_eur:,.2f} €
 - TOTAL LIQUIDITÉS MOBILISABLES : {total_liquidites_dispo:,.2f} €
+
+ACTIFS DÉTENUS EN POCHE CORE ET MAJEURES (FILTRE ANTI-DOUBLON IMPÉRATIF) :
+{core_majors_str}
 
 POSITIONS SPÉCULATIVES ACTIVES (BDD) :
 {json.dumps(live_positions_for_ai, indent=2, ensure_ascii=False)}
@@ -2037,6 +2072,8 @@ DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
                         fallback_cash_eur=cats.get("stables_cash", 0.0),
                     )
                 )
+
+                core_majors_str = get_formatted_core_and_majors_breakdown(all_balances, eur_usd_rate, open_pos=open_pos)
 
                 if open_pos:
                     pos_audit_data = []
@@ -2118,6 +2155,9 @@ VENTILATION GLOBALE DU PORTEFEUILLE TEMPS RÉEL (SOURCES DIRECTES EXCHANGES) :
 - Spéculatif (Moonbag BDD) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) [Cible : 10% / Max : 12%]
 - Liquidités Cash (Fiat + Stables) : {total_liquidites_dispo:,.2f} € (Fiat: {fiat_real_eur:,.2f} €, Stables: {stables_real_eur:,.2f} €) [Cible : 13%]
 
+ACTIFS DÉTENUS EN POCHE CORE ET MAJEURES (FILTRE ANTI-DOUBLON IMPÉRATIF) :
+{core_majors_str}
+
 SITUATION DES POSITIONS SPÉCULATIVES EN BDD À AUDITER :
 - Nombre de positions actives : {len(open_pos)}
 - Buffer de risque moyen global : {global_buffer:.1f}% (Marge avant déclenchement des SL)
@@ -2143,9 +2183,9 @@ Indique à l'utilisateur que son portefeuille spéculatif est totalement liquide
 """
 
     with col_p3:
-        if st.button("🔄 Arbitrages & Arbitrages Tactiques", width="stretch"):
+        if st.button("🔄 Arbitrages & Rééquilibrage Macro", width="stretch"):
             with st.spinner(
-                "Analyse des arbitrages tactiques sous règle Cash-Neutral..."
+                "Analyse de l'allocation globale, audit de la poche CORE et arbitrages..."
             ):
                 tech_micro_block = build_market_tech_micro_context(
                     open_pos=open_pos, balances=all_balances
@@ -2155,7 +2195,10 @@ Indique à l'utilisateur que son portefeuille spéculatif est totalement liquide
                 )
 
                 cats = calculate_unfied_crypto_categories()
-                system_rules = get_system_prompt("advisor_speculative")
+                
+                system_rules = get_system_prompt("macro_arbitrage")
+                if not system_rules or "RÔLE" not in system_rules:
+                    system_rules = get_system_prompt("advisor_speculative")
 
                 fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
                     compute_ai_liquidities(
@@ -2165,23 +2208,38 @@ Indique à l'utilisateur que son portefeuille spéculatif est totalement liquide
                     )
                 )
 
+                core_majors_str = get_formatted_core_and_majors_breakdown(all_balances, eur_usd_rate, open_pos=open_pos)
+
+                # Calcul des écarts aux cibles
+                target_majors = cats["total_crypto"] * 0.55
+                target_core = cats["total_crypto"] * 0.22
+                target_spec = cats["total_crypto"] * 0.10
+                target_cash = cats["total_crypto"] * 0.13
+
+                delta_majors = cats["btc_eth"] - target_majors
+                delta_core = cats["core"] - target_core
+                delta_spec = cats["speculative"] - target_spec
+                delta_cash = total_liquidites_dispo - target_cash
+
                 preset_prompt = (
-                    "Quels sont les arbitrages spéculatifs les plus pertinents à"
-                    " effectuer aujourd'hui ?"
+                    "Audite la composition de ma poche CORE, évalue si les % alloués aux poches sont adaptés "
+                    "au marché actuel et propose des arbitrages stratégiques inter et intra-poches."
                 )
 
                 preset_context = f"""{system_rules}
 
 ---
 
-DONNÉES PORTEFEUILLE & VENTILATION DES POCHES TEMPS RÉEL :
+DONNÉES PORTEFEUILLE & ÉCARTS AUX CIBLES TEMPS RÉEL :
 - Capital Total Crypto : {cats['total_crypto']:,.2f} €
-- Majeures (BTC/ETH) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) [Cible : 55%]
-- Poche Core : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) [Cible : 22%]
-- Spéculatif (Moonbag BDD) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) [Cible : 10%]
-- Solde Fiat Réel (EUR/USD) : {fiat_real_eur:,.2f} €
-- Solde Stablecoins (USDT/USDC) : {stables_real_eur:,.2f} €
-- Total Liquidités Immédiates Mobilisables : {total_liquidites_dispo:,.2f} €
+
+1. MAJEURES (BTC/ETH) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) | Cible 55.0% ({target_majors:,.2f} €) ➔ ÉCART : {delta_majors:+,.2f} €
+2. POCHE CORE : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) | Cible 22.0% ({target_core:,.2f} €) ➔ ÉCART : {delta_core:+,.2f} €
+3. POCHE SPÉCULATIVE : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) | Cible 10.0% ({target_spec:,.2f} €) ➔ ÉCART : {delta_spec:+,.2f} €
+4. CASH & STABLECOINS : {total_liquidites_dispo:,.2f} € ({ (total_liquidites_dispo/cats['total_crypto']*100) if cats['total_crypto']>0 else 0:.1f}%) | Cible 13.0% ({target_cash:,.2f} €) ➔ ÉCART : {delta_cash:+,.2f} €
+
+DÉTAIL COMPLET DES ACTIFS DÉTENUS (POCHE CORE & MAJEURES À AUDITER) :
+{core_majors_str}
 
 POSITIONS SPÉCULATIVES ACTIVES EN BDD :
 {open_pos}
@@ -2216,6 +2274,8 @@ DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
                     )
                 )
 
+                core_majors_str = get_formatted_core_and_majors_breakdown(all_balances, eur_usd_rate, open_pos=open_pos)
+
                 target_spec = cats["total_crypto"] * 0.10
                 target_majors = cats["total_crypto"] * 0.55
                 target_core = cats["total_crypto"] * 0.22
@@ -2241,6 +2301,9 @@ SITUATION DU PORTEFEUILLE & ÉCARTS CIBLES À RÉÉQUILIBRER :
 - Poche Core : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) | Cible 22% ({target_core:,.2f} €) ➔ ÉCART : {delta_core:+,.2f} €
 - Spéculatif (Moonbag) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) | Cible 10% ({target_spec:,.2f} €) ➔ ÉCART : {delta_spec:+,.2f} €
 - Total Liquidités Mobilisables : {total_liquidites_dispo:,.2f} € | Cible 13% ({target_cash:,.2f} €) ➔ ÉCART : {delta_cash:+,.2f} €
+
+ACTIFS DÉTENUS EN POCHE CORE ET MAJEURES (FILTRE ANTI-DOUBLON IMPÉRATIF) :
+{core_majors_str}
 
 SOLDES RÉELS DÉTECTÉS PAR PLATEFORME :
 {json.dumps(all_balances, indent=2, ensure_ascii=False)}
@@ -2302,6 +2365,7 @@ DONNÉES DU MARCHÉ ET CONTEXTE MACRO :
                 )
             )
 
+            core_majors_str = get_formatted_core_and_majors_breakdown(current_balances, eur_usd_rate, open_pos=current_positions)
             system_rules = get_system_prompt("project_rules")
             tech_micro_block = build_market_tech_micro_context(
                 open_pos=current_positions, balances=current_balances
@@ -2319,6 +2383,10 @@ DONNÉES DU PORTEFEUILLE ACTUEL (TEMPS RÉEL) :
 - Solde Fiat Réel sur Exchanges (EUR/USD) : {fiat_real_eur:,.2f} €
 - Solde Stablecoins sur Exchanges (USDT/USDC) : {stables_real_eur:,.2f} €
 - TOTAL LIQUIDITÉS MOBILISABLES : {total_liquidites_dispo:,.2f} €
+
+ACTIFS DÉTENUS EN POCHE CORE ET MAJEURES (FILTRE ANTI-DOUBLON IMPÉRATIF) :
+{core_majors_str}
+
 - Positions ouvertes en BDD : {current_positions}
 - Devise active : {curr_label}
 
@@ -2423,17 +2491,20 @@ with tab_monitor:
         st.error("⚠️ Le module `prompt_loader.py` n'est pas disponible.")
     else:
         available_prompts = list_available_prompts()
+        if "macro_arbitrage" not in available_prompts and os.path.exists("prompts/macro_arbitrage.md"):
+            available_prompts.append("macro_arbitrage")
 
         prompt_descriptions = {
             "advisor_speculative": "🎯 Rapport Spéculatif (19h) & Analyse des opportunités de marché",
             "auto_tpsl": "🤖 Moteur de recalibrage automatique TP/SL (Cron 8h & Manuel)",
+            "macro_arbitrage": "⚖️ Stratégie & Rééquilibrage Macro Inter-Poches",
             "project_rules": "⚙️ Règles fondamentales du projet, arbitrages & Cash-Neutral strict",
             "risk_manager": "🛡️ Audit de sécurité, vérification des Stop-Loss et de l'exposition",
         }
 
         selected_prompt_key = st.selectbox(
             "Sélectionnez le fichier de prompt à administrer",
-            options=available_prompts,
+            options=sorted(list(set(available_prompts))),
             format_func=lambda x: f"{x}.md — {prompt_descriptions.get(x, 'Prompt personnalisé')}",
             key="select_prompt_admin",
         )
