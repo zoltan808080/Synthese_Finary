@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.3.0 (Architecture SSOT / Dashboard Macro Unifié)."""
+"""Cockpit Spéculatif & Analytics Streamlit v3.3.1 (SSOT Macro / Multi-Exchanges Assaini - Kraken & OKX)."""
 
 import json
 import os
@@ -77,11 +77,10 @@ except ImportError:
 # Import des moteurs d'analyse et d'audit
 try:
     from crypto_speculative_advisor import (
+        calculate_unfied_crypto_categories,
         fetch_fear_and_greed_index as advisor_fng,
         check_circuit_breaker as advisor_cb,
     )
-    from exchange_connectors import get_all_open_orders
-    from sl_audit_engine import audit_positions_protection
     EXPERT_ENGINE_AVAILABLE = True
 except ImportError:
     EXPERT_ENGINE_AVAILABLE = False
@@ -246,7 +245,6 @@ def build_market_tech_micro_context(open_pos=None, balances=None):
 
 
 def compute_ai_liquidities(balances, eur_usd_rate=1.12, fallback_cash_eur=0.0):
-    """Calcule séparément et exactement le Fiat réel, les Stablecoins et le total disponible."""
     fiat_eur = 0.0
     stables_eur = 0.0
     if balances:
@@ -267,7 +265,6 @@ def compute_ai_liquidities(balances, eur_usd_rate=1.12, fallback_cash_eur=0.0):
 
 
 def get_formatted_core_and_majors_breakdown(balances, eur_usd_rate=1.12, open_pos=None):
-    """Génère une synthèse textuelle claire des actifs détenus en CORE et Majeures (en excluant le Spéculatif BDD)."""
     if not balances:
         return "Aucun actif CORE ou Majeure détecté."
     
@@ -307,7 +304,6 @@ st.set_page_config(
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_live_price_cached(sym, exch, eur_usd_rate):
-    """Récupère le prix en direct avec ciblage prioritaire et isolation stricte anti-homonymes."""
     clean_sym = str(sym).upper().replace("USDT", "").replace("EUR", "").strip()
     clean_exch = str(exch).upper().strip() if exch else ""
     rate = eur_usd_rate if eur_usd_rate and eur_usd_rate > 0 else 1.12
@@ -319,7 +315,7 @@ def fetch_live_price_cached(sym, exch, eur_usd_rate):
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     }
 
-    # 1. Routage prioritaire Kraken (sans fallback sur OKX pour éviter la confusion de ticker LIT)
+    # 1. Kraken Spot
     if "KRAKEN" in clean_exch:
         for pair in [f"{clean_sym}EUR", f"X{clean_sym}ZEUR"]:
             try:
@@ -355,7 +351,6 @@ def fetch_live_price_cached(sym, exch, eur_usd_rate):
             except Exception:
                 pass
 
-        # Fallback CoinGecko spécifique à Kraken (ID Litentry pour LIT)
         try:
             cg_id = "litentry" if clean_sym == "LIT" else clean_sym.lower()
             res = requests.get(
@@ -372,7 +367,7 @@ def fetch_live_price_cached(sym, exch, eur_usd_rate):
 
         return None
 
-    # 2. Routage OKX
+    # 2. OKX
     elif "OKX" in clean_exch:
         try:
             res = requests.get(
@@ -407,7 +402,7 @@ def fetch_live_price_cached(sym, exch, eur_usd_rate):
 
         return None
 
-    # 3. Fallback générique si aucun exchange n'est spécifié
+    # 3. Fallback générique (Kraken ➔ CoinGecko)
     try:
         res_k = requests.get(
             f"https://api.kraken.com/0/public/Ticker?pair={clean_sym}EUR",
@@ -427,9 +422,20 @@ def fetch_live_price_cached(sym, exch, eur_usd_rate):
     return None
 
 
+def fetch_live_price(sym, exch):
+    clean_sym = str(sym).upper().replace("USDT", "").replace("EUR", "").strip()
+    clean_exch = str(exch).upper().strip() if exch else ""
+    if clean_sym in ["EUR", "USD"]:
+        return 1.0 if clean_sym == "EUR" else (1.0 / eur_usd_rate)
+    if clean_exch:
+        return fetch_live_price_cached(sym, exch, eur_usd_rate)
+    if clean_sym in _bulk_prices_map and _bulk_prices_map[clean_sym] is not None:
+        return _bulk_prices_map[clean_sym]
+    return fetch_live_price_cached(sym, exch, eur_usd_rate)
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_bulk_live_prices(symbols_tuple, eur_usd_rate):
-    """Récupère les prix en direct en parallèle (ThreadPool) pour accélérer le chargement."""
     symbols_list = list(symbols_tuple)
     prices = {}
     if not symbols_list:
@@ -465,7 +471,6 @@ def get_cached_reconciliation_audit():
 
 
 def send_telegram_notify(text):
-    """Envoie une notification d'information directe sur Telegram lors d'une action Web."""
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     user_id = os.getenv("TELEGRAM_ALLOWED_USER_ID")
     if not bot_token or not user_id:
@@ -482,7 +487,6 @@ def send_telegram_notify(text):
 
 
 def check_password():
-    """Retourne True si l'utilisateur a saisi le bon mot de passe."""
     expected_password = os.getenv("STREAMLIT_PASSWORD", "MonMotDePasseSecret123")
 
     def password_entered():
@@ -519,16 +523,15 @@ if not check_password():
 
 init_db()
 
-st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.3.0)")
+st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.3.1)")
 st.markdown(
-    "*Suivi multi-exchange temps réel, Macro-Marché SSOT, Microstructure, Journal FIFO & Assistant IA*"
+    "*Suivi multi-exchange temps réel (Kraken & OKX), Macro SSOT, Microstructure & Assistant IA*"
 )
 st.markdown("---")
 
 
 @st.cache_data(ttl=300, show_spinner=False)
 def get_live_eur_usd_rate():
-    """Récupère le taux EUR/USD en direct via l'API Frankfurter ou Kraken."""
     try:
         res = requests.get(
             "https://api.frankfurter.app/latest?from=EUR&to=USD", timeout=2
@@ -642,106 +645,6 @@ _bulk_prices_map = (
     else {}
 )
 
-
-def fetch_live_price(sym, exch=""):
-    """Source Unique de Vérité (SSOT) pour la résolution du prix en direct."""
-    clean_sym = str(sym).upper().replace("USDT", "").replace("EUR", "").strip()
-    clean_exch = str(exch).upper().strip() if exch else ""
-    if clean_sym in ["EUR", "USD"]:
-        return 1.0 if clean_sym == "EUR" else (1.0 / eur_usd_rate)
-    if clean_exch:
-        return fetch_live_price_cached(sym, exch, eur_usd_rate)
-    if clean_sym in _bulk_prices_map and _bulk_prices_map[clean_sym] is not None:
-        return _bulk_prices_map[clean_sym]
-    return fetch_live_price_cached(sym, exch, eur_usd_rate)
-
-
-def get_dashboard_portfolio_categories(balances, open_pos, eur_usd_rate=1.12):
-    """Source Unique de Vérité (SSOT) pour la ventilation du portefeuille (Majeures, CORE, Spéculatif BDD, Cash)."""
-    rate = eur_usd_rate if eur_usd_rate and eur_usd_rate > 0 else 1.12
-
-    # 1. Calcul Spéculatif (Uniquement positions BDD actives)
-    val_speculative = 0.0
-    speculative_symbols = set()
-    if open_pos:
-        for p in open_pos:
-            if len(p) > 1 and p[1]:
-                sym = str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
-                speculative_symbols.add(sym)
-                entry = float(p[3]) if p[3] is not None else 0.0
-                amt = float(p[4]) if p[4] is not None else 0.0
-                exch = p[2] if len(p) > 2 else ""
-                lp = fetch_live_price(sym, exch) or entry
-                qty = (amt / entry) if entry > 0 else 0.0
-                val_speculative += qty * lp
-
-    # 2. Catégorisation des soldes direct exchanges (avec filtre anti-doublon strict)
-    val_majors = 0.0
-    val_core = 0.0
-    val_real_fiat = 0.0
-    val_stables_crypto = 0.0
-
-    dict_majors = {}
-    dict_core = {}
-
-    if balances:
-        for asset, info in balances.items():
-            amt = info.get("amount", 0.0) if isinstance(info, dict) else float(info)
-            exch = info.get("exchange", "") if isinstance(info, dict) else ""
-            asset_u = str(asset).upper().strip()
-
-            if asset_u in ["EUR", "USD"]:
-                val_real_fiat += amt if asset_u == "EUR" else (amt / rate)
-            elif asset_u in ["USDT", "USDC", "DAI", "FDUSD"]:
-                val_stables_crypto += (amt / rate) if asset_u in ["USDT", "USDC"] else amt
-            elif asset_u in ["BTC", "ETH"]:
-                lp = fetch_live_price(asset_u, exch) or 0.0
-                v = amt * lp
-                val_majors += v
-                if v > 0.1:
-                    dict_majors[asset_u] = dict_majors.get(asset_u, 0.0) + v
-            elif asset_u in speculative_symbols:
-                # Anti-doublon strict : l'actif est déjà pris en compte via la BDD dans val_speculative
-                pass
-            else:
-                lp = fetch_live_price(asset_u, exch) or 0.0
-                v = amt * lp
-                val_core += v
-                if v > 1.0:
-                    dict_core[asset_u] = dict_core.get(asset_u, 0.0) + v
-
-    total_cash_stables = val_real_fiat + val_stables_crypto
-    if total_cash_stables == 0:
-        try:
-            cash_info = get_cached_verified_cash()
-            total_cash_stables = cash_info.get("total_cash", 0.0)
-        except Exception:
-            pass
-
-    total_crypto = val_majors + val_core + val_speculative + total_cash_stables
-
-    pct_majors = (val_majors / total_crypto * 100.0) if total_crypto > 0 else 0.0
-    pct_core = (val_core / total_crypto * 100.0) if total_crypto > 0 else 0.0
-    pct_spec = (val_speculative / total_crypto * 100.0) if total_crypto > 0 else 0.0
-    pct_stables = (total_cash_stables / total_crypto * 100.0) if total_crypto > 0 else 0.0
-
-    return {
-        "total_crypto": round(total_crypto, 2),
-        "btc_eth": round(val_majors, 2),
-        "btc_eth_pct": round(pct_majors, 1),
-        "core": round(val_core, 2),
-        "core_pct": round(pct_core, 1),
-        "speculative": round(val_speculative, 2),
-        "speculative_pct": round(pct_spec, 1),
-        "stables_cash": round(total_cash_stables, 2),
-        "stables_cash_pct": round(pct_stables, 1),
-        "fiat_real": round(val_real_fiat, 2),
-        "stables_real": round(val_stables_crypto, 2),
-        "dict_majors": dict_majors,
-        "dict_core": dict_core,
-    }
-
-
 # ==========================================
 # ONGLET 1 : POSITIONS ACTIVES (LIVE & TEMPS RÉEL)
 # ==========================================
@@ -830,24 +733,72 @@ with tab_live:
     except Exception:
         all_crypto_balances = {}
 
-    # Utilisation du moteur de calcul d'allocation unifié (SSOT)
-    cats_tab1 = get_dashboard_portfolio_categories(all_crypto_balances, positions, eur_usd_rate)
+    speculative_symbols = {
+        str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
+        for p in positions
+    }
 
-    val_majors = cats_tab1["btc_eth"]
-    val_core = cats_tab1["core"]
-    val_speculative = cats_tab1["speculative"]
-    val_stables_cash = cats_tab1["stables_cash"]
-    val_real_fiat = cats_tab1["fiat_real"]
-    val_stables_crypto = cats_tab1["stables_real"]
-    total_crypto_only_val = cats_tab1["total_crypto"]
-    pct_majors = cats_tab1["btc_eth_pct"]
-    pct_core = cats_tab1["core_pct"]
-    pct_spec = cats_tab1["speculative_pct"]
-    pct_stables = cats_tab1["stables_cash_pct"]
-    dict_majors = cats_tab1["dict_majors"]
-    dict_core = cats_tab1["dict_core"]
+    val_majors = 0.0
+    val_core = 0.0
+    val_real_fiat = 0.0
+    val_stables_crypto = 0.0
 
-    # --- OBTENTION DU CONTEXTE MACRO SSOT ---
+    dict_majors = {}
+    dict_core = {}
+
+    for asset, info in all_crypto_balances.items():
+        amt = info["amount"]
+        exch = info["exchange"]
+        lp = fetch_live_price(asset, exch) or 0.0
+        asset_val = amt * lp
+
+        if asset in ["EUR", "USD"]:
+            val_real_fiat += (
+                amt
+                if asset == "EUR"
+                else (amt / eur_usd_rate if eur_usd_rate else amt)
+            )
+        elif asset in ["USDT", "USDC", "DAI", "FDUSD"]:
+            val_stables_crypto += (
+                amt / eur_usd_rate
+                if asset in ["USDT", "USDC"] and eur_usd_rate
+                else amt
+            )
+        elif asset in ["BTC", "ETH"]:
+            val_majors += asset_val
+            if asset_val > 0.1:
+                dict_majors[asset] = dict_majors.get(asset, 0.0) + (
+                    asset_val * curr_multiplier
+                )
+        elif asset in speculative_symbols:
+            pass
+        else:
+            val_core += asset_val
+            if asset_val > 1.0:
+                dict_core[asset] = dict_core.get(asset, 0.0) + (
+                    asset_val * curr_multiplier
+                )
+
+    cash_info = get_cached_verified_cash()
+    total_cash_eur = cash_info.get("total_cash", 0.0)
+
+    val_stables_cash = val_real_fiat + val_stables_crypto
+    if val_stables_cash == 0 and total_cash_eur > 0:
+        val_stables_cash = total_cash_eur
+
+    val_speculative = total_current_market_value
+    total_crypto_only_val = (
+        val_majors + val_core + val_speculative + val_stables_cash
+    )
+
+    if total_crypto_only_val > 0:
+        pct_majors = (val_majors / total_crypto_only_val) * 100.0
+        pct_core = (val_core / total_crypto_only_val) * 100.0
+        pct_spec = (val_speculative / total_crypto_only_val) * 100.0
+        pct_stables = (val_stables_cash / total_crypto_only_val) * 100.0
+    else:
+        pct_majors = pct_core = pct_spec = pct_stables = 0.0
+
     macro_context = get_cached_complete_macro_context()
     fng_data = macro_context.get("fear_and_greed", {"value": 50, "classification": "Neutral"})
     cb_data = macro_context.get("circuit_breaker", {"is_crash": False, "btc_24h_pct": 0.0})
@@ -858,108 +809,35 @@ with tab_live:
     total3_b = macro_metrics.get("total3_usd_b", 650.0)
     stables_cap_b = macro_metrics.get("stablecoins_cap_b", 170.0)
 
-    # -------------------------------------------------------------------------
-    # 1. LIGNE 1 : SENTIMENT & MACRO-MARCHÉ GLOBALE (5 Métriques)
-    # -------------------------------------------------------------------------
     st.markdown("#### 🌐 Sentiment & Macro-Marché Globale")
     m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
     
-    m_col1.metric(
-        "Fear & Greed Index",
-        f"{fng_data['value']}/100",
-        delta=f"{fng_data['classification']}",
-    )
-    m_col2.metric(
-        "Circuit Breaker BTC",
-        f"{crash_val:+.2f}% (24h)",
-        delta="NORMAL 🟢" if not is_crash else "DÉFENSIF 🚨",
-        delta_color="normal" if not is_crash else "inverse",
-    )
-    m_col3.metric(
-        "Dominance BTC (BTC.D)",
-        f"{btc_d:.1f} %",
-        delta="Altseason < 50%" if btc_d < 50 else "Concentration BTC",
-        delta_color="off",
-    )
-    m_col4.metric(
-        "TOTAL3 (Cap. Alts)",
-        f"{total3_b:,.1f} Mds $",
-        delta="Hors BTC & ETH",
-        delta_color="off",
-    )
-    m_col5.metric(
-        "Poudre Sèche Stables",
-        f"{stables_cap_b:,.1f} Mds $",
-        delta="USDT / USDC / DAI",
-        delta_color="off",
-    )
+    m_col1.metric("Fear & Greed Index", f"{fng_data['value']}/100", delta=f"{fng_data['classification']}")
+    m_col2.metric("Circuit Breaker BTC", f"{crash_val:+.2f}% (24h)", delta="NORMAL 🟢" if not is_crash else "DÉFENSIF 🚨", delta_color="normal" if not is_crash else "inverse")
+    m_col3.metric("Dominance BTC (BTC.D)", f"{btc_d:.1f} %", delta="Altseason < 50%" if btc_d < 50 else "Concentration BTC", delta_color="off")
+    m_col4.metric("TOTAL3 (Cap. Alts)", f"{total3_b:,.1f} Mds $", delta="Hors BTC & ETH", delta_color="off")
+    m_col5.metric("Poudre Sèche Stables", f"{stables_cap_b:,.1f} Mds $", delta="USDT / USDC / DAI", delta_color="off")
 
     st.markdown("")
 
-    # -------------------------------------------------------------------------
-    # 2. LIGNE 2 : ALLOCATIONS & PORTEFEUILLE RÉEL (4 Métriques)
-    # -------------------------------------------------------------------------
     st.markdown("#### 💼 Allocations & Portefeuille Réel")
-
     total_invested_disp = total_invested_base * curr_multiplier
     total_market_disp = val_speculative * curr_multiplier
     total_pnl_disp = total_market_disp - total_invested_disp
-    total_pnl_pct = (
-        (total_pnl_disp / total_invested_disp) * 100
-        if total_invested_disp > 0
-        else 0.0
-    )
-    global_risk_buffer = (
-        (weighted_sl_distance / total_weight_risk) if total_weight_risk > 0 else 0.0
-    )
+    total_pnl_pct = ((total_pnl_disp / total_invested_disp) * 100) if total_invested_disp > 0 else 0.0
+    global_risk_buffer = ((weighted_sl_distance / total_weight_risk)) if total_weight_risk > 0 else 0.0
 
     p_col1, p_col2, p_col3, p_col4 = st.columns(4)
-    p_col1.metric(
-        "Volume Total Crypto",
-        f"{total_crypto_only_val * curr_multiplier:,.2f} {curr_symbol}",
-        delta="Exchanges + Exodus",
-    )
-    p_col2.metric(
-        "Majeures (BTC/ETH)",
-        f"{val_majors * curr_multiplier:,.2f} {curr_symbol}",
-        delta=f"{pct_majors:.1f}% du portfolio",
-    )
-    p_col3.metric(
-        "Poche CORE",
-        f"{val_core * curr_multiplier:,.2f} {curr_symbol}",
-        delta=f"{pct_core:.1f}% du portfolio",
-    )
-    p_col4.metric(
-        "Poche Spéculative Total",
-        f"{total_market_disp:,.2f} {curr_symbol}",
-        delta=(
-            f"{pct_spec:.1f}% du portfolio | PnL :"
-            f" {total_pnl_pct:+.2f}% ({total_pnl_disp:+,.2f} {curr_symbol})"
-        ),
-        delta_color="normal" if total_pnl_pct >= 0 else "inverse",
-    )
+    p_col1.metric("Volume Total Crypto", f"{total_crypto_only_val * curr_multiplier:,.2f} {curr_symbol}", delta="Kraken + OKX + Exodus")
+    p_col2.metric("Majeures (BTC/ETH)", f"{val_majors * curr_multiplier:,.2f} {curr_symbol}", delta=f"{pct_majors:.1f}% du portfolio")
+    p_col3.metric("Poche CORE", f"{val_core * curr_multiplier:,.2f} {curr_symbol}", delta=f"{pct_core:.1f}% du portfolio")
+    p_col4.metric("Poche Spéculative Total", f"{total_market_disp:,.2f} {curr_symbol}", delta=f"{pct_spec:.1f}% du portfolio | PnL : {total_pnl_pct:+.2f}% ({total_pnl_disp:+,.2f} {curr_symbol})", delta_color="normal" if total_pnl_pct >= 0 else "inverse")
 
     st.markdown("")
 
-    # -------------------------------------------------------------------------
-    # SYNTHÈSE DU PILOTAGE & BUFFER DE RISQUE
-    # -------------------------------------------------------------------------
     r_col1, r_col2 = st.columns(2)
-    r_col1.metric(
-        "Positions Spéculatives Actives",
-        f"{len(positions)} ligne(s)",
-        delta=f"🎯 {free_ride_count} Free Ride | ⚠️ {at_risk_count} À Risque",
-    )
-    r_col2.metric(
-        "Buffer de Risque Global",
-        f"{global_risk_buffer:.1f}%",
-        delta=(
-            "Marge moyenne avant SL"
-            if global_risk_buffer > 10
-            else "Attention, proche des SL"
-        ),
-        delta_color="normal" if global_risk_buffer > 10 else "inverse",
-    )
+    r_col1.metric("Positions Spéculatives Actives", f"{len(positions)} ligne(s)", delta=f"🎯 {free_ride_count} Free Ride | ⚠️ {at_risk_count} À Risque")
+    r_col2.metric("Buffer de Risque Global", f"{global_risk_buffer:.1f}%", delta="Marge moyenne avant SL" if global_risk_buffer > 10 else "Attention, proche des SL", delta_color="normal" if global_risk_buffer > 10 else "inverse")
 
     st.markdown("---")
     st.subheader(f"📋 Inventaire & Suivi Temps Réel des Positions ({curr_symbol})")
@@ -2095,8 +1973,11 @@ with tab_ai:
                 tech_micro_block = build_market_tech_micro_context(
                     open_pos=open_pos, balances=all_balances
                 )
+                from crypto_speculative_advisor import (
+                    calculate_unfied_crypto_categories,
+                )
 
-                cats = get_dashboard_portfolio_categories(all_balances, open_pos, eur_usd_rate)
+                cats = calculate_unfied_crypto_categories()
 
                 live_positions_for_ai = (
                     [
@@ -2167,8 +2048,11 @@ POSITIONS SPÉCULATIVES ACTIVES (BDD) :
                 tech_micro_block = build_market_tech_micro_context(
                     open_pos=open_pos, balances=all_balances
                 )
+                from crypto_speculative_advisor import (
+                    calculate_unfied_crypto_categories,
+                )
 
-                cats = get_dashboard_portfolio_categories(all_balances, open_pos, eur_usd_rate)
+                cats = calculate_unfied_crypto_categories()
                 system_rules = get_system_prompt("risk_manager")
 
                 fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
@@ -2294,8 +2178,11 @@ Indique à l'utilisateur que son portefeuille spéculatif est totalement liquide
                 tech_micro_block = build_market_tech_micro_context(
                     open_pos=open_pos, balances=all_balances
                 )
+                from crypto_speculative_advisor import (
+                    calculate_unfied_crypto_categories,
+                )
 
-                cats = get_dashboard_portfolio_categories(all_balances, open_pos, eur_usd_rate)
+                cats = calculate_unfied_crypto_categories()
                 
                 system_rules = get_system_prompt("macro_arbitrage")
                 if not system_rules or "RÔLE" not in system_rules:
@@ -2311,7 +2198,6 @@ Indique à l'utilisateur que son portefeuille spéculatif est totalement liquide
 
                 core_majors_str = get_formatted_core_and_majors_breakdown(all_balances, eur_usd_rate, open_pos=open_pos)
 
-                # Calcul des écarts aux cibles
                 target_majors = cats["total_crypto"] * 0.55
                 target_core = cats["total_crypto"] * 0.22
                 target_spec = cats["total_crypto"] * 0.10
@@ -2358,8 +2244,11 @@ POSITIONS SPÉCULATIVES ACTIVES EN BDD :
                 tech_micro_block = build_market_tech_micro_context(
                     open_pos=open_pos, balances=all_balances
                 )
+                from crypto_speculative_advisor import (
+                    calculate_unfied_crypto_categories,
+                )
 
-                cats = get_dashboard_portfolio_categories(all_balances, open_pos, eur_usd_rate)
+                cats = calculate_unfied_crypto_categories()
                 system_rules = get_system_prompt("advisor_speculative")
 
                 fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
@@ -2446,7 +2335,10 @@ POSITIONS SPÉCULATIVES ACTIVES EN BDD :
             current_cash = get_cached_verified_cash()
             current_balances = get_cached_crypto_balances()
 
-            cats = get_dashboard_portfolio_categories(current_balances, current_positions, eur_usd_rate)
+            from crypto_speculative_advisor import (
+                calculate_unfied_crypto_categories,
+            )
+            cats = calculate_unfied_crypto_categories()
 
             fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
                 compute_ai_liquidities(
@@ -2519,16 +2411,13 @@ with tab_monitor:
             """)
 
     st.subheader("🔌 État de Santé des Connecteurs API")
-    col_m1, col_m2, col_m3 = st.columns(3)
+    col_m1, col_m2 = st.columns(2)
     with col_m1:
         st.markdown("#### 🐙 Kraken")
         st.metric("Statut API", "Opérationnel 🟢", delta="Latence < 150ms")
     with col_m2:
         st.markdown("#### 🅾️ OKX")
         st.metric("Statut API", "Opérationnel 🟢", delta="Latence < 120ms")
-    with col_m3:
-        st.markdown("#### Ⓜ️ MEXC")
-        st.metric("Statut API", "Opérationnel 🟢", delta="Latence < 200ms")
 
     st.markdown("---")
     st.subheader("⚙️ Configuration Centralisée des Modèles Gemini (SSOT)")

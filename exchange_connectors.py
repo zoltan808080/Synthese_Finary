@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import time
 import urllib.parse
 from dotenv import load_dotenv
@@ -70,7 +71,9 @@ def get_exodus_wallet_balances():
 
   return balances
 
+
 # --- KRAKEN HELPER ---
+
 def _get_kraken_signature(url_path, data, secret):
   """Génère la signature HMAC-SHA512 exigée par Kraken."""
   postdata = urllib.parse.urlencode(data)
@@ -378,199 +381,53 @@ def get_okx_cash_and_trades():
   return cash_eur
 
 
-# --- MEXC API (Read-Only) ---
-
-def get_mexc_open_orders(symbols=None):
-  """Récupère les ordres en attente sur MEXC."""
-  api_key = os.getenv("MEXC_API_KEY", "").strip().strip('"').strip("'")
-  api_secret = os.getenv("MEXC_API_SECRET", "").strip().strip('"').strip("'")
-
-  if not api_key or not api_secret:
-    return []
-
-  if symbols is None:
-    symbols = ["SCUSDT", "KASUSDT", "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]
-  elif isinstance(symbols, str):
-    symbols = [symbols]
-
-  headers = {"X-MEXC-APIKEY": api_key, "Content-Type": "application/json"}
-  orders = []
-
-  for sym in symbols:
-    timestamp = int(time.time() * 1000)
-    params = {"symbol": sym.upper(), "timestamp": timestamp}
-    query_string = urllib.parse.urlencode(params)
-    signature = hmac.new(
-        api_secret.encode("utf-8"),
-        query_string.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-
-    try:
-      url = f"https://api.mexc.com/api/v3/openOrders?{query_string}&signature={signature}"
-      res = requests.get(url, headers=headers, timeout=8)
-      if res.status_code == 200:
-        raw = res.json()
-        if isinstance(raw, list):
-          for o in raw:
-            orders.append({
-                "order_id": str(o.get("orderId")),
-                "exchange": "MEXC",
-                "pair": sym.upper(),
-                "type": o.get("side", "").lower(),
-                "ordertype": o.get("type", "").lower(),
-                "price": float(o.get("price", 0)),
-                "vol": float(o.get("origQty", 0)),
-                "status": o.get("status"),
-            })
-    except Exception as e:
-      logging.warning(f"⚠️ Erreur ordres ouverts MEXC ({sym}) : {e}")
-
-  return orders
-
-
-def get_mexc_trades_history(symbols=None, limit=50):
-  """Récupère l'historique des exécutions (achats/ventes) Spot sur MEXC."""
-  api_key = os.getenv("MEXC_API_KEY", "").strip().strip('"').strip("'")
-  api_secret = os.getenv("MEXC_API_SECRET", "").strip().strip('"').strip("'")
-
-  if not api_key or not api_secret:
-    return []
-
-  if symbols is None:
-    symbols = ["SCUSDT", "KASUSDT", "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]
-  elif isinstance(symbols, str):
-    symbols = [symbols]
-
-  headers = {"X-MEXC-APIKEY": api_key, "Content-Type": "application/json"}
-  all_trades = []
-
-  for sym in symbols:
-    timestamp = int(time.time() * 1000)
-    params = {"symbol": sym.upper(), "timestamp": timestamp, "limit": limit}
-    query_string = urllib.parse.urlencode(params)
-    signature = hmac.new(
-        api_secret.encode("utf-8"),
-        query_string.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-
-    try:
-      url = f"https://api.mexc.com/api/v3/myTrades?{query_string}&signature={signature}"
-      res = requests.get(url, headers=headers, timeout=8)
-      if res.status_code == 200:
-        raw_trades = res.json()
-        if isinstance(raw_trades, list):
-          for t in raw_trades:
-            price = float(t.get("price", 0))
-            qty = float(t.get("qty", 0))
-            is_buyer = t.get("isBuyer", True)
-            all_trades.append({
-                "txid": str(t.get("id", t.get("orderId"))),
-                "exchange": "MEXC",
-                "pair": sym.upper(),
-                "type": "buy" if is_buyer else "sell",
-                "price": price,
-                "vol": qty,
-                "cost": float(t.get("quoteQty", price * qty)),
-                "fee": abs(float(t.get("commission", 0))),
-                "time": float(t.get("time", 0)) / 1000.0,
-            })
-    except Exception as e:
-      logging.warning(f"⚠️ Erreur récupération trades MEXC pour {sym} : {e}")
-
-  return all_trades
-
-
-def get_mexc_cash():
-  """Récupère les soldes cash disponibles sur MEXC."""
-  api_key = os.getenv("MEXC_API_KEY")
-  api_secret = os.getenv("MEXC_API_SECRET")
-
-  if not api_key or not api_secret:
-    return 0.0
-
-  timestamp = int(time.time() * 1000)
-  query_string = f"timestamp={timestamp}"
-  signature = hmac.new(
-      api_secret.encode("utf-8"),
-      query_string.encode("utf-8"),
-      hashlib.sha256,
-  ).hexdigest()
-
-  headers = {"X-MEXC-APIKEY": api_key}
-  cash_eur = 0.0
-  try:
-    res = requests.get(
-        f"https://api.mexc.com/api/v3/account?{query_string}&signature={signature}",
-        headers=headers,
-        timeout=8,
-    )
-    if res.status_code == 200:
-      balances = res.json().get("balances", [])
-      for b in balances:
-        if b.get("asset") in ["EUR", "USDT", "USDC"]:
-          cash_eur += float(b.get("free", 0))
-  except Exception as e:
-    logging.warning(f"⚠️ Erreur solde MEXC : {e}")
-
-  return cash_eur
-
+# --- SYNTHÈSE GLOBALE EXCHANGES & WALLETS ---
 
 def get_all_open_orders():
-  """Rassemble tous les ordres en attente sur tous les exchanges."""
+  """Rassemble tous les ordres en attente sur Kraken et OKX."""
   kraken = get_kraken_open_orders()
   okx = get_okx_open_orders()
-  mexc = get_mexc_open_orders()
 
-  all_orders = kraken + okx + mexc
+  all_orders = kraken + okx
   logging.info(
-      f"📋 Ordres en attente — Kraken: {len(kraken)} | OKX: {len(okx)} | MEXC:"
-      f" {len(mexc)} | Total: {len(all_orders)}"
+      f"📋 Ordres en attente — Kraken: {len(kraken)} | OKX: {len(okx)} | Total: {len(all_orders)}"
   )
   return all_orders
 
 
 def get_all_trades_history():
-  """Rassemble l'historique complet des exécutions (Kraken, OKX, MEXC)."""
-  logging.info("🔄 Récupération de l'historique global des trades (v1.5)...")
+  """Rassemble l'historique complet des exécutions (Kraken, OKX)."""
+  logging.info("🔄 Récupération de l'historique global des trades (v3.3.1)...")
 
   kraken_trades = get_kraken_trades_history()
   okx_trades = get_okx_trades_history()
-  mexc_trades = get_mexc_trades_history()
 
-  all_trades = kraken_trades + okx_trades + mexc_trades
+  all_trades = kraken_trades + okx_trades
   all_trades.sort(key=lambda x: x.get("time", 0))
 
   logging.info(
-      f"📊 Trades récupérés — Kraken: {len(kraken_trades)} | OKX:"
-      f" {len(okx_trades)} | MEXC: {len(mexc_trades)} | Total:"
-      f" {len(all_trades)}"
+      f"📊 Trades récupérés — Kraken: {len(kraken_trades)} | OKX: {len(okx_trades)} | Total: {len(all_trades)}"
   )
   return all_trades
 
 
 def get_total_verified_cash():
-  """Synthétise les liquidités réelles disponibles sur tous les comptes."""
+  """Synthétise les liquidités réelles disponibles sur les comptes Kraken et OKX."""
   kraken_cash = get_kraken_cash_and_trades()
   okx_cash = get_okx_cash_and_trades()
-  mexc_cash = get_mexc_cash()
 
-  total = kraken_cash + okx_cash + mexc_cash
+  total = kraken_cash + okx_cash
   logging.info(
-      f"💰 Cash réel vérifié — Kraken: {kraken_cash:.2f}€ | OKX:"
-      f" {okx_cash:.2f}€ | MEXC: {mexc_cash:.2f}€ | Total: {total:.2f}€"
+      f"💰 Cash réel vérifié — Kraken: {kraken_cash:.2f}€ | OKX: {okx_cash:.2f}€ | Total: {total:.2f}€"
   )
   return {
       "total_cash": total,
       "kraken_cash": kraken_cash,
       "okx_cash": okx_cash,
-      "mexc_cash": mexc_cash,
   }
 
 
 # --- SOLDES CRYPTO RÉELS ---
-
 
 KRAKEN_ASSET_MAP = {
     "XXBT": "BTC",
@@ -588,11 +445,22 @@ KRAKEN_ASSET_MAP = {
     "XXRP": "XRP",
     "XXLM": "XLM",
     "XXMR": "XMR",
+    "XSOL": "SOL",
+    "SOL.S": "SOL",
+    "SOL21.S": "SOL",
+    "SOL.M": "SOL",
+    "SOL.P": "SOL",
+    "XSOL.S": "SOL",
+    "DOT.S": "DOT",
+    "ADA.S": "ADA",
+    "ATOM.S": "ATOM",
+    "NEAR.S": "NEAR",
+    "AVAX.S": "AVAX",
 }
 
 
 def get_kraken_crypto_balances():
-  """Récupère l'ensemble des soldes crypto réels sur Kraken en consolidant le Staking (ETH2.S, ETH.S, etc.)."""
+  """Récupère l'ensemble des soldes crypto réels sur Kraken en consolidant le Staking (ETH2.S, SOL.S, SOL21.S, etc.)."""
   api_key = os.getenv("KRAKEN_API_KEY")
   api_secret = os.getenv("KRAKEN_API_SECRET")
   if not api_key or not api_secret:
@@ -607,30 +475,39 @@ def get_kraken_crypto_balances():
 
   balances = {}
   try:
-    res = requests.post(f"https://api.kraken.com{url_path}", data=data, headers=headers, timeout=8)
+    res = requests.post(
+        f"https://api.kraken.com{url_path}",
+        data=data,
+        headers=headers,
+        timeout=8,
+    )
     if res.status_code == 200:
       raw = res.json().get("result", {})
       for asset, val in raw.items():
         amount = float(val)
         if amount > 0.000001:
-          # Match direct via la table de mapping (incluant ETH2.S, ETH.S, XBT.S, etc.)
           clean_asset = KRAKEN_ASSET_MAP.get(asset)
-          
+
           if not clean_asset:
-            # Règle générique de fallback si le ticker commence par ETH ou XBT
-            if asset.startswith("ETH"):
+            temp = re.sub(r"(\.S|\.M|\.P|\d+\.S)$", "", asset)
+
+            if temp.startswith("ETH"):
               clean_asset = "ETH"
-            elif asset.startswith("XBT") or asset.startswith("XXBT"):
+            elif temp.startswith("XBT") or temp.startswith("XXBT"):
               clean_asset = "BTC"
-            elif len(asset) == 4 and asset.startswith("X") and asset not in ["XRP", "XLM", "XMR"]:
-              clean_asset = asset[1:]
-            elif len(asset) == 4 and asset.startswith("Z"):
-              clean_asset = asset[1:]
+            elif (
+                len(temp) == 4
+                and temp.startswith("X")
+                and temp not in ["XRP", "XLM", "XMR"]
+            ):
+              clean_asset = temp[1:]
+            elif len(temp) == 4 and temp.startswith("Z"):
+              clean_asset = temp[1:]
             else:
-              clean_asset = asset
+              clean_asset = temp
 
           clean_asset = clean_asset.upper()
-          # Cumul dynamique (regroupe ETH Spot + ETH Staking sous la même clé "ETH")
+
           if clean_asset in balances:
             balances[clean_asset]["amount"] += amount
           else:
@@ -648,11 +525,20 @@ def get_okx_crypto_balances():
   if not api_key or not api_secret or not passphrase:
     return {}
 
-  timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+  timestamp = (
+      datetime.datetime.now(datetime.timezone.utc).strftime(
+          "%Y-%m-%dT%H:%M:%S.%f"
+      )[:-3]
+      + "Z"
+  )
   request_path = "/api/v5/account/balance"
   message = timestamp + "GET" + request_path
 
-  mac = hmac.new(api_secret.encode("utf-8"), message.encode("utf-8"), digestmod=hashlib.sha256)
+  mac = hmac.new(
+      api_secret.encode("utf-8"),
+      message.encode("utf-8"),
+      digestmod=hashlib.sha256,
+  )
   sign = base64.b64encode(mac.digest()).decode("utf-8")
 
   headers = {
@@ -681,47 +567,20 @@ def get_okx_crypto_balances():
   return balances
 
 
-def get_mexc_crypto_balances():
-  """Récupère l'ensemble des soldes crypto sur MEXC."""
-  api_key = os.getenv("MEXC_API_KEY")
-  api_secret = os.getenv("MEXC_API_SECRET")
-  if not api_key or not api_secret:
-    return {}
-
-  timestamp = int(time.time() * 1000)
-  query_string = f"timestamp={timestamp}"
-  signature = hmac.new(api_secret.encode("utf-8"), query_string.encode("utf-8"), hashlib.sha256).hexdigest()
-
-  headers = {"X-MEXC-APIKEY": api_key}
-  balances = {}
-  try:
-    res = requests.get(f"https://api.mexc.com/api/v3/account?{query_string}&signature={signature}", headers=headers, timeout=8)
-    if res.status_code == 200:
-      raw = res.json().get("balances", [])
-      for b in raw:
-        asset = b.get("asset")
-        free = float(b.get("free", 0))
-        locked = float(b.get("locked", 0))
-        total = free + locked
-        if total > 0.000001:
-          balances[asset.upper()] = {"exchange": "MEXC", "amount": total}
-  except Exception as e:
-    logging.warning(f"⚠️ Erreur soldes crypto MEXC : {e}")
-  return balances
-
-
 def get_all_exchange_crypto_balances():
   """Rassemble tous les soldes crypto des exchanges ET des wallets froids (Exodus)."""
   kraken = get_kraken_crypto_balances()
   okx = get_okx_crypto_balances()
-  mexc = get_mexc_crypto_balances()
   exodus = get_exodus_wallet_balances()
 
   combined = {}
-  for d in [kraken, okx, mexc, exodus]:
+  for d in [kraken, okx, exodus]:
     for asset, info in d.items():
       if asset in combined:
         combined[asset]["amount"] += info["amount"]
       else:
-        combined[asset] = {"exchange": info["exchange"], "amount": info["amount"]}
+        combined[asset] = {
+            "exchange": info["exchange"],
+            "amount": info["amount"],
+        }
   return combined

@@ -21,6 +21,16 @@ logging.basicConfig(
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ALLOWED_USER_ID = os.getenv("TELEGRAM_ALLOWED_USER_ID")
 
+# Table de correspondance Symbol -> ID CoinGecko
+COINGECKO_MAP = {
+    "kas": "kaspa",
+    "hype": "hyperliquid",
+    "ath": "aethir",
+    "fet": "artificial-superintelligence-alliance",
+    "ondo": "ondo-finance",
+    "ray": "raydium",
+}
+
 
 def get_usd_to_eur_rate():
   """Récupère le taux USD/USDC vers EUR en temps réel."""
@@ -55,15 +65,24 @@ def get_usd_to_eur_rate():
 def get_live_price(symbol, exchange):
   """Récupère le prix actuel du token converti en Euros."""
   symbol_upper = symbol.upper()
+  symbol_lower = symbol.lower()
   exchange_upper = exchange.upper() if exchange else ""
   usd_eur_rate = get_usd_to_eur_rate()
+  headers = {
+      "User-Agent": (
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like"
+          " Gecko) Chrome/124.0.0.0 Safari/537.36"
+      )
+  }
 
   # 1. Kraken
   if "KRAKEN" in exchange_upper:
     for pair in [f"{symbol_upper}EUR", f"X{symbol_upper}ZEUR"]:
       try:
         res = requests.get(
-            f"https://api.kraken.com/0/public/Ticker?pair={pair}", timeout=3
+            f"https://api.kraken.com/0/public/Ticker?pair={pair}",
+            headers=headers,
+            timeout=3,
         )
         if res.status_code == 200:
           result = res.json().get("result", {})
@@ -76,7 +95,9 @@ def get_live_price(symbol, exchange):
     for pair in [f"{symbol_upper}USDT", f"{symbol_upper}USD"]:
       try:
         res = requests.get(
-            f"https://api.kraken.com/0/public/Ticker?pair={pair}", timeout=3
+            f"https://api.kraken.com/0/public/Ticker?pair={pair}",
+            headers=headers,
+            timeout=3,
         )
         if res.status_code == 200:
           result = res.json().get("result", {})
@@ -91,6 +112,7 @@ def get_live_price(symbol, exchange):
     try:
       res = requests.get(
           f"https://www.okx.com/api/v5/market/ticker?instId={symbol_upper}-EUR",
+          headers=headers,
           timeout=3,
       )
       if res.status_code == 200:
@@ -104,6 +126,7 @@ def get_live_price(symbol, exchange):
       try:
         res = requests.get(
             f"https://www.okx.com/api/v5/market/ticker?instId={inst_id}",
+            headers=headers,
             timeout=3,
         )
         if res.status_code == 200:
@@ -113,16 +136,18 @@ def get_live_price(symbol, exchange):
       except Exception:
         pass
 
-  # 3. Fallback CoinGecko
-  try:
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={symbol.lower()}&vs_currencies=eur"
-    res = requests.get(url, timeout=5)
-    if res.status_code == 200:
-      data = res.json()
-      if symbol.lower() in data:
-        return float(data[symbol.lower()]["eur"])
-  except Exception:
-    pass
+  # 3. Fallback CoinGecko (avec mapping ID)
+  cg_ids = [COINGECKO_MAP.get(symbol_lower, symbol_lower), symbol_lower]
+  for cg_id in dict.fromkeys(cg_ids):
+    try:
+      url = f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=eur"
+      res = requests.get(url, headers=headers, timeout=4)
+      if res.status_code == 200:
+        data = res.json()
+        if cg_id in data and "eur" in data[cg_id]:
+          return float(data[cg_id]["eur"])
+    except Exception:
+      pass
 
   return None
 
@@ -157,7 +182,7 @@ def send_alert_telegram(text, rec_id):
 
 def monitor_positions():
   """Surveillance 24/7 : TP1, TP2, Stop-Loss et Time-Stop 21 jours."""
-  logging.info("🔍 Surveillance 24/7 des positions ouvertes (v1.8.5)...")
+  logging.info("🔍 Surveillance 24/7 des positions ouvertes (v3.3.1)...")
   open_trades = get_open_positions()
 
   if not open_trades:
