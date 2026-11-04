@@ -6,7 +6,7 @@ DB_PATH = os.path.expanduser("~/Synthese_finary/crypto_trading.db")
 
 
 def init_db():
-  """Initialise les tables SQLite (positions ouvertes, trades fermés et filtres core) en forçant le mode Auto/IA par défaut."""
+  """Initialise les tables SQLite (positions ouvertes, trades fermés, filtres core et benchmark BTC)."""
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
 
@@ -62,6 +62,10 @@ def init_db():
   if "auto_tp_sl" not in columns:
     cursor.execute(
         "ALTER TABLE speculative_trades ADD COLUMN auto_tp_sl INTEGER DEFAULT 1"
+    )
+  if "btc_price_entry" not in columns:
+    cursor.execute(
+        "ALTER TABLE speculative_trades ADD COLUMN btc_price_entry REAL DEFAULT 0.0"
     )
 
   # Table des trades manuels ignorés ou classés CORE
@@ -132,17 +136,18 @@ def add_recommendation(
     tp2_price,
     sl_price,
     sl_type="invalidation",
+    btc_price_entry=0.0,
 ):
-  """Enregistre une recommandation avec paliers TP1 et TP2 (Mode Auto/IA actif par défaut)."""
+  """Enregistre une recommandation avec paliers TP1, TP2 et prix repère du BTC (v3.4)."""
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
   cursor.execute(
       """
         INSERT INTO speculative_trades (
             symbol, exchange, price_suggested, amount_eur, 
-            tp_price, tp1_price, tp2_price, sl_price, sl_type, status, step, auto_tp_sl
+            tp_price, tp1_price, tp2_price, sl_price, sl_type, status, step, auto_tp_sl, btc_price_entry
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUGGESTED', 'ENTRY', 1)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUGGESTED', 'ENTRY', 1, ?)
     """,
       (
           symbol,
@@ -154,6 +159,7 @@ def add_recommendation(
           tp2_price,
           sl_price,
           sl_type,
+          btc_price_entry,
       ),
   )
   rec_id = cursor.lastrowid
@@ -162,24 +168,29 @@ def add_recommendation(
   return rec_id
 
 
-def mark_trade_taken(rec_id, real_entry_price=None):
-  """Active une recommandation en position ouverte (en confirmant le mode Auto/IA par défaut)."""
+def mark_trade_taken(rec_id, real_entry_price=None, btc_entry_price=None):
+  """Active une recommandation en position ouverte (enregistre le prix du BTC à l'entrée)."""
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
+  
+  cursor.execute(
+      "SELECT price_suggested, btc_price_entry FROM speculative_trades WHERE id = ?", (rec_id,)
+  )
+  row = cursor.fetchone()
+
   if real_entry_price is None:
-    cursor.execute(
-        "SELECT price_suggested FROM speculative_trades WHERE id = ?", (rec_id,)
-    )
-    row = cursor.fetchone()
     real_entry_price = row[0] if row else 0.0
+
+  if btc_entry_price is None or btc_entry_price <= 0.0:
+    btc_entry_price = row[1] if (row and len(row) > 1 and row[1]) else 0.0
 
   cursor.execute(
       """
         UPDATE speculative_trades
-        SET status = 'OPEN', price_entry = ?, taken_at = ?, step = 'ENTRY', auto_tp_sl = 1
+        SET status = 'OPEN', price_entry = ?, taken_at = ?, step = 'ENTRY', auto_tp_sl = 1, btc_price_entry = ?
         WHERE id = ?
     """,
-      (real_entry_price, datetime.now(), rec_id),
+      (real_entry_price, datetime.now(), btc_entry_price, rec_id),
   )
   conn.commit()
   conn.close()
@@ -383,13 +394,13 @@ def set_trade_break_even(rec_id):
 
 
 def merge_duplicate_trades(primary_id, secondary_id):
-  """Consolide deux positions ouvertes du même symbole/exchange en une seule avec PRU pondéré."""
+  """Consolide deux positions ouvertes du même symbole/exchange en une seule avec PRU et prix BTC pondérés."""
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
 
   cursor.execute(
       """
-        SELECT symbol, exchange, price_entry, amount_eur, tp1_price, tp2_price, sl_price
+        SELECT symbol, exchange, price_entry, amount_eur, tp1_price, tp2_price, sl_price, btc_price_entry
         FROM speculative_trades WHERE id = ?
     """,
       (primary_id,),
@@ -398,7 +409,7 @@ def merge_duplicate_trades(primary_id, secondary_id):
 
   cursor.execute(
       """
-        SELECT symbol, exchange, price_entry, amount_eur
+        SELECT symbol, exchange, price_entry, amount_eur, btc_price_entry
         FROM speculative_trades WHERE id = ?
     """,
       (secondary_id,),
@@ -409,8 +420,8 @@ def merge_duplicate_trades(primary_id, secondary_id):
     conn.close()
     return False
 
-  sym1, exch1, entry1, amt1, tp1, tp2, sl1 = p1
-  sym2, exch2, entry2, amt2 = p2
+  sym1, exch1, entry1, amt1, tp1, tp2, sl1, btc_entry1 = p1
+  sym2, exch2, entry2, amt2, btc_entry2 = p2
 
   qty1 = (amt1 / entry1) if entry1 > 0 else 0.0
   qty2 = (amt2 / entry2) if entry2 > 0 else 0.0
@@ -419,6 +430,13 @@ def merge_duplicate_trades(primary_id, secondary_id):
   total_amt = amt1 + amt2
   weighted_entry = (total_amt / total_qty) if total_qty > 0 else entry1
 
+  btc_e1 = float(btc_entry1 or 0.0)
+  btc_e2 = float(btc_entry2 or 0.0)
+  if total_amt > 0 and (btc_e1 > 0 or btc_e2 > 0):
+    weighted_btc_entry = ((btc_e1 * amt1) + (btc_e2 * amt2)) / total_amt
+  else:
+    weighted_btc_entry = btc_e1 if btc_e1 > 0 else btc_e2
+
   new_tp1 = (weighted_entry * 2.0) if (tp1 is None or tp1 <= 0) else tp1
   new_tp2 = (weighted_entry * 4.0) if (tp2 is None or tp2 <= 0) else tp2
   new_sl = (weighted_entry * 0.60) if (sl1 is None or sl1 <= 0) else sl1
@@ -426,10 +444,10 @@ def merge_duplicate_trades(primary_id, secondary_id):
   cursor.execute(
       """
         UPDATE speculative_trades
-        SET price_entry = ?, amount_eur = ?, tp1_price = ?, tp2_price = ?, sl_price = ?
+        SET price_entry = ?, amount_eur = ?, tp1_price = ?, tp2_price = ?, sl_price = ?, btc_price_entry = ?
         WHERE id = ?
     """,
-      (weighted_entry, total_amt, new_tp1, new_tp2, new_sl, primary_id),
+      (weighted_entry, total_amt, new_tp1, new_tp2, new_sl, weighted_btc_entry, primary_id),
   )
 
   cursor.execute(
@@ -489,11 +507,11 @@ def is_manual_trade_ignored(symbol, exchange, cost_eur=None):
 
 
 def get_open_positions():
-  """Récupère toutes les positions ouvertes."""
+  """Récupère toutes les positions ouvertes (13 colonnes, btc_price_entry en index 12)."""
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
   cursor.execute("""
-        SELECT id, symbol, exchange, price_entry, amount_eur, tp1_price, tp2_price, sl_price, sl_type, step, taken_at, alert_status
+        SELECT id, symbol, exchange, price_entry, amount_eur, tp1_price, tp2_price, sl_price, sl_type, step, taken_at, alert_status, btc_price_entry
         FROM speculative_trades
         WHERE status = 'OPEN'
         ORDER BY taken_at DESC
@@ -506,6 +524,6 @@ def get_open_positions():
 if __name__ == "__main__":
   init_db()
   print(
-      "✅ Base SQLite v3.3.1 (Moonbag, Core & Mode Auto/IA par défaut)"
+      "✅ Base SQLite v3.4.0 (Moonbag, Core, Mode Auto/IA par défaut & Benchmark BTC)"
       " initialisée et vérifiée."
   )

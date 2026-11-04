@@ -12,6 +12,7 @@ Pour chaque position et pour l'ensemble du portefeuille, tu dois contrôler :
    * Poche Spéculative entre $12\%$ et $15\%$ : Alerte Exposition Élevée (Orange).
    * Poche Spéculative $> 15\%$ : **NIVEAU CRITIQUE (Rouge)** ➔ Recommandation immédiate d'écrêtage/vente des lignes les plus faibles.
 3. **Distance au Stop-Loss & Buffer de Risque Global** : Calcul du pourcentage moyen séparant les prix actuels des SL. Si ce buffer est $< 5\%$, déclencher l'alerte "SL Frôlé".
+4. ** Intégrer le coût d'opportunité Bitcoin (alpha_vs_btc_pct) : signaler les positions accusant une sous-performance marquée (Alpha <= -5.0%) comme des lignes à risque d'immobilisation de capital face à BTC.
 4. **Vérification du Circuit Breaker BTC** : Si BTC 24h $< -5\%$, exiger le gel des achats et la sécurisation immédiate des gains.
 
 ---

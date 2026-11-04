@@ -46,6 +46,7 @@ Tu dois systématiquement croiser :
 - **Paliers Recommandés** : TP1 (x2) : X.XXXX € | TP2 (x4) : X.XXXX € | SL Invalidation : X.XXXX €
 - **Taille de Position Suggérée** : X € (Financé par : [Cash Stables/Arbitrage Actif Y])
 - **Raisonnement Quant/Tech** : [Confluence RSI + Microstructure Funding/OI]
+La somme totale engagée sur les opportunités proposées (Position 1 + Position 2) ne doit jamais dépasser le budget restant calculé pour la poche spéculative. Si le budget restant est de 350 €, propose par exemple 1 position à 200 € et 1 position à 150 €, ou 1 seule position majeure à 350 €.
 
 🧭 **FEUILLE DE ROUTE D'EXÉCUTION PAS-À-PAS**
 1. [Action 1 concrète]

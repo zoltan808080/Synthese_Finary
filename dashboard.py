@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.3.1 (SSOT Macro / Multi-Exchanges Assaini - Kraken & OKX)."""
+"""Cockpit Spéculatif & Analytics Streamlit v3.4.0 (Benchmark BTC, SSOT Macro / Multi-Exchanges - Kraken & OKX)."""
 
 import json
 import os
@@ -12,11 +12,13 @@ import requests
 import streamlit as st
 
 from db_manager import (
+    add_recommendation,
     close_trade,
     get_auto_tp_sl_status,
     get_closed_trades_history,
     get_open_positions,
     init_db,
+    mark_manual_trade_core,
     mark_trade_taken,
     merge_duplicate_trades,
     set_trade_break_even,
@@ -523,9 +525,9 @@ if not check_password():
 
 init_db()
 
-st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.3.1)")
+st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.4.0)")
 st.markdown(
-    "*Suivi multi-exchange temps réel (Kraken & OKX), Macro SSOT, Microstructure & Assistant IA*"
+    "*Suivi multi-exchange temps réel (Kraken & OKX), Benchmark BTC (Alpha), Macro SSOT & Assistant IA*"
 )
 st.markdown("---")
 
@@ -609,7 +611,7 @@ st.sidebar.info(
     tab_ai,
     tab_monitor,
 ) = st.tabs([
-    "📊 Positions Actives (Live)",
+    "📊 Positions Actives (Live & BTC)",
     "🔥 Microstructure & Dérivés",
     "🔔 Centre d'Alertes",
     "🤖 Assistant IA Pro",
@@ -618,7 +620,7 @@ st.sidebar.info(
 
 
 # Pre-fetch optimisé des prix en parallèle (Multi-threading)
-active_symbols_set = set()
+active_symbols_set = {"BTC"}
 try:
     _open_pos_pre = get_open_positions()
     if _open_pos_pre:
@@ -645,6 +647,9 @@ _bulk_prices_map = (
     else {}
 )
 
+# Récupération du prix live du BTC pour le benchmarking Alpha (v3.4)
+btc_live_eur = fetch_live_price("BTC", "KRAKEN") or fetch_live_price("BTC", "OKX") or 1.0
+
 # ==========================================
 # ONGLET 1 : POSITIONS ACTIVES (LIVE & TEMPS RÉEL)
 # ==========================================
@@ -654,7 +659,7 @@ with tab_live:
             Inventaire global et ventilation de votre capital en temps réel (Autonome & 100% direct exchanges) :
             * **Ligne 1 (Macro & Sentiment) :** Fear & Greed Index, Circuit Breaker BTC, Dominance BTC (BTC.D), TOTAL3 (Cap. Alts hors BTC/ETH) et Poudre sèche Stablecoins Globales.
             * **Ligne 2 (Allocations) :** Volume Total Crypto, Majeures (BTC/ETH), Poche CORE et Poche Spéculative Total (Moonbag) avec PnL latent.
-            * **Buffer de Risque :** Marge moyenne avant que vos Stop-Loss ne se déclenchent.
+            * **Alpha vs BTC (v3.4) :** Mesure la surperformance ou sous-performance de la position par rapport à la simple détention de Bitcoin sur la même durée ($\text{{PnL}}_{{\text{{Alt}}}} - \text{{PnL}}_{{\text{{BTC}}}}$).
             """)
 
     positions = get_open_positions()
@@ -679,7 +684,10 @@ with tab_live:
             tp1_eur = float(p[5]) if len(p) > 5 and p[5] is not None else 0.0
             sl_eur = float(p[7]) if len(p) > 7 and p[7] is not None else 0.0
             step_val = p[9] if len(p) > 9 and p[9] is not None else "ENTRY"
-            is_auto = auto_tpsl_map.get(pos_id, False)
+            
+            # Traitement v3.4 : Récupération du prix BTC à l'entrée (Index 12)
+            btc_entry_eur = float(p[12]) if (len(p) > 12 and p[12] is not None and float(p[12]) > 0) else btc_live_eur
+            is_auto = auto_tpsl_map.get(pos_id, True)
 
             total_invested_base += amount_eur
 
@@ -695,6 +703,10 @@ with tab_live:
             pnl_pct = (
                 ((live_eur - entry_eur) / entry_eur) * 100.0 if entry_eur > 0 else 0.0
             )
+
+            # --- CALCUL BENCHMARK BTC & ALPHA (v3.4) ---
+            btc_pnl_pct = (((btc_live_eur - btc_entry_eur) / btc_entry_eur) * 100.0) if btc_entry_eur > 0 else 0.0
+            alpha_btc_pct = pnl_pct - btc_pnl_pct
 
             if step_val in ["TP1_DONE", "TP2_DONE"]:
                 free_ride_count += 1
@@ -723,6 +735,7 @@ with tab_live:
                 "Valeur Actuelle": current_val_eur * curr_multiplier,
                 "PnL (€/$)": pnl_eur * curr_multiplier,
                 "PnL (%)": pnl_pct,
+                "Alpha vs BTC": alpha_btc_pct,
                 "TP1": tp1_eur * curr_multiplier,
                 "Stop-Loss": sl_eur * curr_multiplier,
                 "Statut": status,
@@ -996,6 +1009,19 @@ with tab_live:
                     )
                 return "color: #888888;"
 
+            def style_alpha_btc(val):
+                if pd.isna(val) or not isinstance(val, (int, float)):
+                    return ""
+                if val >= 5.0:
+                    return "color: #00ff66; font-weight: bold; background-color: rgba(0, 255, 102, 0.15);"
+                elif val > 0:
+                    return "color: #88ffaa; background-color: rgba(0, 255, 102, 0.05);"
+                elif val <= -5.0:
+                    return "color: #ff4d4d; font-weight: bold; background-color: rgba(255, 77, 77, 0.15);"
+                elif val < 0:
+                    return "color: #ffaaaa; background-color: rgba(255, 77, 77, 0.05);"
+                return ""
+
             def style_tp_sl(row):
                 styles = [""] * len(row)
                 price = row["Prix Actuel"]
@@ -1049,6 +1075,7 @@ with tab_live:
 
             styler = df_display.style.apply(style_tp_sl, axis=1)
             styler = styler.map(style_pnl, subset=["PnL (€/$)", "PnL (%)"])
+            styler = styler.map(style_alpha_btc, subset=["Alpha vs BTC"])
 
             styler = styler.format({
                 "Prix Entrée": f"{{:.4f}} {curr_symbol}",
@@ -1057,6 +1084,7 @@ with tab_live:
                 "Valeur Actuelle": f"{{:,.2f}} {curr_symbol}",
                 "PnL (€/$)": f"{{:+,.2f}} {curr_symbol}",
                 "PnL (%)": "{:+.2f}%",
+                "Alpha vs BTC": "{:+.2f}% ₿",
                 "TP1": f"{{:.4f}} {curr_symbol}",
                 "Stop-Loss": f"{{:.4f}} {curr_symbol}",
                 "Marge SL": "{:+.1f}%",
@@ -1067,6 +1095,7 @@ with tab_live:
             st.markdown("### 📱 Cartes de suivi mobile temps réel")
             for row in enriched_positions:
                 pnl_color = "#00ffcc" if row["PnL (%)"] >= 0 else "#ff4d4d"
+                alpha_color = "#00ffcc" if row["Alpha vs BTC"] >= 0 else "#ff4d4d"
                 with st.container():
                     st.markdown(
                         f"""
@@ -1074,6 +1103,7 @@ with tab_live:
                             <h4 style="margin: 0; color: #00ffcc;">{row['Symbole']} <span style="font-size: 12px; color: #888;">({row['Exchange']})</span> — <span style="color: #00ffcc;">[{row['Mode']}]</span> — <span style="color: {pnl_color};">{row['Statut']}</span></h4>
                             <p style="margin: 5px 0 0 0; font-size: 14px;">
                                 <b>Valeur :</b> {row['Valeur Actuelle']:,.2f} {curr_symbol} | <b>PnL :</b> <span style="color: {pnl_color};">{row['PnL (%)']:+.2f}% ({row['PnL (€/$)']:+,.2f} {curr_symbol})</span><br>
+                                <b>Alpha vs BTC :</b> <span style="color: {alpha_color}; font-weight: bold;">{row['Alpha vs BTC']:+.2f}% ₿</span><br>
                                 <b>Prix Actuel :</b> {row['Prix Actuel']:.4f} {curr_symbol} (Entrée : {row['Prix Entrée']:.4f})<br>
                                 <b>TP1 :</b> {row['TP1']:.4f} {curr_symbol} | <b>SL :</b> {row['Stop-Loss']:.4f} {curr_symbol}
                             </p>
@@ -1670,8 +1700,6 @@ with tab_alerts:
                         f"🎯 Activer Moonbag ({d_sym} — {disp_cost:,.2f} {curr_symbol})",
                         key=f"web_add_manual_{d_sym}_{d_exch}",
                     ):
-                        from db_manager import add_recommendation, mark_trade_taken
-
                         rec_id = add_recommendation(
                             symbol=d_sym,
                             exchange=d_exch,
@@ -1681,13 +1709,14 @@ with tab_alerts:
                             tp2_price=price_eur * 4.0,
                             sl_price=price_eur * 0.60,
                             sl_type="invalidation",
+                            btc_price_entry=btc_live_eur,
                         )
-                        mark_trade_taken(rec_id)
+                        mark_trade_taken(rec_id, btc_entry_price=btc_live_eur)
                         st.cache_data.clear()
                         send_telegram_notify(
                             f"🎯 *TRADE MOONBAG ONBOARDÉ VIA WEB*\n• **{d_sym}**"
                             f" ({disp_cost:,.2f} {curr_symbol} @ {disp_price:.4f}"
-                            f" {curr_symbol}) ajouté au cockpit."
+                            f" {curr_symbol}) ajouté au cockpit en mode Auto/IA par défaut."
                         )
                         st.success(
                             f"✅ Position {d_sym} intégrée avec succès au cockpit Moonbag !"
@@ -1699,8 +1728,6 @@ with tab_alerts:
                         f"💎 Conserver en Poche CORE ({d_sym})",
                         key=f"web_core_manual_{d_sym}_{d_exch}",
                     ):
-                        from db_manager import mark_manual_trade_core
-
                         mark_manual_trade_core(
                             d_sym, d_exch, cost_eur, price_eur, reason="CORE"
                         )
@@ -1894,14 +1921,14 @@ with tab_alerts:
             )
 
 # ==========================================
-# ONGLET 4 : ASSISTANT IA PRO (SSOT EXTERNALISÉ v3.3)
+# ONGLET 4 : ASSISTANT IA PRO (SSOT EXTERNALISÉ v3.4)
 # ==========================================
 with tab_ai:
-    with st.expander("📖 Guide de l'Assistant IA Conversationnel (Architecture SSOT)"):
+    with st.expander("📖 Guide de l'Assistant IA Conversationnel (Architecture SSOT & Benchmark BTC)"):
         st.markdown("""
             Votre stratège crypto personnel en direct :
             * **Prompts Rapides :** Lancez des analyses complexes en un clic sans rien saisir.
-            * **Prompts Externalisés (SSOT) :** Les règles métier immuables et rôles IA sont stockés dans le dossier `prompts/`.
+            * **Benchmark BTC Intégré (v3.4) :** Gemini analyse désormais la surperformance réelle (Alpha) de vos positions spéculatives vs BTC.
             * **Chat Libre :** Posez n'importe quelle question sur vos positions et votre gestion du risque.
             """)
 
@@ -1993,6 +2020,7 @@ with tab_ai:
                             "Prix_Entree": round(p["Prix Entrée"], 4),
                             "Prix_Actuel_Live": round(p["Prix Actuel"], 4),
                             "PnL_Pct": round(p["PnL (%)"], 2),
+                            "Alpha_vs_BTC_Pct": round(p.get("Alpha vs BTC", 0.0), 2),
                             "TP1": round(p["TP1"], 4),
                             "Stop_Loss": round(p["Stop-Loss"], 4),
                         }
@@ -2015,7 +2043,7 @@ with tab_ai:
 
                 preset_prompt = (
                     "Analyse la pertinence spéculative globale de mon portefeuille"
-                    " face aux opportunités actuelles du marché."
+                    " face aux opportunités actuelles du marché et à la performance du BTC."
                 )
 
                 preset_context = f"""{system_rules}
@@ -2034,7 +2062,7 @@ VENTILATION GLOBALE DU PORTEFEUILLE (VALEURS MARCHANDE TEMPS RÉEL) :
 ACTIFS DÉTENUS EN POCHE CORE ET MAJEURES (FILTRE ANTI-DOUBLON IMPÉRATIF) :
 {core_majors_str}
 
-POSITIONS SPÉCULATIVES ACTIVES (BDD) :
+POSITIONS SPÉCULATIVES ACTIVES (BDD AVEC ALPHA VS BTC) :
 {json.dumps(live_positions_for_ai, indent=2, ensure_ascii=False)}
 
 {macro_prompt_block}
@@ -2072,29 +2100,23 @@ POSITIONS SPÉCULATIVES ACTIVES (BDD) :
                     missing_sl_count = 0
 
                     for p in open_pos:
-                        (
-                            p_id,
-                            sym,
-                            exch,
-                            entry,
-                            amt,
-                            tp1,
-                            tp2,
-                            sl,
-                            sl_type,
-                            step,
-                            taken_at,
-                            alert_stat,
-                        ) = p
-                        entry = float(entry) if entry else 0.0
-                        amt = float(amt) if amt else 0.0
-                        tp1 = float(tp1) if tp1 else 0.0
-                        sl = float(sl) if sl else 0.0
+                        p_id = p[0]
+                        sym = p[1]
+                        exch = p[2]
+                        entry = float(p[3]) if p[3] else 0.0
+                        amt = float(p[4]) if p[4] else 0.0
+                        tp1 = float(p[5]) if len(p) > 5 and p[5] else 0.0
+                        sl = float(p[7]) if len(p) > 7 and p[7] else 0.0
+                        step = p[9] if len(p) > 9 and p[9] else "ENTRY"
+                        btc_e = float(p[12]) if (len(p) > 12 and p[12] and float(p[12]) > 0) else btc_live_eur
 
                         lp = fetch_live_price(sym, exch) or entry
                         qty = (amt / entry) if entry > 0 else 0.0
                         curr_val = qty * lp
                         pnl_pct = ((lp - entry) / entry) * 100.0 if entry > 0 else 0.0
+                        
+                        btc_pnl_pct = (((btc_live_eur - btc_e) / btc_e) * 100.0) if btc_e > 0 else 0.0
+                        alpha_btc_pct = pnl_pct - btc_pnl_pct
 
                         if sl > 0 and lp > 0:
                             dist_sl_pct = ((lp - sl) / lp) * 100.0
@@ -2113,6 +2135,7 @@ POSITIONS SPÉCULATIVES ACTIVES (BDD) :
                             "prix_actuel_eur": round(lp, 4),
                             "valeur_actuelle_eur": round(curr_val, 2),
                             "pnl_pct": round(pnl_pct, 2),
+                            "alpha_vs_btc_pct": round(alpha_btc_pct, 2),
                             "tp1_eur": round(tp1, 4),
                             "sl_eur": round(sl, 4),
                             "distance_sl_pct": (
