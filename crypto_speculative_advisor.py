@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Moteur d'analyse et de recommandation spéculative Crypto v3.2 (Architecture SSOT & Centralisation Gemini)."""
+"""Moteur d'analyse et de recommandation spéculative Crypto v3.3.0 (Architecture SSOT & Contexte Macro Unifié)."""
 
 import datetime
 import json
@@ -20,6 +20,18 @@ from gemini_manager import call_gemini_with_fallback
 from pnl_engine import calculate_pnl
 from prompt_loader import get_system_prompt
 
+# Importation du Contexte Macro SSOT
+try:
+    from macro_market_engine import (
+        get_complete_macro_context,
+        fetch_fear_and_greed_index as macro_fng,
+        check_circuit_breaker as macro_cb,
+        format_macro_context_for_prompt as macro_format_prompt,
+    )
+    MACRO_ENGINE_AVAILABLE = True
+except ImportError:
+    MACRO_ENGINE_AVAILABLE = False
+
 load_dotenv()
 init_db()
 
@@ -34,7 +46,13 @@ SPECULATIVE_PCT = float(os.getenv("CRYPTO_SPECULATIVE_PCT", "0.10"))
 
 
 def check_circuit_breaker():
-    """Vérifie si le marché est en mode crash (BTC < -8% sur 24h)."""
+    """Vérifie si le marché est en mode crash via le moteur Macro SSOT ou fallback."""
+    if MACRO_ENGINE_AVAILABLE:
+        try:
+            return macro_cb()
+        except Exception as e:
+            logging.warning(f"⚠️ Erreur macro_market_engine (circuit_breaker) : {e}")
+
     change_24h = 0.0
     try:
         res = requests.get(
@@ -47,7 +65,7 @@ def check_circuit_breaker():
                 change_24h = float(val)
                 return (change_24h <= -8.0), change_24h
     except Exception as e:
-        logging.warning(f"⚠️ Erreur BTC 24h CoinGecko : {e}")
+        logging.warning(f"⚠️ Erreur BTC 24h CoinGecko fallback : {e}")
 
     try:
         res = requests.get(
@@ -61,13 +79,19 @@ def check_circuit_breaker():
                 change_24h = ((last - open24h) / open24h) * 100.0
                 return (change_24h <= -8.0), change_24h
     except Exception as e:
-        logging.warning(f"⚠️ Erreur BTC 24h OKX : {e}")
+        logging.warning(f"⚠️ Erreur BTC 24h OKX fallback : {e}")
 
     return (change_24h <= -8.0), change_24h
 
 
 def fetch_fear_and_greed_index():
-    """Récupère l'indice Fear & Greed global du marché crypto."""
+    """Récupère l'indice Fear & Greed via le moteur Macro SSOT ou fallback."""
+    if MACRO_ENGINE_AVAILABLE:
+        try:
+            return macro_fng()
+        except Exception as e:
+            logging.warning(f"⚠️ Erreur macro_market_engine (fng) : {e}")
+
     try:
         res = requests.get("https://api.alternative.me/fng/", timeout=5)
         if res.status_code == 200:
@@ -77,42 +101,110 @@ def fetch_fear_and_greed_index():
                 "classification": data.get("value_classification", "Neutral"),
             }
     except Exception as e:
-        logging.warning(f"⚠️ Erreur Fear & Greed API : {e}")
+        logging.warning(f"⚠️ Erreur Fear & Greed API fallback : {e}")
     return {"value": 50, "classification": "Neutral"}
 
 
-def fetch_live_price(sym, exch="OKX"):
-    """Récupère le prix spot en direct converti en EUR."""
+def fetch_live_price(sym, exch="OKX", eur_usd_rate=1.12):
+    """Récupère le prix spot en direct converti en EUR avec isolation stricte des exchanges."""
     clean_sym = str(sym).upper().replace("USDT", "").replace("EUR", "").strip()
-    price = None
+    clean_exch = str(exch).upper().strip() if exch else ""
+    rate = eur_usd_rate if eur_usd_rate and eur_usd_rate > 0 else 1.12
+
+    if clean_sym in ["EUR", "USD"]:
+        return 1.0 if clean_sym == "EUR" else (1.0 / rate)
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+    }
+
+    # 1. Routage prioritaire Kraken
+    if "KRAKEN" in clean_exch:
+        for pair in [f"{clean_sym}EUR", f"X{clean_sym}ZEUR"]:
+            try:
+                res = requests.get(
+                    f"https://api.kraken.com/0/public/Ticker?pair={pair}",
+                    headers=headers,
+                    timeout=3.0,
+                )
+                if res.status_code == 200:
+                    result = res.json().get("result", {})
+                    if result:
+                        key = list(result.keys())[0]
+                        price = float(result[key]["c"][0])
+                        if price > 0:
+                            return price
+            except Exception:
+                pass
+
+        for pair in [f"{clean_sym}USD", f"{clean_sym}USDT"]:
+            try:
+                res = requests.get(
+                    f"https://api.kraken.com/0/public/Ticker?pair={pair}",
+                    headers=headers,
+                    timeout=3.0,
+                )
+                if res.status_code == 200:
+                    result = res.json().get("result", {})
+                    if result:
+                        key = list(result.keys())[0]
+                        price = float(result[key]["c"][0])
+                        if price > 0:
+                            return price / rate
+            except Exception:
+                pass
+
+        return None
+
+    # 2. Routage OKX
     try:
-        res_okx = requests.get(
-            f"https://www.okx.com/api/v5/market/ticker?instId={clean_sym}-USDT",
-            timeout=1.5,
+        res = requests.get(
+            f"https://www.okx.com/api/v5/market/ticker?instId={clean_sym}-EUR",
+            headers=headers,
+            timeout=2.0,
         )
-        if res_okx.status_code == 200:
-            data_okx = res_okx.json().get("data", [])
-            if data_okx:
-                price_usdt = float(data_okx[0].get("last", 0))
-                price = price_usdt / 1.12
+        if res.status_code == 200:
+            data = res.json().get("data", [])
+            if data:
+                price = float(data[0].get("last", 0))
+                if price > 0:
+                    return price
     except Exception:
         pass
 
-    if not price:
-        try:
-            res_k = requests.get(
-                f"https://api.kraken.com/0/public/Ticker?pair={clean_sym}EUR",
-                timeout=1.5,
-            )
-            if res_k.status_code == 200:
-                result_k = res_k.json().get("result", {})
-                for _, v_data in result_k.items():
-                    if "c" in v_data:
-                        price = float(v_data["c"][0])
-                        break
-        except Exception:
-            pass
-    return price or 0.0
+    try:
+        res = requests.get(
+            f"https://www.okx.com/api/v5/market/ticker?instId={clean_sym}-USDT",
+            headers=headers,
+            timeout=2.0,
+        )
+        if res.status_code == 200:
+            data = res.json().get("data", [])
+            if data:
+                price = float(data[0].get("last", 0))
+                if price > 0:
+                    return price / rate
+    except Exception:
+        pass
+
+    # 3. Fallback Kraken générique
+    try:
+        res_k = requests.get(
+            f"https://api.kraken.com/0/public/Ticker?pair={clean_sym}EUR",
+            headers=headers,
+            timeout=2.0,
+        )
+        if res_k.status_code == 200:
+            result_k = res_k.json().get("result", {})
+            if result_k:
+                key = list(result_k.keys())[0]
+                price = float(result_k[key]["c"][0])
+                if price > 0:
+                    return price
+    except Exception:
+        pass
+
+    return 0.0
 
 
 def get_kraken_spot_symbols():
@@ -222,19 +314,21 @@ def parse_llm_json(raw_text):
         raise
 
 
-def calculate_unfied_crypto_categories():
-    """Calcul 100% autonome et unifié avec le Dashboard v3.2 (Exchanges + Exodus + BDD SQLite)."""
+def calculate_unified_crypto_categories(eur_usd_rate=1.12):
+    """Calcul 100% autonome et SSOT unifié avec le Dashboard v3.3.0 (Exchanges + Exodus + BDD SQLite)."""
     all_crypto_balances = get_all_exchange_crypto_balances()
     positions = get_open_positions()
 
     speculative_symbols = {
         str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
         for p in positions
+        if len(p) > 1 and p[1]
     }
 
     val_majors = 0.0
     val_core = 0.0
     val_speculative = 0.0
+    val_real_fiat = 0.0
     val_stables_crypto = 0.0
 
     holdings_by_asset = {}
@@ -242,83 +336,98 @@ def calculate_unfied_crypto_categories():
     # 1. Valorisation des positions spéculatives actives depuis la BDD SQLite
     for p in positions:
         sym = str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
-        exch = p[2]
+        exch = p[2] if len(p) > 2 else ""
         entry_eur = float(p[3]) if p[3] is not None else 0.0
         amount_eur = float(p[4]) if p[4] is not None else 0.0
-        lp = fetch_live_price(sym, exch) or entry_eur
+        lp = fetch_live_price(sym, exch, eur_usd_rate=eur_usd_rate) or entry_eur
         qty = (amount_eur / entry_eur) if entry_eur > 0 else 0.0
         current_val = qty * lp
         val_speculative += current_val
 
         holdings_by_asset[sym] = holdings_by_asset.get(sym, 0.0) + current_val
 
-    # 2. Valorisation de l'ensemble des avoirs sur Exchanges & Wallets froids Exodus
-    for asset, info in all_crypto_balances.items():
-        amt = info["amount"]
-        exch = info["exchange"]
+    # 2. Valorisation des avoirs sur Exchanges & Wallets froids (avec filtre anti-doublon)
+    if all_crypto_balances:
+        for asset, info in all_crypto_balances.items():
+            amt = info.get("amount", 0.0) if isinstance(info, dict) else float(info)
+            exch = info.get("exchange", "") if isinstance(info, dict) else ""
+            asset_u = str(asset).upper().strip()
 
-        if asset in ["USDT", "USDC"]:
-            val_stables_crypto += amt
-            holdings_by_asset[asset] = holdings_by_asset.get(asset, 0.0) + amt
-        elif asset in ["BTC", "ETH"]:
-            lp = fetch_live_price(asset, exch)
-            asset_val = amt * lp
-            val_majors += asset_val
-            holdings_by_asset[asset] = holdings_by_asset.get(asset, 0.0) + asset_val
-        elif asset in speculative_symbols:
-            pass  # Déjà comptabilisé via la BDD SQLite
-        else:
-            lp = fetch_live_price(asset, exch)
-            asset_val = amt * lp
-            val_core += asset_val
-            holdings_by_asset[asset] = holdings_by_asset.get(asset, 0.0) + asset_val
+            if asset_u in ["EUR", "USD"]:
+                val_real_fiat += amt if asset_u == "EUR" else (amt / eur_usd_rate)
+            elif asset_u in ["USDT", "USDC", "DAI", "FDUSD"]:
+                val_v = (amt / eur_usd_rate) if asset_u in ["USDT", "USDC"] else amt
+                val_stables_crypto += val_v
+                holdings_by_asset[asset_u] = holdings_by_asset.get(asset_u, 0.0) + val_v
+            elif asset_u in ["BTC", "ETH"]:
+                lp = fetch_live_price(asset_u, exch, eur_usd_rate=eur_usd_rate) or 0.0
+                asset_val = amt * lp
+                val_majors += asset_val
+                holdings_by_asset[asset_u] = holdings_by_asset.get(asset_u, 0.0) + asset_val
+            elif asset_u in speculative_symbols:
+                # Anti-doublon strict : déjà comptabilisé via la BDD SQLite
+                pass
+            else:
+                lp = fetch_live_price(asset_u, exch, eur_usd_rate=eur_usd_rate) or 0.0
+                asset_val = amt * lp
+                val_core += asset_val
+                holdings_by_asset[asset_u] = holdings_by_asset.get(asset_u, 0.0) + asset_val
 
-    cash_data = get_total_verified_cash()
-    total_cash_fiat = cash_data.get("total_cash", 0.0)
+    total_cash_stables = val_real_fiat + val_stables_crypto
+    if total_cash_stables == 0:
+        try:
+            cash_data = get_total_verified_cash()
+            total_cash_stables = cash_data.get("total_cash", 0.0)
+            val_real_fiat = total_cash_stables
+        except Exception:
+            cash_data = {"total_cash": 0.0}
+    else:
+        cash_data = {
+            "total_cash": round(total_cash_stables, 2),
+            "fiat": round(val_real_fiat, 2),
+            "stables": round(val_stables_crypto, 2),
+        }
 
-    # Total Liquidités = Stablecoins (USDT/USDC) + Cash Fiat (EUR/USD)
-    total_liquidities = val_stables_crypto + total_cash_fiat
-
-    total_crypto = val_majors + val_core + val_speculative + total_liquidities
+    total_crypto = val_majors + val_core + val_speculative + total_cash_stables
 
     if total_crypto > 0:
         pct_majors = (val_majors / total_crypto) * 100.0
         pct_core = (val_core / total_crypto) * 100.0
         pct_spec = (val_speculative / total_crypto) * 100.0
-        pct_stables = (total_liquidities / total_crypto) * 100.0
+        pct_stables = (total_cash_stables / total_crypto) * 100.0
     else:
         pct_majors = pct_core = pct_spec = pct_stables = 0.0
 
-    # Mise en forme claire des plafonds d'arbitrage par actif
     holdings_lines = []
     for asset, val_eur in sorted(holdings_by_asset.items(), key=lambda x: x[1], reverse=True):
         if val_eur >= 0.5:
             holdings_lines.append(f"• {asset} : {val_eur:.2f} € MAX ARBITRABLE")
 
     return {
-        "total_crypto": total_crypto,
-        "btc_eth": val_majors,
-        "btc_eth_pct": pct_majors,
-        "core": val_core,
-        "core_pct": pct_core,
-        "speculative": val_speculative,
-        "speculative_pct": pct_spec,
-        "stables_cash": total_liquidities,
-        "stables_cash_pct": pct_stables,
-        "val_stables_crypto": val_stables_crypto,
-        "total_cash_fiat": total_cash_fiat,
+        "total_crypto": round(total_crypto, 2),
+        "btc_eth": round(val_majors, 2),
+        "btc_eth_pct": round(pct_majors, 1),
+        "core": round(val_core, 2),
+        "core_pct": round(pct_core, 1),
+        "speculative": round(val_speculative, 2),
+        "speculative_pct": round(pct_spec, 1),
+        "stables_cash": round(total_cash_stables, 2),
+        "stables_cash_pct": round(pct_stables, 1),
+        "val_stables_crypto": round(val_stables_crypto, 2),
+        "total_cash_fiat": round(val_real_fiat, 2),
         "holdings_text": "\n".join(holdings_lines) if holdings_lines else "Aucun actif significatif",
         "cash_data": cash_data,
     }
 
 
-# Alias pour garantie de non-régression avec les versions antérieures de dashboard.py
-calculate_exact_crypto_categories = calculate_unfied_crypto_categories
+# Aliases pour garantie de non-régression avec les versions antérieures
+calculate_unfied_crypto_categories = calculate_unified_crypto_categories
+calculate_exact_crypto_categories = calculate_unified_crypto_categories
 
 
 def generate_crypto_speculative_report():
-    """Génère le rapport quotidien spéculatif de 19h via Gemini et l'envoie sur Telegram avec boutons 1-click."""
-    logging.info("🚀 Démarrage de l'analyse spéculative Crypto v3.2 (Prompt SSOT + Centralisation Gemini)...")
+    """Génère le rapport quotidien spéculatif de 19h via Gemini (SSOT v3.3.0) et l'envoie sur Telegram avec boutons 1-click."""
+    logging.info("🚀 Démarrage de l'analyse spéculative Crypto v3.3.0 (Prompt SSOT + Macro SSOT + Gemini)...")
 
     is_crash, crash_pct = check_circuit_breaker()
     fng = fetch_fear_and_greed_index()
@@ -328,8 +437,7 @@ def generate_crypto_speculative_report():
     kraken_symbols = get_kraken_spot_symbols()
     okx_symbols = get_okx_spot_symbols()
 
-    # Moteur unifié direct-exchanges + Exodus + SQLite
-    cats = calculate_unfied_crypto_categories()
+    cats = calculate_unified_crypto_categories()
     total_crypto = cats["total_crypto"]
     target_budget = total_crypto * SPECULATIVE_PCT
 
@@ -348,23 +456,28 @@ def generate_crypto_speculative_report():
             item["exchanges_verifies"] = available
             verified_opportunities.append(item)
 
+    # Contexte Macro SSOT unifié avec le Dashboard Web
+    macro_prompt_block = (
+        macro_format_prompt()
+        if MACRO_ENGINE_AVAILABLE
+        else f"DONNÉES DU MARCHÉ ET CONTEXTE MACRO :\n- Statut Circuit Breaker : {'🚨 DEFENSIVE MODE' if is_crash else '✅ NORMAL'} (Var BTC 24h : {crash_pct:+.2f}%)\n- Indice Fear & Greed : {fng['value']}/100 ({fng['classification']})"
+    )
+
     # Chargement dynamique des règles immuables et instructions de rôle (SSOT)
     system_instruction = get_system_prompt("advisor_speculative")
 
     user_context = f"""DONNÉES CHIFFRÉES TEMPS RÉEL (EXCHANGES + EXODUS) :
 - Valeur totale du portefeuille : {total_crypto:,.2f} €
 - Enveloppe spéculative cible ({SPECULATIVE_PCT*100:.0f}%) : {target_budget:,.2f} €
-- Circuit Breaker : {"🚨 DEFENSIVE MODE / CRASH DÉTECTÉ" if is_crash else "✅ NORMAL"} (Var BTC 24h: {crash_pct:+.2f}%)
-- Indice Fear & Greed : {fng['value']}/100 ({fng['classification']})
 
-REPARTITION EXACTE DES ACTIFS :
-• Majeures (BTC & ETH - Spot + Staking + Exodus) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.2f}%)
-• Core / Convictions long terme : {cats['core']:,.2f} € ({cats['core_pct']:.2f}%)
-• Spéculatives Actives (Moonbag BDD) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.2f}%)
-• Liquidités Totales (Fiat + Stablecoins) : {cats['stables_cash']:,.2f} € ({cats['stables_cash_pct']:.2f}%)
+REPARTITION EXACTE DES ACTIFS (MÊMES DÉFINITIONS QUE LE DASHBOARD) :
+• Majeures (BTC & ETH - Spot + Staking + Exodus) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) [Cible : 55%]
+• Core / Convictions long terme : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) [Cible : 22%]
+• Spéculatives Actives (Moonbag BDD) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) [Cible : 10% / Max : 12%]
+• Liquidités Totales (Fiat + Stablecoins) : {cats['stables_cash']:,.2f} € ({cats['stables_cash_pct']:.1f}%) [Cible : 13%]
 
 DÉTAIL DES LIQUIDITÉS MOBILISABLES :
-• Stablecoins (USDT + USDC) : {cats['val_stables_crypto']:,.2f} €
+• Stablecoins (USDT + USDC + DAI + FDUSD) : {cats['val_stables_crypto']:,.2f} €
 • Cash Fiat (EUR + USD) : {cats['total_cash_fiat']:,.2f} €
 • Total Liquidités Immédiates : {cats['stables_cash']:,.2f} €
 
@@ -373,6 +486,8 @@ PLAFONDS STRICTS D'ARBITRAGE PAR ACTIF DÉTENU (SEUIL MAXIMAL VENDABLE) :
 
 POSITIONS ACTIVES SUIVIES EN BDD SQLITE :
 {json.dumps(pnl_summary['open_positions'], indent=2, ensure_ascii=False)}
+
+{macro_prompt_block}
 
 OPPORTUNITÉS PRÉ-FILTRÉES (Kraken / OKX) :
 {json.dumps(verified_opportunities, indent=2, ensure_ascii=False)}
@@ -442,7 +557,7 @@ GÉNÈRE LA RÉPONSE JSON STRICTE SUIVANTE :
             ])
 
         header = (
-            "🎯 *RAPPORT CRYPTO SPÉCULATIF (19H) — v3.2*\n"
+            "🎯 *RAPPORT CRYPTO SPÉCULATIF (19H) — v3.3.0*\n"
             f"_Données du {datetime.date.today().strftime('%d/%m/%Y')} | Fear & Greed: {fng['value']}/100_\n"
             f"_🤖 IA : `{used_model}`_\n\n"
         )

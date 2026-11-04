@@ -1,7 +1,7 @@
 # 📐 Dossier d'Architecture Technique — Cockpit Crypto & Moonbag
 
 **Version du système :** `v3.3.0`  
-**Dernière mise à jour :** 1er novembre 2026  
+**Dernière mise à jour :** 4 novembre 2026  
 **Dépôt Git :** `origin/main` (`zoltan808080/Synthese_Finary`)  
 **Environnement :** VM Linux Debian (`finary-digest-server`)
 
@@ -16,9 +16,10 @@ Le système élimine la dépendance aux agrégateurs tiers et applique la strat�
 * **Prise de profit automatique (TP1 à x2 / TP2 à x4)** avec sécurisation en *Free Ride* (remboursement du capital initial).
 * **Gestion stricte du risque** via Stop-Loss et ajustement automatique en *Break-Even* (BE) sans violer le verrou immuable du *Ratchet* (interdiction d'abaisser un Stop-Loss).
 * **Isolation stricte des poches d'investissement** : Majeures (BTC/ETH - Cible 55%), CORE (conviction long terme - Cible 22%), Spéculatif (Moonbags actifs sous Stop-Loss - Cible 10% / Max 12%) et Cash (fiat & stablecoins - Cible 13%).
-* **Moteur Macro SSOT (v3.3.0) :** Centralisation et partage d'un socle d'indicateurs macroéconomiques uniques (*Dominance BTC (BTC.D)*, *Capitalisation TOTAL3*, *Poudre Sèche Stablecoins Globales*, *Fear & Greed Index*, *Circuit Breaker BTC*) exploités simultanément sur l'IHM Web, le Moteur TP/SL et les Prompts Système de l'IA.
-* **Isolation Étanche CORE vs Spéculatif :** La transmission du contexte à l'IA filtre et exclut automatiquement tous les symboles présents en poche CORE ou Majeures (> 200 €) pour supprimer tout risque de doublon lors des recommandations d'achats spéculatifs.
-* **Dashboard Web Assaini & Macro Unifié (v3.3.0) :** Double bandeau supérieur regroupant la Macro-Marché SSOT et les Allocations du Portefeuille Réel au sein de l'onglet **Positions Actives**, avec parallélisation du fetch des prix par multi-threading.
+* **Moteur Macro SSOT (`macro_market_engine.py` v3.3.0) :** Centralisation et partage d'un socle d'indicateurs macroéconomiques uniques (*Dominance BTC (BTC.D)*, *Capitalisation TOTAL3*, *Poudre Sèche Stablecoins Globales*, *Fear & Greed Index*, *Circuit Breaker BTC*) exploités de manière synchronisée sur l'IHM Web, le Moteur TP/SL, le Moteur de Recommandation Quotidien (19h) et l'ensemble des Prompts Système de l'IA.
+* **Ventilation Unifiée sans Doublons :** Le calcul des 4 poches s'appuie sur une fonction SSOT commune (`get_dashboard_portfolio_categories` / `calculate_unified_crypto_categories`). Les positions actives enregistrées en base SQLite constituent l'unique source de valorisation de la poche Spéculative, et sont strictement filtrées des soldes directs d'exchanges/portefeuilles pour éviter tout double-comptage.
+* **Isolation Étanche CORE vs Spéculatif :** La transmission du contexte à l'IA filtre et exclut automatiquement tous les symboles présents en poche CORE ou Majeures (> 200 €) pour supprimer tout risque de recommandation redondante.
+* **Dashboard Web Assaini & Multi-threaded (`dashboard.py` v3.3.0) :** Double bandeau supérieur regroupant la Macro-Marché SSOT et les Allocations du Portefeuille Réel au sein de l'onglet **Positions Actives**, avec parallélisation du fetch des prix (`ThreadPoolExecutor`) et isolation des prix par exchange (Kraken Spot vs OKX).
 
 ---
 
@@ -29,7 +30,7 @@ Le système élimine la dépendance aux agrégateurs tiers et applique la strat�
 | Fichier / Dossier | Rôle & Responsabilité | Version |
 | :--- | :--- | :--- |
 | **`dashboard.py`** | **Interface utilisateur Web (Streamlit)** : Cockpit unifié en 5 onglets (Positions Actives Live, Microstructure & Dérivés, Centre d'Alertes/Réconciliation, Assistant IA Pro SSOT, Administration & Monitoring). Double bandeau macro/allocations, parallélisation multi-threading du fetch des prix et édition dynamique des prompts. | `v3.3.0` |
-| **`macro_market_engine.py`** | **Source Unique de Vérité Macro (SSOT)** : Module centralisé de récupération du triplet Macro (BTC.D, TOTAL3, Stablecoins Cap) combiné au Fear & Greed Index et au Circuit Breaker BTC avec cache intelligent (300s). | `v1.0.0` |
+| **`macro_market_engine.py`** | **Source Unique de Vérité Macro (SSOT)** : Module centralisé de récupération du triplet Macro (BTC.D, TOTAL3, Stablecoins Cap) combiné au Fear & Greed Index et au Circuit Breaker BTC (-8.0% sur 24h) avec cache hybride Streamlit/CLI (300s) et multi-fallback API (OKX ➔ Kraken ➔ CoinGecko). | `v3.3.0` |
 | **`gemini_manager.py`** | **Connecteur & Wrapper Centralisé Gemini** : Module unique gérant les exécutions d'IA avec bascule de secours (*fallback*), retries, timeouts configurables (ex: 45s) et traçabilité du modèle ayant répondu. | `v1.0.0` |
 | **`config/gemini_config.json`** | **Configuration JSON des Modèles IA** : Fichier de stockage centralisé de la liste prioritaire des modèles Gemini (`gemini-3.8-flash`, `gemini-3.6-flash`, etc.) et du timeout réseau. | `v1.0.0` |
 | **`prompt_loader.py`** | **Chargeur SSOT de Prompts System** : Module centralisé d'importation dynamique et de concaténation des instructions d'expertise depuis `prompts/` avec gestion automatique de backups `.bak`. | `v1.0.0` |
@@ -39,7 +40,7 @@ Le système élimine la dépendance aux agrégateurs tiers et applique la strat�
 | **`funding_oi_engine.py`** | **Moteur Microstructure de Marché** : Analyse du Funding Rate (8h) et de la variation de l'Open Interest (OI) sur les contrats Swaps OKX/Kraken. | `v1.0.0` |
 | **`rsi_engine.py`** | **Moteur Screener RSI Multi-TF** : Calcul en temps réel des valeurs RSI (15m, 1h, 4h, 1D) pour la génération de la Heatmap Streamlit et la détection de surachats/surventes. | `v1.0.0` |
 | **`pnl_engine.py`** | **Moteur PnL FIFO & Metrics** : Calcule le PnL réalisé exact, le Win Rate %, le Profit Factor et maintient le journal d'historique des positions clôturées. | `v3.0.0` |
-| **`crypto_speculative_advisor.py`** | **Moteur de Reporting & IA (Daily Briefing 19h)** : Génère le rapport quotidien via Gemini, calcule la ventilation unifiée des poches et transmet les synthèses Telegram. | `v3.3.0` |
+| **`crypto_speculative_advisor.py`** | **Moteur de Reporting & IA (Daily Briefing 19h)** : Génère le rapport quotidien via Gemini v3.3.0, intègre le Contexte Macro SSOT (`macro_market_engine`), la ventilation unifiée des poches sans doublons et transmet les synthèses Telegram avec boutons d'action 1-click. | `v3.3.0` |
 | **`reconciliation_engine.py`** | **Moteur d'Audit BDD vs Exchanges** : Agrège les positions par `(Actif, Exchange)`. Détecte les `GHOST_POSITION`, `VOLUME_MISMATCH` et `MANUAL_TRADE_DETECTED`. | `v3.0.0` |
 | **`exchange_connectors.py`** | **Infra & Ingestion de données** : Connecteur multi-sources (Kraken Spot + Staking, OKX Europe/Proxy, MEXC, Exodus). | `v3.0.0` |
 | **`db_manager.py`** | **Gestionnaire de Base de Données** : Interface CRUD SQLite pour `crypto_trading.db`. | `v3.1.0` |
@@ -51,7 +52,7 @@ Le système élimine la dépendance aux agrégateurs tiers et applique la strat�
 
 1. **📊 Positions Actives (Live) :**
    * **Ligne 1 : Sentiment & Macro-Marché Globale (5 métriques SSOT) :** Fear & Greed Index, Circuit Breaker BTC (24h), Dominance BTC (BTC.D %), TOTAL3 (Cap. Alts en Mds $), Poudre Sèche Stablecoins Globales (Mds $).
-   * **Ligne 2 : Allocations & Portefeuille Réel (4 métriques) :** Volume Total Crypto, Majeures (BTC/ETH), Poche CORE, Poche Spéculative Total (avec PnL latent %/€ et % du portfolio).
+   * **Ligne 2 : Allocations & Portefeuille Réel (4 métriques unifiées) :** Volume Total Crypto, Majeures (BTC/ETH), Poche CORE, Poche Spéculative Total (avec PnL latent %/€ et % du portfolio).
    * **Pilotes de Risque :** Positions Spéculatives Actives (Free Ride / À Risque) et Buffer de Risque Global (% marge moyenne avant SL).
    * **Visualisation Graphique :** Camembert d'allocation globale et zooms interactifs par poche d'actifs (Majeures, CORE, Spéculatif).
    * **Suivi & Actions Dynamiques :** Tableau stylisé avec alertes visuelles, vue mobile tactile, sous-onglets d'action 1-click (Clôture, Break-Even, Édition SL/TP rapide, Mode Auto IA, Consolidation de doublons).
@@ -91,12 +92,15 @@ Le système élimine la dépendance aux agrégateurs tiers et applique la strat�
                        │   (BTC.D, TOTAL3, Stables, F&G, CB)   │
                        └────────────────────┬────────────────────┘
                                             │
-                                            ▼
-┌───────────────────────────────────────────────────────────────────────────────────────┐
-│                                   dashboard.py                                        │
-│  - Double Bandeau Superior KPI (Ligne 1 Macro / Ligne 2 Portefeuille)                  │
-│  - Formatage dynamique du bloc `macro_prompt_block`                                   │
-└───────────────────────────────────────────┬───────────────────────────────────────────┘
+                    ┌───────────────────────┴───────────────────────┐
+                    ▼                                               ▼
+┌───────────────────────────────────────┐       ┌───────────────────────────────────────┐
+│             dashboard.py              │       │     crypto_speculative_advisor.py     │
+│ - Bandeau KPI Macro & Portefeuille    │       │ - Rapport quotidien de 19h            │
+│ - Assistant IA Pro (Prompts Rapides) │       │ - Synthèses & Recommandations Telegram│
+└───────────────────┬───────────────────┘       └───────────────────┬───────────────────┘
+                    │                                               │
+                    └───────────────────────┬───────────────────────┘
                                             │
                                             ▼
 ┌───────────────────────────────────────────────────────────────────────────────────────┐
