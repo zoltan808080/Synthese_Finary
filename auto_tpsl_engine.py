@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Moteur d'auto-ajustement des paliers TP/SL par l'IA v3.3 (Architecture SSOT, Macro Engine & Centralisation Gemini)."""
+"""Moteur d'auto-ajustement des paliers TP/SL par l'IA v3.3.1 (Architecture SSOT, Macro Engine & Centralisation Gemini)."""
 
 import json
 import logging
@@ -8,7 +8,6 @@ import re
 from dotenv import load_dotenv
 
 from db_manager import get_auto_tp_sl_status, get_open_positions, update_trade_levels
-from exchange_connectors import get_all_exchange_crypto_balances
 from gemini_manager import call_gemini_with_fallback
 from prompt_loader import get_system_prompt
 
@@ -39,12 +38,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 def run_auto_tpsl_cycle(manual_trigger=False):
     """Exécute un cycle de réévaluation et d'ajustement automatique des paliers TP/SL via Gemini."""
     trigger_type = "MANUEL (Streamlit)" if manual_trigger else "AUTOMATIQUE (Cron 8h)"
-    logging.info(f"🤖 Démarrage du cycle Auto TP/SL — Mode {trigger_type} v3.3...")
+    logging.info(f"🤖 Démarrage du cycle Auto TP/SL — Mode {trigger_type} v3.3.1...")
 
     open_pos = get_open_positions()
     auto_map = get_auto_tp_sl_status()
 
-    target_positions = [p for p in open_pos if auto_map.get(p[0], False)]
+    # Règle SSOT : Par défaut, si non spécifié, is_auto est à True
+    target_positions = [p for p in open_pos if auto_map.get(p[0], True)]
 
     if not target_positions:
         logging.info("ℹ️ Aucune position active n'est configurée en mode Auto IA.")

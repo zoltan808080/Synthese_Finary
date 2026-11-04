@@ -6,7 +6,7 @@ DB_PATH = os.path.expanduser("~/Synthese_finary/crypto_trading.db")
 
 
 def init_db():
-  """Initialise les tables SQLite (positions ouvertes, trades fermés et filtres core)."""
+  """Initialise les tables SQLite (positions ouvertes, trades fermés et filtres core) en forçant le mode Auto/IA par défaut."""
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
 
@@ -61,7 +61,7 @@ def init_db():
     )
   if "auto_tp_sl" not in columns:
     cursor.execute(
-        "ALTER TABLE speculative_trades ADD COLUMN auto_tp_sl INTEGER DEFAULT 0"
+        "ALTER TABLE speculative_trades ADD COLUMN auto_tp_sl INTEGER DEFAULT 1"
     )
 
   # Table des trades manuels ignorés ou classés CORE
@@ -120,7 +120,7 @@ def get_auto_tp_sl_status():
   )
   rows = cursor.fetchall()
   conn.close()
-  return {row[0]: bool(row[1]) for row in rows}
+  return {row[0]: bool(row[1]) if row[1] is not None else True for row in rows}
 
 
 def add_recommendation(
@@ -133,16 +133,16 @@ def add_recommendation(
     sl_price,
     sl_type="invalidation",
 ):
-  """Enregistre une recommandation avec paliers TP1 et TP2."""
+  """Enregistre une recommandation avec paliers TP1 et TP2 (Mode Auto/IA actif par défaut)."""
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
   cursor.execute(
       """
         INSERT INTO speculative_trades (
             symbol, exchange, price_suggested, amount_eur, 
-            tp_price, tp1_price, tp2_price, sl_price, sl_type, status, step
+            tp_price, tp1_price, tp2_price, sl_price, sl_type, status, step, auto_tp_sl
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUGGESTED', 'ENTRY')
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'SUGGESTED', 'ENTRY', 1)
     """,
       (
           symbol,
@@ -163,7 +163,7 @@ def add_recommendation(
 
 
 def mark_trade_taken(rec_id, real_entry_price=None):
-  """Active une recommandation en position ouverte."""
+  """Active une recommandation en position ouverte (en confirmant le mode Auto/IA par défaut)."""
   conn = sqlite3.connect(DB_PATH)
   cursor = conn.cursor()
   if real_entry_price is None:
@@ -176,7 +176,7 @@ def mark_trade_taken(rec_id, real_entry_price=None):
   cursor.execute(
       """
         UPDATE speculative_trades
-        SET status = 'OPEN', price_entry = ?, taken_at = ?, step = 'ENTRY'
+        SET status = 'OPEN', price_entry = ?, taken_at = ?, step = 'ENTRY', auto_tp_sl = 1
         WHERE id = ?
     """,
       (real_entry_price, datetime.now(), rec_id),
@@ -506,6 +506,6 @@ def get_open_positions():
 if __name__ == "__main__":
   init_db()
   print(
-      "✅ Base SQLite v3.0 (Moonbag, Core & Journal Closed Trades) initialisée et"
-      " vérifiée."
+      "✅ Base SQLite v3.3.1 (Moonbag, Core & Mode Auto/IA par défaut)"
+      " initialisée et vérifiée."
   )
