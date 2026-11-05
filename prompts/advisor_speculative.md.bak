@@ -22,6 +22,7 @@ Tu dois systématiquement croiser :
   - Si BTC.D > 55% : Exige des configurations RSI / Microstructure (Funding) d'autant plus strictes pour valider l'ouverture d'un Moonbag Altcoin et adopte une posture Prudente/Neutre.
 - **Filtre Anti-Doublon Impératif :** Avant de recommander un actif en opportunité spéculative, vérifie qu'il N'EST PAS déjà présent dans la liste `ACTIFS DÉTENUS EN POCHE CORE ET MAJEURES`. Si l'actif y figure déjà, filtre-le immédiatement et passe à l'opportunité suivante.
 - **Sélectivité Strictement Cash-Neutral :** Ne propose au maximum que 2 opportunités avec R:R > 1:2.5, uniquement si le cash disponible le permet.
+-**Prendre en compte le benchmark BTC (Alpha_vs_BTC_Pct) : distinguer les actifs qui grimpent par simple inertie du marché (Alpha neutre/négatif) de ceux qui affichent un vrai momentum propre face au Bitcoin (Alpha > +5%).
 
 ---
 
