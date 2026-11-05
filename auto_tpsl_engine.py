@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Moteur d'auto-ajustement des paliers TP/SL par l'IA v3.4.0 (Benchmark BTC, SSOT Macro & Centralisation Gemini)."""
+"""Moteur d'auto-ajustement des paliers TP/SL par l'IA v3.5.0 (Benchmark BTC, Trailing SL High-Water Mark, SSOT Macro & Centralisation Gemini)."""
 
 import json
 import logging
@@ -8,7 +8,12 @@ import re
 import requests
 from dotenv import load_dotenv
 
-from db_manager import get_auto_tp_sl_status, get_open_positions, update_trade_levels
+from db_manager import (
+    get_auto_tp_sl_status,
+    get_open_positions,
+    update_highest_price_seen,
+    update_trade_levels,
+)
 from gemini_manager import call_gemini_with_fallback
 from prompt_loader import get_system_prompt
 
@@ -97,9 +102,9 @@ def fetch_live_price(symbol, exchange="KRAKEN"):
 
 
 def run_auto_tpsl_cycle(manual_trigger=False):
-    """Exécute un cycle de réévaluation et d'ajustement automatique des paliers TP/SL via Gemini (v3.4.0 Benchmark BTC)."""
+    """Exécute un cycle de réévaluation et d'ajustement automatique des paliers TP/SL via Gemini (v3.5.0 Benchmark BTC & High-Water Mark)."""
     trigger_type = "MANUEL (Streamlit)" if manual_trigger else "AUTOMATIQUE (Cron 8h)"
-    logging.info(f"🤖 Démarrage du cycle Auto TP/SL — Mode {trigger_type} v3.4.0 (Benchmark BTC)...")
+    logging.info(f"🤖 Démarrage du cycle Auto TP/SL — Mode {trigger_type} v3.5.0 (Benchmark BTC & High-Water Mark)...")
 
     open_pos = get_open_positions()
     auto_map = get_auto_tp_sl_status()
@@ -144,7 +149,7 @@ def run_auto_tpsl_cycle(manual_trigger=False):
         except Exception as e:
             logging.warning(f"⚠️ Erreur chargement Funding/OI : {e}")
 
-    # Structuration des données des positions (avec calcul d'Alpha vs BTC v3.4)
+    # Structuration des données des positions (avec calcul d'Alpha vs BTC & High-Water Mark v3.5)
     positions_payload = []
     for p in target_positions:
         p_id, sym, exch, entry, amt, tp1, tp2, sl, sl_type, step = p[:10]
@@ -154,13 +159,23 @@ def run_auto_tpsl_cycle(manual_trigger=False):
         tp2 = float(tp2) if tp2 else 0.0
         sl = float(sl) if sl else 0.0
 
-        # Extraction de btc_price_entry (Index 12 en BDD v3.4)
+        # Extraction de btc_price_entry (Index 12) et highest_price_seen (Index 13)
         btc_entry = float(p[12]) if (len(p) > 12 and p[12] is not None and float(p[12]) > 0) else btc_live_price
+        hwm_raw = float(p[13]) if (len(p) > 13 and p[13] is not None and float(p[13]) > 0) else entry
 
         current_price = fetch_live_price(sym, exch) or entry
+
+        # Enregistrement atomique du plus haut sommet local atteint
+        if current_price > 0:
+            update_highest_price_seen(p_id, current_price)
+
+        highest_seen = max(hwm_raw, current_price, entry)
+
         pnl_pct = (((current_price - entry) / entry) * 100.0) if entry > 0 else 0.0
         btc_pnl_pct = (((btc_live_price - btc_entry) / btc_entry) * 100.0) if btc_entry > 0 else 0.0
         alpha_vs_btc_pct = pnl_pct - btc_pnl_pct
+
+        drawdown_from_hwm_pct = (((current_price - highest_seen) / highest_seen) * 100.0) if highest_seen > 0 else 0.0
 
         positions_payload.append({
             "id": p_id,
@@ -168,6 +183,8 @@ def run_auto_tpsl_cycle(manual_trigger=False):
             "exchange": exch,
             "price_entry": round(entry, 4),
             "current_price": round(current_price, 4),
+            "highest_price_seen": round(highest_seen, 4),
+            "drawdown_from_hwm_pct": round(drawdown_from_hwm_pct, 2),
             "pnl_pct": round(pnl_pct, 2),
             "btc_price_entry": round(btc_entry, 2),
             "btc_current_price": round(btc_live_price, 2),
@@ -183,7 +200,7 @@ def run_auto_tpsl_cycle(manual_trigger=False):
     # Chargement du prompt SSOT (Project Rules + auto_tpsl.md)
     system_prompt = get_system_prompt("auto_tpsl")
 
-    user_payload = f"""SITUATION DES POSITIONS À ÉVALUER (AVEC BENCHMARK BTC & ALPHA) :
+    user_payload = f"""SITUATION DES POSITIONS À ÉVALUER (AVEC BENCHMARK BTC, ALPHA & HIGH-WATER MARK TRAILING SL) :
 {json.dumps(positions_payload, indent=2, ensure_ascii=False)}
 
 {macro_context}
