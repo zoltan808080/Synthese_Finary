@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.4.0 (Benchmark BTC, SSOT Macro / Multi-Exchanges - Kraken & OKX)."""
+"""Cockpit Spéculatif & Analytics Streamlit v3.5.0 (Benchmark BTC, High-Water Mark, Conseil Flash SSOT & Multi-Exchanges Kraken/OKX)."""
 
 import json
 import os
@@ -50,7 +50,7 @@ try:
 except ImportError:
     MACRO_ENGINE_AVAILABLE = False
 
-# Import du module central d'externalisation et d'administration des prompts (SSOT v3.2)
+# Import du module central d'externalisation et d'administration des prompts (SSOT v3.5)
 try:
     from prompt_loader import (
         get_system_prompt,
@@ -525,9 +525,9 @@ if not check_password():
 
 init_db()
 
-st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.4.0)")
+st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.5.0)")
 st.markdown(
-    "*Suivi multi-exchange temps réel (Kraken & OKX), Benchmark BTC (Alpha), Macro SSOT & Assistant IA*"
+    "*Suivi multi-exchange temps réel (Kraken & OKX), Benchmark BTC (Alpha), Trailing SL High-Water Mark & Assistant IA SSOT*"
 )
 st.markdown("---")
 
@@ -647,7 +647,7 @@ _bulk_prices_map = (
     else {}
 )
 
-# Récupération du prix live du BTC pour le benchmarking Alpha (v3.4)
+# Récupération du prix live du BTC pour le benchmarking Alpha (v3.5)
 btc_live_eur = fetch_live_price("BTC", "KRAKEN") or fetch_live_price("BTC", "OKX") or 1.0
 
 # ==========================================
@@ -659,7 +659,7 @@ with tab_live:
             Inventaire global et ventilation de votre capital en temps réel (Autonome & 100% direct exchanges) :
             * **Ligne 1 (Macro & Sentiment) :** Fear & Greed Index, Circuit Breaker BTC, Dominance BTC (BTC.D), TOTAL3 (Cap. Alts hors BTC/ETH) et Poudre sèche Stablecoins Globales.
             * **Ligne 2 (Allocations) :** Volume Total Crypto, Majeures (BTC/ETH), Poche CORE et Poche Spéculative Total (Moonbag) avec PnL latent.
-            * **Alpha vs BTC (v3.4) :** Mesure la surperformance ou sous-performance de la position par rapport à la simple détention de Bitcoin sur la même durée ($\text{{PnL}}_{{\text{{Alt}}}} - \text{{PnL}}_{{\text{{BTC}}}}$).
+            * **Alpha vs BTC (v3.5) :** Mesure la surperformance ou sous-performance de la position par rapport à la simple détention de Bitcoin sur la même durée ($\text{{PnL}}_{{\text{{Alt}}}} - \text{{PnL}}_{{\text{{BTC}}}}$).
             """)
 
     positions = get_open_positions()
@@ -685,7 +685,7 @@ with tab_live:
             sl_eur = float(p[7]) if len(p) > 7 and p[7] is not None else 0.0
             step_val = p[9] if len(p) > 9 and p[9] is not None else "ENTRY"
             
-            # Traitement v3.4 : Récupération du prix BTC à l'entrée (Index 12)
+            # Traitement v3.5 : Récupération du prix BTC à l'entrée (Index 12)
             btc_entry_eur = float(p[12]) if (len(p) > 12 and p[12] is not None and float(p[12]) > 0) else btc_live_eur
             is_auto = auto_tpsl_map.get(pos_id, True)
 
@@ -704,7 +704,7 @@ with tab_live:
                 ((live_eur - entry_eur) / entry_eur) * 100.0 if entry_eur > 0 else 0.0
             )
 
-            # --- CALCUL BENCHMARK BTC & ALPHA (v3.4) ---
+            # --- CALCUL BENCHMARK BTC & ALPHA (v3.5) ---
             btc_pnl_pct = (((btc_live_eur - btc_entry_eur) / btc_entry_eur) * 100.0) if btc_entry_eur > 0 else 0.0
             alpha_btc_pct = pnl_pct - btc_pnl_pct
 
@@ -1921,14 +1921,14 @@ with tab_alerts:
             )
 
 # ==========================================
-# ONGLET 4 : ASSISTANT IA PRO (SSOT EXTERNALISÉ v3.4)
+# ONGLET 4 : ASSISTANT IA PRO (SSOT EXTERNALISÉ v3.5)
 # ==========================================
 with tab_ai:
     with st.expander("📖 Guide de l'Assistant IA Conversationnel (Architecture SSOT & Benchmark BTC)"):
         st.markdown("""
             Votre stratège crypto personnel en direct :
             * **Prompts Rapides :** Lancez des analyses complexes en un clic sans rien saisir.
-            * **Benchmark BTC Intégré (v3.4) :** Gemini analyse désormais la surperformance réelle (Alpha) de vos positions spéculatives vs BTC.
+            * **Benchmark BTC Intégré (v3.5) :** Gemini analyse désormais la surperformance réelle (Alpha) de vos positions spéculatives vs BTC.
             * **Chat Libre :** Posez n'importe quelle question sur vos positions et votre gestion du risque.
             """)
 
@@ -2428,7 +2428,7 @@ with tab_monitor:
         st.markdown("""
             Surveillez l'état de santé de vos connecteurs et administrez votre cockpit :
             * **Connecteurs API :** Vérification de la disponibilité des exchanges.
-            * **Configuration Gemini SSOT :** Ajustez dynamiquement la priorité des modèles et timeouts.
+            * **Configuration Gemini SSOT :** Ajustez dynamiquement la priorité des modèles, timeouts et retries.
             * **Administration Prompts SSOT :** Éditez et restaurez les prompts Markdown (`.md`) d'expertise IA.
             * **Journaux Système (Logs) :** Visualisez les derniers événements des services en arrière-plan.
             """)
@@ -2444,18 +2444,19 @@ with tab_monitor:
 
     st.markdown("---")
     st.subheader("⚙️ Configuration Centralisée des Modèles Gemini (SSOT)")
-    st.markdown("Ajustez la priorité des modèles Gemini et le timeout appliqués à l'ensemble des moteurs du projet :")
+    st.markdown("Ajustez la priorité des modèles Gemini, le délai de timeout et le nombre de retries applicables à l'ensemble des moteurs du projet :")
 
     gemini_cfg = load_gemini_config()
-    models_list_str = "\n".join(gemini_cfg.get("models_priority", []))
+    models_list = gemini_cfg.get("models_priority") or gemini_cfg.get("models", [])
+    models_list_str = "\n".join(models_list)
 
     col_cfg1, col_cfg2 = st.columns([2, 1])
     with col_cfg1:
         new_models_str = st.text_area(
             "Ordre de priorité des modèles Gemini (1 par ligne)",
             value=models_list_str,
-            height=140,
-            help="En cas de surcharge ou timeout, le système bascule automatiquement sur le modèle suivant.",
+            height=160,
+            help="En cas de surcharge ou timeout, le système tente le modèle N fois avant de basculer automatiquement sur le modèle suivant.",
         )
     with col_cfg2:
         new_timeout = st.number_input(
@@ -2465,17 +2466,30 @@ with tab_monitor:
             value=int(gemini_cfg.get("timeout_seconds", 45)),
             step=5,
         )
+        new_retries = st.number_input(
+            "Nombre de retries par modèle",
+            min_value=1,
+            max_value=5,
+            value=int(gemini_cfg.get("max_retries_per_model", 2)),
+            step=1,
+            help="Nombre de tentatives sur un même modèle en cas d'erreur 503/timeout avant d'effectuer la bascule sur le modèle suivant.",
+        )
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("💾 Enregistrer la Configuration Gemini", type="primary"):
             parsed_models = [m.strip() for m in new_models_str.split("\n") if m.strip()]
             updated_cfg = {
                 "models_priority": parsed_models,
-                "timeout_seconds": new_timeout,
-                "max_retries_per_model": gemini_cfg.get("max_retries_per_model", 1),
+                "models": parsed_models,
+                "timeout_seconds": int(new_timeout),
+                "max_retries_per_model": int(new_retries),
             }
             if save_gemini_config(updated_cfg):
                 st.success("✅ Configuration Gemini mise à jour et appliquée à tous les services !")
-                send_telegram_notify("⚙️ *CONFIGURATION GEMINI MISE À JOUR VIA WEB*\nNouvelle priorité : " + ", ".join(parsed_models))
+                send_telegram_notify(
+                    "⚙️ *CONFIGURATION GEMINI MISE À JOUR VIA WEB*\n"
+                    f"• Priorité : {', '.join(parsed_models)}\n"
+                    f"• Timeout : {new_timeout}s | Retries / modèle : {new_retries}"
+                )
                 st.rerun()
             else:
                 st.error("❌ Erreur lors de la sauvegarde de la configuration.")
@@ -2498,6 +2512,7 @@ with tab_monitor:
         prompt_descriptions = {
             "advisor_speculative": "🎯 Rapport Spéculatif (19h) & Analyse des opportunités de marché",
             "auto_tpsl": "🤖 Moteur de recalibrage automatique TP/SL (Cron 8h & Manuel)",
+            "flash_advice": "⚡ Conseil Flash IA & Alertes Telegram (Sentinelle 24/7)",
             "macro_arbitrage": "⚖️ Stratégie & Rééquilibrage Macro Inter-Poches",
             "project_rules": "⚙️ Règles fondamentales du projet, arbitrages & Cash-Neutral strict",
             "risk_manager": "🛡️ Audit de sécurité, vérification des Stop-Loss et de l'exposition",

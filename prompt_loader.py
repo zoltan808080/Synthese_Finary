@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Module d'assemblage, d'externalisation et d'administration des prompts IA (SSOT v3.2)."""
+"""Module d'assemblage, d'externalisation et d'administration des prompts IA (SSOT v3.5)."""
 
 import logging
 from pathlib import Path
@@ -39,7 +39,7 @@ def get_raw_prompt(prompt_name: str) -> str:
 def get_system_prompt(template_name: str) -> str:
     """Assemble les règles métier globales avec le template spécifique au rôle.
 
-    Ex: template_name = 'risk_manager', 'auto_tpsl', 'advisor_speculative'
+    Ex: template_name = 'risk_manager', 'auto_tpsl', 'advisor_speculative', 'flash_advice'
     """
     rules = load_project_rules()
     clean_name = template_name.replace(".md", "").strip()
@@ -103,7 +103,13 @@ def restore_backup_prompt(prompt_name: str) -> bool:
 
 def list_available_prompts() -> list[str]:
     """Retourne la liste des noms des fichiers de prompts disponibles (sans extension ni fichier .bak)."""
-    default_prompts = ["advisor_speculative", "auto_tpsl", "project_rules", "risk_manager"]
+    default_prompts = [
+        "advisor_speculative",
+        "auto_tpsl",
+        "flash_advice",
+        "project_rules",
+        "risk_manager",
+    ]
     if PROMPTS_DIR.exists():
         found = [
             p.stem for p in PROMPTS_DIR.glob("*.md")

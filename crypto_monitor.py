@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+"""Sentinelle 24/7 et Moteur d'Alertes Telegram Intelligentes v3.5.0 (Conseil Flash IA Gemini SSOT, Alpha vs BTC & High-Water Mark)."""
+
 import datetime
 import logging
 import os
@@ -8,8 +11,11 @@ from db_manager import (
     get_open_positions,
     init_db,
     update_alert_status,
+    update_highest_price_seen,
     update_trade_step,
 )
+from gemini_manager import call_gemini_with_fallback
+from prompt_loader import get_system_prompt
 
 load_dotenv()
 init_db()
@@ -152,6 +158,30 @@ def get_live_price(symbol, exchange):
   return None
 
 
+def get_flash_ai_advice(symbol, exchange, price_entry, current_price, pnl_pct, alpha_vs_btc_pct, event_type, sl_price=0.0):
+  """Sollicite Gemini en mode Flash via le fichier SSOT (prompts/flash_advice.md)."""
+  system_prompt = get_system_prompt("flash_advice")
+
+  user_payload = f"""SITUATION DE L'ALERTE :
+- Actif : {symbol} ({exchange})
+- Prix d'entrée : {price_entry:.4f} € | Prix actuel : {current_price:.4f} €
+- PnL latent : {pnl_pct:+.2f}% | Alpha vs BTC : {alpha_vs_btc_pct:+.2f}%
+- Stop-Loss actif : {sl_price:.4f} €
+- Événement déclencheur : {event_type}"""
+
+  try:
+    response_text, used_model = call_gemini_with_fallback(
+        prompt_text=user_payload,
+        system_instruction=system_prompt,
+        json_mode=False,
+        custom_timeout=15
+    )
+    return response_text.strip()
+  except Exception as e:
+    logging.warning(f"⚠️ Erreur lors de la génération du conseil flash IA : {e}")
+    return "Consulter le dashboard Streamlit pour arbitrer la position."
+
+
 def send_alert_telegram(text, rec_id):
   """Envoie une alerte Telegram urgente avec bouton de clôture BDD."""
   url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -181,31 +211,32 @@ def send_alert_telegram(text, rec_id):
 
 
 def monitor_positions():
-  """Surveillance 24/7 : TP1, TP2, Stop-Loss et Time-Stop 21 jours."""
-  logging.info("🔍 Surveillance 24/7 des positions ouvertes (v3.3.1)...")
+  """Surveillance 24/7 v3.5.0 : TP1, TP2, Stop-Loss, Décrochage d'Alpha vs BTC et Time-Stop 21j avec conseils flash IA SSOT."""
+  logging.info("🔍 Surveillance 24/7 des positions ouvertes (v3.5.0 SSOT)...")
   open_trades = get_open_positions()
 
   if not open_trades:
     logging.info("Aucune position ouverte à surveiller.")
     return
 
+  btc_live_price = get_live_price("BTC", "KRAKEN") or get_live_price("BTC", "OKX") or 1.0
   now = datetime.datetime.now()
 
   for trade in open_trades:
-    (
-        rec_id,
-        symbol,
-        exchange,
-        price_entry,
-        amount_eur,
-        tp1_price,
-        tp2_price,
-        sl_price,
-        sl_type,
-        step,
-        taken_at,
-        alert_status,
-    ) = trade
+    # Dépaquetage sécurisé des 14 champs (v3.5.0)
+    rec_id = trade[0]
+    symbol = trade[1]
+    exchange = trade[2]
+    price_entry = float(trade[3]) if trade[3] is not None else 0.0
+    amount_eur = float(trade[4]) if trade[4] is not None else 0.0
+    tp1_price = float(trade[5]) if trade[5] is not None else 0.0
+    tp2_price = float(trade[6]) if trade[6] is not None else 0.0
+    sl_price = float(trade[7]) if trade[7] is not None else 0.0
+    sl_type = trade[8] if trade[8] else "invalidation"
+    step = trade[9] if trade[9] else "ENTRY"
+    taken_at = trade[10]
+    alert_status = trade[11] if trade[11] else "NONE"
+    btc_entry = float(trade[12]) if (len(trade) > 12 and trade[12] and float(trade[12]) > 0) else btc_live_price
 
     current_price = get_live_price(symbol, exchange)
     if not current_price or price_entry <= 0:
@@ -214,25 +245,29 @@ def monitor_positions():
       )
       continue
 
+    # Enregistrement atomique du sommet local (High-Water Mark v3.5)
+    update_highest_price_seen(rec_id, current_price)
+
     pnl_pct = ((current_price - price_entry) / price_entry) * 100.0
+    btc_pnl_pct = (((btc_live_price - btc_entry) / btc_entry) * 100.0) if btc_entry > 0 else 0.0
+    alpha_vs_btc_pct = pnl_pct - btc_pnl_pct
+
     logging.info(
         f"📈 {symbol} ({exchange}) : Entrée = {price_entry:.4f} € | Actuel ="
-        f" {current_price:.4f} € | PnL = {pnl_pct:+.2f}% | Étape = {step}"
+        f" {current_price:.4f} € | PnL = {pnl_pct:+.2f}% | Alpha vs BTC = {alpha_vs_btc_pct:+.2f}% | Étape = {step}"
     )
 
     # 1. Take-Profit 1 (+100% / x2) -> Free Ride
     if step == "ENTRY" and tp1_price > 0 and current_price >= tp1_price:
+      ai_advice = get_flash_ai_advice(symbol, exchange, price_entry, current_price, pnl_pct, alpha_vs_btc_pct, "ATTEINTE DE TP1 (x2)", tp1_price)
       msg = (
           "🚀 *ALERTE MOONBAG : TP1 ATTEINT !*\n\n"
           f"Le token *{symbol}* ({exchange}) a fait x2 !\n"
           f"• Prix d'entrée : {price_entry:.4f} €\n"
           f"• Prix actuel : *{current_price:.4f} €* ({pnl_pct:+.2f}%)\n"
+          f"• Alpha vs BTC : {alpha_vs_btc_pct:+.2f}%\n"
           f"• Objectif TP1 (x2) : {tp1_price:.4f} €\n\n"
-          "💡 *Actions conseillées* :\n"
-          "1. Vendre **50% de la position** pour récupérer le capital initial"
-          " (Free Ride).\n"
-          "2. Remonter le Stop-Loss au prix d'entrée (*"
-          f"{price_entry:.4f} €*) : **Break-Even**."
+          f"🤖 *CONSEIL TACTIQUE IA* :\n{ai_advice}"
       )
       send_alert_telegram(msg, rec_id)
       update_trade_step(rec_id, "TP1_DONE")
@@ -240,15 +275,15 @@ def monitor_positions():
 
     # 2. Take-Profit 2 (+300% / x4) -> Verrouillage gains
     elif step == "TP1_DONE" and tp2_price > 0 and current_price >= tp2_price:
+      ai_advice = get_flash_ai_advice(symbol, exchange, price_entry, current_price, pnl_pct, alpha_vs_btc_pct, "ATTEINTE DE TP2 (x4)", tp2_price)
       msg = (
           "🎯 *ALERTE MOONBAG : TP2 ATTEINT !*\n\n"
           f"Le token *{symbol}* ({exchange}) a atteint l'objectif x4 !\n"
           f"• Prix d'entrée : {price_entry:.4f} €\n"
           f"• Prix actuel : *{current_price:.4f} €* ({pnl_pct:+.2f}%)\n"
+          f"• Alpha vs BTC : {alpha_vs_btc_pct:+.2f}%\n"
           f"• Objectif TP2 (x4) : {tp2_price:.4f} €\n\n"
-          "💡 *Actions conseillées* :\n"
-          "1. Vendre **25% supplémentaires** pour sécuriser des gains.\n"
-          "2. Conserver les **25% restants en Moonbag** pour viser plus haut."
+          f"🤖 *CONSEIL TACTIQUE IA* :\n{ai_advice}"
       )
       send_alert_telegram(msg, rec_id)
       update_trade_step(rec_id, "TP2_DONE")
@@ -260,21 +295,42 @@ def monitor_positions():
         and current_price <= sl_price
         and alert_status != "SL_ALERTED"
     ):
+      ai_advice = get_flash_ai_advice(symbol, exchange, price_entry, current_price, pnl_pct, alpha_vs_btc_pct, "RUPTURE STOP-LOSS", sl_price)
       msg = (
           "🛑 *ALERTE STOP-LOSS / INVALIDATION*\n\n"
           f"Le token *{symbol}* ({exchange}) a franchi son niveau"
           f" d'invalidation ({sl_type}) !\n"
           f"• Prix d'entrée : {price_entry:.4f} €\n"
           f"• Prix actuel : *{current_price:.4f} €* ({pnl_pct:+.2f}%)\n"
+          f"• Alpha vs BTC : {alpha_vs_btc_pct:+.2f}%\n"
           f"• Seuil Invalidation : {sl_price:.4f} €\n\n"
-          "💡 *Action conseillée* : Couper la position immédiatement."
+          f"🤖 *CONSEIL TACTIQUE IA* :\n{ai_advice}"
       )
       send_alert_telegram(msg, rec_id)
       update_alert_status(rec_id, "SL_ALERTED")
       logging.info(f"🚨 Alerte SL envoyée pour {symbol}")
 
-    # 4. Time-Stop Automatique (Stagnation > 21 jours entre -5% et +5%)
-    elif taken_at and alert_status not in ["TIMESTOP_ALERTED", "SL_ALERTED"]:
+    # 4. Alerte Décrochage d'Alpha vs BTC (Sous-performance <= -5.0%)
+    elif (
+        alpha_vs_btc_pct <= -5.0
+        and alert_status not in ["ALPHA_ALERTED", "SL_ALERTED"]
+    ):
+      ai_advice = get_flash_ai_advice(symbol, exchange, price_entry, current_price, pnl_pct, alpha_vs_btc_pct, "DÉCROCHAGE D'ALPHA VS BTC", sl_price)
+      msg = (
+          "⚠️ *ALERTE DÉCROCHAGE D'ALPHA VS BTC*\n\n"
+          f"Le token *{symbol}* ({exchange}) accuse un coût d'opportunité sévère face au Bitcoin !\n"
+          f"• Alpha vs BTC : *{alpha_vs_btc_pct:+.2f}%* (Seuil : -5.0%)\n"
+          f"• Prix d'entrée : {price_entry:.4f} €\n"
+          f"• Prix actuel : *{current_price:.4f} €* ({pnl_pct:+.2f}%)\n"
+          f"• Stop-Loss Actuel : {sl_price:.4f} €\n\n"
+          f"🤖 *CONSEIL TACTIQUE IA* :\n{ai_advice}"
+      )
+      send_alert_telegram(msg, rec_id)
+      update_alert_status(rec_id, "ALPHA_ALERTED")
+      logging.info(f"⚠️ Alerte Décrochage Alpha envoyée pour {symbol}")
+
+    # 5. Time-Stop Automatique (Stagnation > 21 jours entre -5% et +5%)
+    elif taken_at and alert_status not in ["TIMESTOP_ALERTED", "SL_ALERTED", "ALPHA_ALERTED"]:
       trade_date = None
       try:
         trade_date = datetime.datetime.fromisoformat(str(taken_at))
@@ -289,14 +345,15 @@ def monitor_positions():
       if trade_date:
         days_open = (now - trade_date).days
         if days_open >= 21 and abs(pnl_pct) <= 5.0:
+          ai_advice = get_flash_ai_advice(symbol, exchange, price_entry, current_price, pnl_pct, alpha_vs_btc_pct, "TIME-STOP 21 JOURS", sl_price)
           msg = (
               "⏱️ *ALERTE TIME-STOP (21 JOURS)*\n\n"
               f"Le token *{symbol}* ({exchange}) stagne depuis **{days_open}"
               " jours**.\n"
               f"• Prix d'entrée : {price_entry:.4f} €\n"
-              f"• Prix actuel : *{current_price:.4f} €* ({pnl_pct:+.2f}%)\n\n"
-              "💡 *Action conseillée* : Arbitrer ou clôturer la position pour"
-              " réallouer la liquidité sur une opportunité plus dynamique."
+              f"• Prix actuel : *{current_price:.4f} €* ({pnl_pct:+.2f}%)\n"
+              f"• Alpha vs BTC : {alpha_vs_btc_pct:+.2f}%\n\n"
+              f"🤖 *CONSEIL TACTIQUE IA* :\n{ai_advice}"
           )
           send_alert_telegram(msg, rec_id)
           update_alert_status(rec_id, "TIMESTOP_ALERTED")
