@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.8.0 (Benchmark BTC, BTC.D Gatekeeper, Vigie Intra-CORE 35%, Sentinelle Zombies & Assistant IA SSOT)."""
+"""Cockpit Spéculatif & Analytics Streamlit v3.9.0 (Benchmark BTC, BTC.D Gatekeeper, Vigie Intra-CORE 35%, Sentinelle Zombies, Tickets d'Ordres & Thèses CORE 1-Click)."""
 
 import json
 import os
@@ -277,6 +277,30 @@ def compute_ai_liquidities(balances, eur_usd_rate=1.12, fallback_cash_eur=0.0):
         total_liq = fallback_cash_eur
         stables_eur = fallback_cash_eur
     return round(fiat_eur, 2), round(stables_eur, 2), round(total_liq, 2)
+
+
+def extract_core_proposals_from_text(text: str):
+    """Extrait le bloc JSON machine 'core_proposals' généré par macro_arbitrage.md (v3.9.0)."""
+    import re
+    if not text or "core_proposals" not in text:
+        return None
+    # Recherche bloc ```json ... ``` ou ``` ... ```
+    match = re.search(r'```(?:json)?\s*(\{[\s\S]*?"core_proposals"[\s\S]*?\})\s*```', text, re.IGNORECASE)
+    if match:
+        try:
+            data = json.loads(match.group(1))
+            return data.get("core_proposals")
+        except Exception:
+            pass
+    # Recherche directe d'objet JSON sans backticks
+    match2 = re.search(r'(\{[\s\S]*?"core_proposals"[\s\S]*?\})', text)
+    if match2:
+        try:
+            data = json.loads(match2.group(1))
+            return data.get("core_proposals")
+        except Exception:
+            pass
+    return None
 
 
 def get_formatted_core_and_majors_breakdown(balances, eur_usd_rate=1.12, open_pos=None):
@@ -569,9 +593,9 @@ if not check_password():
 
 init_db()
 
-st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.8.0)")
+st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.9.0)")
 st.markdown(
-    "*Suivi multi-exchange temps réel (Kraken & OKX), Benchmark BTC (Alpha), Vigie CORE 35%, Sentinelle Zombies & Assistant IA SSOT*"
+    "*Suivi multi-exchange temps réel (Kraken & OKX), Benchmark BTC (Alpha), Vigie CORE 35%, Sentinelle Zombies & Thèses CORE 1-Click*"
 )
 st.markdown("---")
 
@@ -2197,6 +2221,7 @@ with tab_ai:
             * **Prompts Rapides :** Lancez des analyses complexes en un clic sans rien saisir.
             * **Benchmark BTC Intégré :** Gemini analyse désormais la surperformance réelle (Alpha) de vos positions spéculatives vs BTC.
             * **Confluence & Tickets d'Ordres (v3.7) :** Recommandations assorties d'un Score de Conviction (1 à 5 ⭐) et de fiches d'ordres pré-mâchées.
+            * **Gouvernance CORE 1-Click (v3.9) :** Détection automatique des qualifications de thèses (`core_proposals`) et bouton d'application directe en BDD.
             * **Chat Libre :** Posez n'importe quelle question sur vos positions et votre gestion du risque.
             """)
 
@@ -2538,9 +2563,36 @@ POSITIONS SPÉCULATIVES ACTIVES EN BDD :
             ),
         }]
 
-    for message in st.session_state.messages:
+    for msg_idx, message in enumerate(st.session_state.messages):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+            if message["role"] == "assistant":
+                proposals = extract_core_proposals_from_text(message["content"])
+                if proposals and isinstance(proposals, dict):
+                    st.markdown("---")
+                    st.markdown("##### ✨ Qualifications CORE suggérées par l'IA :")
+                    prop_cols = st.columns(min(4, len(proposals)))
+                    for p_i, (p_sym, p_data) in enumerate(proposals.items()):
+                        col = prop_cols[p_i % len(prop_cols)]
+                        status = p_data.get("status", "ACTIVE")
+                        notes = p_data.get("notes", "")
+                        badge = "🟢" if status == "ACTIVE" else ("🟡" if status == "WATCHLIST_TRIM" else "🔴")
+                        col.caption(f"{badge} **{p_sym}** : `{status}`\n*{notes}*")
+                    
+                    apply_key = f"btn_apply_core_proposals_history_{msg_idx}"
+                    if st.button("✨ Appliquer ces qualifications CORE en BDD (1-Click)", type="primary", key=apply_key):
+                        for p_sym, p_data in proposals.items():
+                            update_core_asset_metadata(
+                                symbol=p_sym,
+                                thesis_status=p_data.get("status", "ACTIVE"),
+                                notes=p_data.get("notes", "")
+                            )
+                        st.cache_data.clear()
+                        send_telegram_notify(
+                            f"🏷️ *THÈSES CORE MISES À JOUR (1-CLICK IA)*\n• {len(proposals)} actif(s) qualifié(s) automatiquement en BDD."
+                        )
+                        st.success(f"✅ {len(proposals)} qualification(s) CORE appliquée(s) en base de données !")
+                        st.rerun()
 
     user_input = st.chat_input(
         "Ex: Analyse mes risques actuels ou donne-moi ton avis sur mon"
@@ -2614,6 +2666,34 @@ ACTIFS DÉTENUS EN POCHE CORE ET MAJEURES (FILTRE ANTI-DOUBLON IMPÉRATIF) :
 
                     st.markdown(answer)
                     st.caption(f"🤖 *Réponse générée avec succès via `{used_model}`*")
+
+                    # Détection immédiate des propositions CORE dans la nouvelle réponse
+                    proposals = extract_core_proposals_from_text(answer)
+                    if proposals and isinstance(proposals, dict):
+                        st.markdown("---")
+                        st.markdown("##### ✨ Qualifications CORE suggérées par l'IA :")
+                        prop_cols = st.columns(min(4, len(proposals)))
+                        for p_i, (p_sym, p_data) in enumerate(proposals.items()):
+                            col = prop_cols[p_i % len(prop_cols)]
+                            status = p_data.get("status", "ACTIVE")
+                            notes = p_data.get("notes", "")
+                            badge = "🟢" if status == "ACTIVE" else ("🟡" if status == "WATCHLIST_TRIM" else "🔴")
+                            col.caption(f"{badge} **{p_sym}** : `{status}`\n*{notes}*")
+                        
+                        apply_key_live = f"btn_apply_core_proposals_live_{len(st.session_state.messages)}"
+                        if st.button("✨ Appliquer ces qualifications CORE en BDD (1-Click)", type="primary", key=apply_key_live):
+                            for p_sym, p_data in proposals.items():
+                                update_core_asset_metadata(
+                                    symbol=p_sym,
+                                    thesis_status=p_data.get("status", "ACTIVE"),
+                                    notes=p_data.get("notes", "")
+                                )
+                            st.cache_data.clear()
+                            send_telegram_notify(
+                                f"🏷️ *THÈSES CORE MISES À JOUR (1-CLICK IA)*\n• {len(proposals)} actif(s) qualifié(s) automatiquement en BDD."
+                            )
+                            st.success(f"✅ {len(proposals)} qualification(s) CORE appliquée(s) en base de données !")
+                            st.rerun()
 
                     st.session_state.messages.append(
                         {"role": "assistant", "content": answer}
