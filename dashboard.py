@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.6.0 (Benchmark BTC, BTC.D Gatekeeper, Vigie Intra-CORE 35% & Assistant IA SSOT)."""
+"""Cockpit Spéculatif & Analytics Streamlit v3.7.0 (Benchmark BTC, BTC.D Gatekeeper, Vigie Intra-CORE 35%, Tickets d'Ordres & Confluence IA SSOT)."""
 
 import json
 import os
@@ -25,7 +25,7 @@ from db_manager import (
     toggle_auto_tp_sl,
     update_trade_amount,
     update_trade_levels,
-    # --- Nouveautés v3.6.0 ---
+    # --- Nouveautés v3.6.0+ ---
     get_all_core_metadata,
     update_core_asset_metadata,
 )
@@ -53,7 +53,7 @@ try:
 except ImportError:
     MACRO_ENGINE_AVAILABLE = False
 
-# Import du module central d'externalisation et d'administration des prompts (SSOT v3.5)
+# Import du module central d'externalisation et d'administration des prompts (SSOT v3.5+)
 try:
     from prompt_loader import (
         get_system_prompt,
@@ -315,6 +315,28 @@ st.set_page_config(
     layout="wide",
 )
 
+# --- STYLING CSS v3.7.0 : ORDER TICKETS & MONOSPACE TERMINAL ---
+st.markdown(
+    """
+    <style>
+    /* Amélioration visuelle des blocs de tickets d'ordres (pre / code) */
+    pre, code {
+        font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace !important;
+        letter-spacing: -0.2px;
+    }
+    div[data-testid="stChatMessage"] pre {
+        background-color: #121820 !important;
+        border: 1px solid #1f3a52 !important;
+        border-left: 4px solid #00ffcc !important;
+        border-radius: 6px !important;
+        padding: 12px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_live_price_cached(sym, exch, eur_usd_rate):
@@ -537,9 +559,9 @@ if not check_password():
 
 init_db()
 
-st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.6.0)")
+st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.7.0)")
 st.markdown(
-    "*Suivi multi-exchange temps réel (Kraken & OKX), Benchmark BTC (Alpha), Vigie CORE 35%, Trailing SL & Assistant IA SSOT*"
+    "*Suivi multi-exchange temps réel (Kraken & OKX), Benchmark BTC (Alpha), Vigie CORE 35%, Tickets d'Ordres & Confluence IA SSOT*"
 )
 st.markdown("---")
 
@@ -2060,14 +2082,15 @@ with tab_alerts:
             )
 
 # ==========================================
-# ONGLET 4 : ASSISTANT IA PRO (SSOT EXTERNALISÉ v3.5)
+# ONGLET 4 : ASSISTANT IA PRO (SSOT EXTERNALISÉ v3.5+)
 # ==========================================
 with tab_ai:
     with st.expander("📖 Guide de l'Assistant IA Conversationnel (Architecture SSOT & Benchmark BTC)"):
         st.markdown("""
             Votre stratège crypto personnel en direct :
             * **Prompts Rapides :** Lancez des analyses complexes en un clic sans rien saisir.
-            * **Benchmark BTC Intégré (v3.5) :** Gemini analyse désormais la surperformance réelle (Alpha) de vos positions spéculatives vs BTC.
+            * **Benchmark BTC Intégré :** Gemini analyse désormais la surperformance réelle (Alpha) de vos positions spéculatives vs BTC.
+            * **Confluence & Tickets d'Ordres (v3.7) :** Recommandations assorties d'un Score de Conviction (1 à 5 ⭐) et de fiches d'ordres pré-mâchées.
             * **Chat Libre :** Posez n'importe quelle question sur vos positions et votre gestion du risque.
             """)
 
@@ -2111,7 +2134,7 @@ with tab_ai:
         st.markdown("---")
 
     st.markdown("##### ⚡ Prompts Rapides & Analyses en 1 Clic")
-    col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+    col_p1, col_p2, col_p3 = st.columns(3)
 
     preset_prompt = None
     preset_context = None
@@ -2398,71 +2421,6 @@ POSITIONS SPÉCULATIVES ACTIVES EN BDD :
 {tech_micro_block}
 """
 
-    with col_p4:
-        if st.button("🧭 Plan d'Exécution Pas-à-Pas", width="stretch"):
-            with st.spinner(
-                "Calcul du plan d'exécution et dispatching par exchange..."
-            ):
-                tech_micro_block = build_market_tech_micro_context(
-                    open_pos=open_pos, balances=all_balances
-                )
-                from crypto_speculative_advisor import (
-                    calculate_unfied_crypto_categories,
-                )
-
-                cats = calculate_unfied_crypto_categories()
-                system_rules = get_system_prompt("advisor_speculative")
-
-                fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
-                    compute_ai_liquidities(
-                        all_balances,
-                        eur_usd_rate=eur_usd_rate,
-                        fallback_cash_eur=cats.get("stables_cash", 0.0),
-                    )
-                )
-
-                core_majors_str = get_formatted_core_and_majors_breakdown(all_balances, eur_usd_rate, open_pos=open_pos)
-
-                target_spec = cats["total_crypto"] * 0.10
-                target_majors = cats["total_crypto"] * 0.55
-                target_core = cats["total_crypto"] * 0.22
-                target_cash = cats["total_crypto"] * 0.13
-
-                delta_majors = cats["btc_eth"] - target_majors
-                delta_spec = cats["speculative"] - target_spec
-                delta_core = target_core - cats["core"]
-                delta_cash = target_cash - total_liquidites_dispo
-
-                preset_prompt = (
-                    "Génère ma feuille de route d'exécution tactique pas-à-pas pour"
-                    " rééquilibrer le portefeuille sur mes exchanges."
-                )
-
-                preset_context = f"""{system_rules}
-
----
-
-SITUATION DU PORTEFEUILLE & ÉCARTS CIBLES À RÉÉQUILIBRER :
-- Valeur totale du capital : {cats['total_crypto']:,.2f} €
-- Majeures (BTC/ETH) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) | Cible 55% ({target_majors:,.2f} €) ➔ ÉCART : {delta_majors:+,.2f} €
-- Poche Core : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) | Cible 22% ({target_core:,.2f} €) ➔ ÉCART : {delta_core:+,.2f} €
-- Spéculatif (Moonbag) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) | Cible 10% ({target_spec:,.2f} €) ➔ ÉCART : {delta_spec:+,.2f} €
-- Total Liquidités Mobilisables : {total_liquidites_dispo:,.2f} € | Cible 13% ({target_cash:,.2f} €) ➔ ÉCART : {delta_cash:+,.2f} €
-
-ACTIFS DÉTENUS EN POCHE CORE ET MAJEURES (FILTRE ANTI-DOUBLON IMPÉRATIF) :
-{core_majors_str}
-
-SOLDES RÉELS DÉTECTÉS PAR PLATEFORME :
-{json.dumps(all_balances, indent=2, ensure_ascii=False)}
-
-POSITIONS SPÉCULATIVES ACTIVES EN BDD :
-{open_pos}
-
-{macro_prompt_block}
-
-{tech_micro_block}
-"""
-
     st.markdown("---")
 
     if "messages" not in st.session_state:
@@ -2649,10 +2607,10 @@ with tab_monitor:
             available_prompts.append("macro_arbitrage")
 
         prompt_descriptions = {
-            "advisor_speculative": "🎯 Rapport Spéculatif (19h) & Analyse des opportunités de marché",
+            "advisor_speculative": "🎯 Rapport Spéculatif (19h), Screener Moonbag & Tickets d'Ordres",
             "auto_tpsl": "🤖 Moteur de recalibrage automatique TP/SL (Cron 8h & Manuel)",
             "flash_advice": "⚡ Conseil Flash IA & Alertes Telegram (Sentinelle 24/7)",
-            "macro_arbitrage": "⚖️ Stratégie & Rééquilibrage Macro Inter-Poches",
+            "macro_arbitrage": "⚖️ Stratégie Macro, Thèses CORE & Tickets d'Exécution",
             "project_rules": "⚙️ Règles fondamentales du projet, arbitrages & Cash-Neutral strict",
             "risk_manager": "🛡️ Audit de sécurité, vérification des Stop-Loss et de l'exposition",
         }
