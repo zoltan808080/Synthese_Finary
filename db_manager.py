@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gestionnaire SQLite du Cockpit Spéculatif v3.6.0 (Moonbag, Cycle de Vie CORE, Benchmark BTC & Trailing SL High-Water Mark)."""
+"""Gestionnaire SQLite du Cockpit Spéculatif v3.8.0 (Moonbag, Cycle de Vie CORE, Benchmark BTC, High-Water Mark & Sentinelle Actifs Zombies)."""
 
 from datetime import datetime
 import os
@@ -9,7 +9,7 @@ DB_PATH = os.path.expanduser("~/Synthese_finary/crypto_trading.db")
 
 
 def init_core_metadata_table():
-    """Initialise spécifiquement la table des métadonnées et thèses CORE (v3.6.0)."""
+    """Initialise spécifiquement la table des métadonnées et thèses CORE (v3.6.0+)."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
@@ -25,8 +25,30 @@ def init_core_metadata_table():
     conn.close()
 
 
+def init_zombie_tracking_db():
+    """Initialise la table de suivi des actifs zombies et attrition d'Alpha (v3.8.0)."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS zombie_assets_tracking (
+            symbol TEXT PRIMARY KEY,
+            exchange TEXT,
+            alpha_30d REAL,
+            token_pnl_30d REAL,
+            btc_pnl_30d REAL,
+            current_val_eur REAL,
+            rsi_1d REAL,
+            severity TEXT, -- 'STANDARD' (-15% à -25%), 'CRITICAL' (<= -25%)
+            detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_alerted TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
 def init_db():
-    """Initialise les tables SQLite (positions ouvertes, trades fermés, filtres core, cycle de vie CORE, benchmark BTC et High-Water Mark)."""
+    """Initialise l'ensemble des tables SQLite et applique les migrations douces."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
@@ -101,7 +123,7 @@ def init_db():
         )
     """)
 
-    # 3. Table du Journal de Trading (Historique des positions clôturées - v3.0 FIFO)
+    # 3. Table du Journal de Trading (Historique des positions clôturées - FIFO)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS closed_trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,6 +152,101 @@ def init_db():
         )
     """)
 
+    # 5. Table de suivi des actifs zombies (v3.8.0)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS zombie_assets_tracking (
+            symbol TEXT PRIMARY KEY,
+            exchange TEXT,
+            alpha_30d REAL,
+            token_pnl_30d REAL,
+            btc_pnl_30d REAL,
+            current_val_eur REAL,
+            rsi_1d REAL,
+            severity TEXT,
+            detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_alerted TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+# ==========================================
+# GESTION DES ACTIFS ZOMBIES (v3.8.0)
+# ==========================================
+
+def update_zombie_record(
+    symbol: str,
+    exchange: str,
+    alpha_30d: float,
+    token_pnl: float,
+    btc_pnl: float,
+    val_eur: float,
+    rsi_1d: float,
+    severity: str,
+):
+    """Enregistre ou met à jour la détection d'un actif zombie (v3.8.0)."""
+    init_zombie_tracking_db()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    now_iso = datetime.now().isoformat()
+    cursor.execute(
+        """
+        INSERT INTO zombie_assets_tracking 
+        (symbol, exchange, alpha_30d, token_pnl_30d, btc_pnl_30d, current_val_eur, rsi_1d, severity, detected_at, last_alerted)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(symbol) DO UPDATE SET
+            exchange = excluded.exchange,
+            alpha_30d = excluded.alpha_30d,
+            token_pnl_30d = excluded.token_pnl_30d,
+            btc_pnl_30d = excluded.btc_pnl_30d,
+            current_val_eur = excluded.current_val_eur,
+            rsi_1d = excluded.rsi_1d,
+            severity = excluded.severity,
+            last_alerted = excluded.last_alerted
+    """,
+        (
+            symbol.upper().strip(),
+            exchange,
+            alpha_30d,
+            token_pnl,
+            btc_pnl,
+            val_eur,
+            rsi_1d,
+            severity,
+            now_iso,
+            now_iso,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_active_zombies():
+    """Récupère l'inventaire des actifs zombies actuellement identifiés, triés par sous-performance."""
+    init_zombie_tracking_db()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT symbol, exchange, alpha_30d, token_pnl_30d, btc_pnl_30d, current_val_eur, rsi_1d, severity, detected_at, last_alerted 
+        FROM zombie_assets_tracking 
+        ORDER BY alpha_30d ASC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def clear_zombie_record(symbol: str):
+    """Supprime un actif de la liste zombie s'il a recouvré un Alpha normal (> -15%)."""
+    init_zombie_tracking_db()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM zombie_assets_tracking WHERE symbol = ?",
+        (symbol.upper().strip(),),
+    )
     conn.commit()
     conn.close()
 
@@ -220,7 +337,7 @@ def add_recommendation(
     sl_type="invalidation",
     btc_price_entry=0.0,
 ):
-    """Enregistre une recommandation avec paliers TP1, TP2, prix repère du BTC et sommet initial (v3.5)."""
+    """Enregistre une recommandation avec paliers TP1, TP2, prix repère du BTC et sommet initial."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
@@ -639,5 +756,5 @@ def get_open_positions():
 if __name__ == "__main__":
     init_db()
     print(
-        "✅ Base SQLite v3.6.0 (Moonbag, Cycle de Vie CORE, Mode Auto/IA, Benchmark BTC & High-Water Mark) initialisée et vérifiée."
+        "✅ Base SQLite v3.8.0 (Moonbag, Cycle de Vie CORE, Mode Auto/IA, Benchmark BTC, High-Water Mark & Sentinelle Zombies) initialisée et vérifiée."
     )

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.7.0 (Benchmark BTC, BTC.D Gatekeeper, Vigie Intra-CORE 35%, Tickets d'Ordres & Confluence IA SSOT)."""
+"""Cockpit Spéculatif & Analytics Streamlit v3.8.0 (Benchmark BTC, BTC.D Gatekeeper, Vigie Intra-CORE 35%, Sentinelle Zombies & Assistant IA SSOT)."""
 
 import json
 import os
@@ -28,6 +28,9 @@ from db_manager import (
     # --- Nouveautés v3.6.0+ ---
     get_all_core_metadata,
     update_core_asset_metadata,
+    # --- Nouveautés v3.8.0 ---
+    get_active_zombies,
+    clear_zombie_record,
 )
 from exchange_connectors import (
     get_all_exchange_crypto_balances,
@@ -52,6 +55,13 @@ try:
     MACRO_ENGINE_AVAILABLE = True
 except ImportError:
     MACRO_ENGINE_AVAILABLE = False
+
+# Import de la Sentinelle Actifs Zombies (v3.8.0)
+try:
+    from zombie_sentinel import run_zombie_sentinel
+    ZOMBIE_SENTINEL_AVAILABLE = True
+except ImportError:
+    ZOMBIE_SENTINEL_AVAILABLE = False
 
 # Import du module central d'externalisation et d'administration des prompts (SSOT v3.5+)
 try:
@@ -315,7 +325,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# --- STYLING CSS v3.7.0 : ORDER TICKETS & MONOSPACE TERMINAL ---
+# --- STYLING CSS v3.7.0+ : ORDER TICKETS & MONOSPACE TERMINAL ---
 st.markdown(
     """
     <style>
@@ -559,9 +569,9 @@ if not check_password():
 
 init_db()
 
-st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.7.0)")
+st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.8.0)")
 st.markdown(
-    "*Suivi multi-exchange temps réel (Kraken & OKX), Benchmark BTC (Alpha), Vigie CORE 35%, Tickets d'Ordres & Confluence IA SSOT*"
+    "*Suivi multi-exchange temps réel (Kraken & OKX), Benchmark BTC (Alpha), Vigie CORE 35%, Sentinelle Zombies & Assistant IA SSOT*"
 )
 st.markdown("---")
 
@@ -681,7 +691,7 @@ _bulk_prices_map = (
     else {}
 )
 
-# Récupération du prix live du BTC pour le benchmarking Alpha (v3.5)
+# Récupération du prix live du BTC pour le benchmarking Alpha (v3.5+)
 btc_live_eur = fetch_live_price("BTC", "KRAKEN") or fetch_live_price("BTC", "OKX") or 1.0
 
 # ==========================================
@@ -720,7 +730,7 @@ with tab_live:
             sl_eur = float(p[7]) if len(p) > 7 and p[7] is not None else 0.0
             step_val = p[9] if len(p) > 9 and p[9] is not None else "ENTRY"
             
-            # Traitement v3.5 : Récupération du prix BTC à l'entrée (Index 12)
+            # Récupération du prix BTC à l'entrée (Index 12)
             btc_entry_eur = float(p[12]) if (len(p) > 12 and p[12] is not None and float(p[12]) > 0) else btc_live_eur
             is_auto = auto_tpsl_map.get(pos_id, True)
 
@@ -739,7 +749,7 @@ with tab_live:
                 ((live_eur - entry_eur) / entry_eur) * 100.0 if entry_eur > 0 else 0.0
             )
 
-            # --- CALCUL BENCHMARK BTC & ALPHA (v3.5) ---
+            # --- CALCUL BENCHMARK BTC & ALPHA ---
             btc_pnl_pct = (((btc_live_eur - btc_entry_eur) / btc_entry_eur) * 100.0) if btc_entry_eur > 0 else 0.0
             alpha_btc_pct = pnl_pct - btc_pnl_pct
 
@@ -858,7 +868,7 @@ with tab_live:
     stables_cap_b = macro_metrics.get("stablecoins_cap_b", 170.0)
 
     # ==========================================
-    # 🔒 COMPOSANT v3.6.0 : BTC.D GATEKEEPER
+    # 🔒 COMPOSANT : BTC.D GATEKEEPER
     # ==========================================
     if btc_d >= 55.0:
         st.markdown(
@@ -1034,7 +1044,7 @@ with tab_live:
             )
             st.plotly_chart(fig_core, width="stretch")
 
-            # --- VIGIE DE CONCENTRATION INTRA-CORE (35% MAX - v3.6.0) ---
+            # --- VIGIE DE CONCENTRATION INTRA-CORE (35% MAX) ---
             val_core_disp = val_core * curr_multiplier
             plafond_35_disp = val_core_disp * 0.35
             core_meta_map = get_all_core_metadata()
@@ -1072,7 +1082,7 @@ with tab_live:
                 if intra_pct >= 35.0:
                     st.caption(f"✂️ Écrêtage requis : **{delta_cap:,.2f} {curr_symbol}** à réallouer vers BTC/Cash.")
 
-            # --- ÉDITION QUALIFICATIVE & CYCLE DE VIE DU CORE (v3.6.0) ---
+            # --- ÉDITION QUALIFICATIVE & CYCLE DE VIE DU CORE ---
             with st.expander("🏷️ Cycle de vie & Thèses CORE"):
                 sel_core_asset = st.selectbox(
                     "Actif CORE à qualifier",
@@ -1760,10 +1770,11 @@ with tab_micro:
 # ONGLET 3 : CENTRE D'ALERTES & RAPPROCHEMENT
 # ==========================================
 with tab_alerts:
-    with st.expander("📖 Guide du Centre d'Alertes & Réconciliation"):
+    with st.expander("📖 Guide du Centre d'Alertes, Réconciliation & Zombies"):
         st.markdown("""
             Vigie automatisée de votre cockpit :
             * **Rapprochement BDD vs Exchanges :** Détecte les lignes fantômes, les écarts de volumes et les nouveaux trades manuels.
+            * **Sentinelle des Actifs Zombies (v3.8) :** Détecte l'attrition d'Alpha à 30 jours (Alpha <= -15%), avec immunité pour les trades récents (<21j) et les piliers CORE actifs.
             * **Alerte d'Exposition Spéculative :** Surveille si la poche dépasse les seuils de tolérance (12% et 15%), basée sur le calcul live exact.
             * **Radar TP / SL en Direct :** Détecte si vos actifs ouverts frôlent les Stop-Loss ou atteignent les Take-Profits.
             """)
@@ -1907,6 +1918,89 @@ with tab_alerts:
         )
 
     st.markdown("---")
+
+    # =========================================================================
+    # 🧟 COMPOSANT v3.8.0 : SENTINELLE DES ACTIFS ZOMBIES (ANTI-BAGHOLDING)
+    # =========================================================================
+    st.subheader("🧟 Sentinelle des Actifs Zombies (Anti-Bagholding v3.8.0)")
+    st.markdown(
+        "Surveillance continue de l'attrition d'Alpha face au Bitcoin. Les actifs subissant un décrochage "
+        "critique (> -15.0% sur 30 jours) sont signalés pour éviction, sauf veto technique de survente."
+    )
+
+    z_ctrl_col1, z_ctrl_col2 = st.columns([1, 3])
+    with z_ctrl_col1:
+        if st.button("🧟 Lancer l'Audit Zombies en Direct", type="primary", key="btn_run_zombie_audit"):
+            if ZOMBIE_SENTINEL_AVAILABLE:
+                with st.spinner("Audit en direct de l'attrition d'Alpha et vérification des 3 garde-fous..."):
+                    try:
+                        run_zombie_sentinel(send_telegram=False)
+                        st.cache_data.clear()
+                        st.success("✅ Audit Zombies exécuté avec succès !")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erreur lors de l'exécution de l'audit zombie : {e}")
+            else:
+                st.error("⚠️ Module `zombie_sentinel.py` non disponible.")
+    with z_ctrl_col2:
+        st.caption(
+            "💡 Garde-fous actifs : Les positions spéculatives récentes (<21 jours) et les Piliers CORE avec thèse 'ACTIVE' "
+            "sont sanctuarisés et exclus automatiquement de la qualification zombie."
+        )
+
+    active_zombies_db = get_active_zombies()
+
+    if active_zombies_db:
+        st.warning(f"⚠️ **{len(active_zombies_db)} actif(s) zombie(s) identifié(s) dans le portefeuille :**")
+        for z in active_zombies_db:
+            z_sym = z[0]
+            z_exch = z[1]
+            z_alpha = float(z[2] or 0.0)
+            z_tok_pnl = float(z[3] or 0.0)
+            z_btc_pnl = float(z[4] or 0.0)
+            z_val = float(z[5] or 0.0) * curr_multiplier
+            z_rsi = float(z[6] or 50.0)
+            z_sev = z[7] or "STANDARD"
+            z_detected = z[8]
+
+            border_c = "#ff4d4d" if z_sev == "CRITICAL" else "#ffa500"
+            bg_c = "#2a1515" if z_sev == "CRITICAL" else "#2a2215"
+            badge_txt = "🔴 CRITIQUE (<= -25%)" if z_sev == "CRITICAL" else "🟡 STANDARD (-15% à -25%)"
+            action_txt = "LIQUIDATION TOTALE (100%) vers BTC" if z_sev == "CRITICAL" else "ALLÈGEMENT (50%) vers BTC"
+
+            has_rsi_veto = z_rsi <= 30.0
+            veto_badge = " | ⏸️ <b>VETO SURVENTE ACTIF (RSI 1D ≤ 30)</b>" if has_rsi_veto else ""
+
+            st.markdown(
+                f"""
+                <div style="padding: 12px 16px; border-radius: 8px; border: 1px solid {border_c}; margin-bottom: 10px; background-color: {bg_c};">
+                    <h4 style="margin: 0; color: {border_c};">{badge_txt} — {z_sym} ({z_exch}){veto_badge}</h4>
+                    <p style="margin: 4px 0 0 0; font-size: 13px; color: #eee;">
+                        <b>Valeur actuelle :</b> {z_val:,.2f} {curr_symbol} | <b>Alpha vs BTC :</b> <span style="color: #ff6666; font-weight: bold;">{z_alpha:+.2f}%</span> | <b>RSI 1D :</b> {z_rsi:.1f}<br>
+                        <b>PnL Token (30j) :</b> {z_tok_pnl:+.2f}% (vs BTC {z_btc_pnl:+.2f}%)<br>
+                        <b>Consigne doctrinale :</b> {action_txt}
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            z_btn_c1, z_btn_c2 = st.columns([1, 3])
+            with z_btn_c1:
+                if st.button(f"🛡️ Réhabiliter / Sortir de veille ({z_sym})", key=f"btn_rehab_{z_sym}"):
+                    clear_zombie_record(z_sym)
+                    st.cache_data.clear()
+                    st.success(f"Actif {z_sym} retiré de la table des zombies.")
+                    st.rerun()
+            with z_btn_c2:
+                if has_rsi_veto:
+                    st.caption(f"⏸️ Vente au marché interdite car {z_sym} est en survente extrême. Attendre le rebond vers RSI 50.")
+                else:
+                    st.caption(f"✂️ Action immédiate : Passer un ordre LIMIT de vente pour arbitrer vers BTC.")
+    else:
+        st.success("🟢 **Santé du portefeuille optimale :** Aucun actif zombie détecté. Le capital est protégé contre l'attrition lente face au Bitcoin.")
+
+    st.markdown("---")
     st.subheader("🔥 Heatmap RSI Multi-Timeframe (Screener v2.9)")
     st.markdown(
         "Cartographie en temps réel du RSI (15m, 1h, 4h, 1D) sur vos actifs et"
@@ -1980,6 +2074,18 @@ with tab_alerts:
             "desc": (
                 "La part de la poche spéculative est alignée avec l'enveloppe"
                 " cible."
+            ),
+        })
+
+    # Synchronisation Vigie avec la table des zombies actifs (v3.8.0)
+    zombies_in_db = get_active_zombies()
+    if zombies_in_db:
+        alerts_list.append({
+            "level": "CRITICAL" if any(z[7] == "CRITICAL" for z in zombies_in_db) else "WARNING",
+            "title": f"🧟 {len(zombies_in_db)} Actif(s) Zombie(s) sous surveillance",
+            "desc": (
+                f"Lignes accusant un coût d'opportunité sévère vs BTC (> -15.0% d'Alpha). "
+                "Consultez la section dédiée ci-dessus pour arbitrer."
             ),
         })
 
