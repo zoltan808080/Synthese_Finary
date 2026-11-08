@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Moteur centralisé d'indicateurs macro-économiques et sentiment de marché (SSOT Macro v3.3.0).
+Moteur centralisé d'indicateurs macro-économiques et sentiment de marché (SSOT Macro v3.6.0).
 Regroupe :
-- Fear & Greed Index (Alternative.me)
-- Circuit Breaker BTC (OKX / Kraken / CoinGecko - Variation 24h & Crash Guard -8.0%)
-- Dominance Bitcoin (BTC.D %) & Ethereum (ETH.D %) (CoinGecko Global)
-- Capitalisation TOTAL3 (Altcoins hors BTC & ETH en Mds $)
-- Capitalisation Globale des Stablecoins (USDT, USDC, DAI, FDUSD via DefiLlama)
+- Fear & Greed Index (Alternative.me) & Calculateur de Cible Cash Dynamique
+- Circuit Breaker BTC (OKX / Kraken / CoinGecko - Seuil Doctrinal Crash -5.0%)
+- Triplet Macro : Dominance Bitcoin (BTC.D %), TOTAL3 (Mds $) et Stablecoins Globales (Mds $)
+- BTC.D Gatekeeper : Verrou doctrinal de rotation du capital vers les Altcoins
 """
 
 import time
@@ -41,6 +40,14 @@ def safe_cache_300s(func):
     return wrapper
 
 
+DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like"
+        " Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
+}
+
+
 @safe_cache_300s
 def fetch_fear_and_greed_index():
     """
@@ -48,7 +55,7 @@ def fetch_fear_and_greed_index():
     Returns: dict {"value": int, "classification": str}
     """
     try:
-        res = requests.get("https://api.alternative.me/fng/", timeout=3.0)
+        res = requests.get("https://api.alternative.me/fng/", headers=DEFAULT_HEADERS, timeout=3.0)
         if res.status_code == 200:
             data = res.json().get("data", [])
             if data:
@@ -61,9 +68,9 @@ def fetch_fear_and_greed_index():
 
 
 @safe_cache_300s
-def check_circuit_breaker(threshold_pct=-8.0):
+def check_circuit_breaker(threshold_pct=-5.0):
     """
-    Vérifie si le Bitcoin subit une chute brutale sur 24h (Circuit Breaker).
+    Vérifie si le Bitcoin subit une chute brutale sur 24h (Circuit Breaker SSOT v3.6 : seuil -5.0%).
     Returns: tuple (is_crash: bool, btc_24h_pct: float)
     """
     btc_24h_pct = 0.0
@@ -72,6 +79,7 @@ def check_circuit_breaker(threshold_pct=-8.0):
     try:
         res_okx = requests.get(
             "https://www.okx.com/api/v5/market/ticker?instId=BTC-USDT",
+            headers=DEFAULT_HEADERS,
             timeout=2.0
         )
         if res_okx.status_code == 200:
@@ -89,6 +97,7 @@ def check_circuit_breaker(threshold_pct=-8.0):
     try:
         res_k = requests.get(
             "https://api.kraken.com/0/public/Ticker?pair=XBTUSD",
+            headers=DEFAULT_HEADERS,
             timeout=2.0
         )
         if res_k.status_code == 200:
@@ -107,6 +116,7 @@ def check_circuit_breaker(threshold_pct=-8.0):
     try:
         res_cg = requests.get(
             "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true",
+            headers=DEFAULT_HEADERS,
             timeout=3.0
         )
         if res_cg.status_code == 200:
@@ -136,7 +146,7 @@ def get_macro_market_indicators():
 
     # 1. CoinGecko Global Market API
     try:
-        res = requests.get("https://api.coingecko.com/api/v3/global", timeout=3.0)
+        res = requests.get("https://api.coingecko.com/api/v3/global", headers=DEFAULT_HEADERS, timeout=3.0)
         if res.status_code == 200:
             data = res.json().get("data", {})
             mcap_pct = data.get("market_cap_percentage", {})
@@ -161,14 +171,14 @@ def get_macro_market_indicators():
     # 2. DefiLlama Stablecoins API
     try:
         res_stables = requests.get(
-            "https://stablecoins.llama.fi/stablecoins", timeout=3.0
+            "https://stablecoins.llama.fi/stablecoins", headers=DEFAULT_HEADERS, timeout=3.0
         )
         if res_stables.status_code == 200:
             stables_list = res_stables.json().get("peggedAssets", [])
             total_stables_usd = 0.0
             for s in stables_list:
                 symbol = str(s.get("symbol", "")).upper()
-                if symbol in ["USDT", "USDC", "DAI", "FDUSD"]:
+                if symbol in ["USDT", "USDC", "DAI", "FDUSD", "USDE"]:
                     circulating = s.get("circulating", {})
                     circ_val = circulating.get("peggedUSD", 0.0) if isinstance(circulating, dict) else float(circulating or 0.0)
                     total_stables_usd += float(circ_val)
@@ -181,38 +191,88 @@ def get_macro_market_indicators():
     return indicators
 
 
+def evaluate_macro_regime(btc_dominance: float, fng_value: int) -> dict:
+    """
+    Évalue le régime doctrinal, le statut du BTC.D Gatekeeper et la cible de cash ajustée.
+    """
+    # 1. Régime BTC.D & Gatekeeper
+    if btc_dominance >= 55.0:
+        regime = "DRAINAGE_BTC"
+        gatekeeper_locked = True
+        gatekeeper_desc = (
+            f"🔒 VERROU ACTIF (BTC.D: {btc_dominance:.1f}% >= 55.0%) : Drainage de liquidités vers le Bitcoin."
+            " Interdiction doctrinale de réallouer le capital des Majeures vers les Altcoins."
+        )
+    elif btc_dominance < 50.0:
+        regime = "ALTSEASON"
+        gatekeeper_locked = False
+        gatekeeper_desc = (
+            f"🟢 DÉVERROUILLÉ (BTC.D: {btc_dominance:.1f}% < 50.0%) : Régime Altseason favorable à la rotation vers CORE et Spéculatif."
+        )
+    else:
+        regime = "TRANSITION"
+        gatekeeper_locked = False
+        gatekeeper_desc = (
+            f"⚖️ RÉGIME DE TRANSITION (BTC.D: {btc_dominance:.1f}%) : Neutralité. Arbitrages conditionnés à l'expansion de TOTAL3."
+        )
+
+    # 2. Cible Cash Dynamique selon sentiment (F&G)
+    if fng_value < 25:
+        target_cash_pct = 9.0  # 8-10% (Peur Extrême : déploiement opportuniste)
+        cash_posture = "DÉPLOIEMENT AGRESSIF DU CASH (Peur Extrême < 25 : Cible 8-10%)"
+    elif fng_value > 75:
+        target_cash_pct = 19.0  # 18-20% (Cupidité Extrême : prises de profits défensives)
+        cash_posture = "SÉCURISATION DÉFENSIVE EN CASH (Cupidité Extrême > 75 : Cible 18-20%)"
+    else:
+        target_cash_pct = 13.0  # Nominal
+        cash_posture = "CIBLE NOMINALE CONSERVÉE (13.0%)"
+
+    return {
+        "regime": regime,
+        "gatekeeper_locked": gatekeeper_locked,
+        "gatekeeper_desc": gatekeeper_desc,
+        "target_cash_pct": target_cash_pct,
+        "cash_posture": cash_posture,
+    }
+
+
 def get_complete_macro_context():
     """
-    Agrège l'ensemble de la vision macro & sentiment en un seul dictionnaire unifié.
+    Agrège l'ensemble de la vision macro, sentiment, régime Gatekeeper et cibles dynamiques.
     """
     fng = fetch_fear_and_greed_index()
     is_crash, btc_24h = check_circuit_breaker()
     metrics = get_macro_market_indicators()
+    regime_info = evaluate_macro_regime(metrics["btc_dominance"], fng["value"])
 
     return {
         "fear_and_greed": fng,
         "circuit_breaker": {"is_crash": is_crash, "btc_24h_pct": btc_24h},
         "metrics": metrics,
+        "regime": regime_info,
     }
 
 
 def format_macro_context_for_prompt():
     """
-    Génère un bloc de texte Markdown prêt à être injecté dans les prompts SSOT Gemini.
+    Génère un bloc Markdown enrichi prêt pour injection directe dans les prompts SSOT Gemini (v3.6.0).
     """
     macro = get_complete_macro_context()
     fng = macro["fear_and_greed"]
     cb = macro["circuit_breaker"]
     m = macro["metrics"]
+    r = macro["regime"]
 
     cb_status = "🚨 MODE DÉFENSIF (CRASH DÉTECTÉ)" if cb["is_crash"] else "✅ NORMAL"
 
-    return f"""INDICATEURS MACRO-ÉCONOMIQUES ET SENTIMENT DE MARCHÉ :
-- Indice Fear & Greed : {fng['value']}/100 ({fng['classification']})
-- Statut Circuit Breaker BTC : {cb_status} (Var 24h : {cb['btc_24h_pct']:+.2f}%)
-- Dominance Bitcoin (BTC.D) : {m['btc_dominance']:.1f}% (Seuil de référence : >55% = Concentration BTC, <50% en hausse = Altseason)
-- Capitalisation TOTAL3 (Altcoins hors BTC/ETH) : {m['total3_usd_b']:,.1f} Mds $ (Santé et injection de liquidités sur les Altcoins)
-- Poudre Sèche Stablecoins Globales (USDT/USDC/DAI) : {m['stablecoins_cap_b']:,.1f} Mds $ (Réserve de liquidité institutionnelle disponible)
+    return f"""INDICATEURS MACRO-ÉCONOMIQUES ET SENTIMENT DE MARCHÉ (SSOT v3.6.0) :
+- Indice Fear & Greed : {fng['value']}/100 ({fng['classification']}) ➔ {r['cash_posture']}
+- Statut Circuit Breaker BTC : {cb_status} (Var 24h : {cb['btc_24h_pct']:+.2f}%, Seuil : -5.0%)
+- Dominance Bitcoin (BTC.D) : {m['btc_dominance']:.1f}% | Dominance ETH : {m['eth_dominance']:.1f}%
+- Statut BTC.D Gatekeeper : {r['gatekeeper_desc']}
+- Capitalisation TOTAL3 (Altcoins hors BTC/ETH) : {m['total3_usd_b']:,.1f} Mds $ (Baromètre de liquidité altcoins)
+- Poudre Sèche Stablecoins Globales (USDT/USDC/DAI) : {m['stablecoins_cap_b']:,.1f} Mds $ (Liquidités institutionnelles d'attente)
+- Cible Cash Dynamique Recommandée : {r['target_cash_pct']:.1f}% du portefeuille global
 """
 
 

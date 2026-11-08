@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.5.0 (Benchmark BTC, High-Water Mark, Conseil Flash SSOT & Multi-Exchanges Kraken/OKX)."""
+"""Cockpit Spéculatif & Analytics Streamlit v3.6.0 (Benchmark BTC, BTC.D Gatekeeper, Vigie Intra-CORE 35% & Assistant IA SSOT)."""
 
 import json
 import os
@@ -25,6 +25,9 @@ from db_manager import (
     toggle_auto_tp_sl,
     update_trade_amount,
     update_trade_levels,
+    # --- Nouveautés v3.6.0 ---
+    get_all_core_metadata,
+    update_core_asset_metadata,
 )
 from exchange_connectors import (
     get_all_exchange_crypto_balances,
@@ -278,6 +281,12 @@ def get_formatted_core_and_majors_breakdown(balances, eur_usd_rate=1.12, open_po
                     str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
                 )
 
+    core_meta = {}
+    try:
+        core_meta = get_all_core_metadata()
+    except Exception:
+        pass
+
     breakdown = []
     for asset, info in balances.items():
         asset_u = str(asset).upper().strip()
@@ -290,7 +299,10 @@ def get_formatted_core_and_majors_breakdown(balances, eur_usd_rate=1.12, open_po
         val_eur = amt * lp
         
         if val_eur >= 50.0:
-            breakdown.append(f"• {asset_u} : {val_eur:,.2f} € ({exch})")
+            meta_info = core_meta.get(asset_u, {})
+            status_str = f" [Thèse: {meta_info.get('thesis_status', 'ACTIVE')}]" if meta_info else ""
+            note_str = f" (Note: {meta_info.get('notes')})" if meta_info and meta_info.get("notes") else ""
+            breakdown.append(f"• {asset_u} : {val_eur:,.2f} € ({exch}){status_str}{note_str}")
             
     return "\n".join(breakdown) if breakdown else "Aucun actif significatif uniquement détenu en CORE / Majeures."
 
@@ -525,9 +537,9 @@ if not check_password():
 
 init_db()
 
-st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.5.0)")
+st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.6.0)")
 st.markdown(
-    "*Suivi multi-exchange temps réel (Kraken & OKX), Benchmark BTC (Alpha), Trailing SL High-Water Mark & Assistant IA SSOT*"
+    "*Suivi multi-exchange temps réel (Kraken & OKX), Benchmark BTC (Alpha), Vigie CORE 35%, Trailing SL & Assistant IA SSOT*"
 )
 st.markdown("---")
 
@@ -658,8 +670,9 @@ with tab_live:
         st.markdown(f"""
             Inventaire global et ventilation de votre capital en temps réel (Autonome & 100% direct exchanges) :
             * **Ligne 1 (Macro & Sentiment) :** Fear & Greed Index, Circuit Breaker BTC, Dominance BTC (BTC.D), TOTAL3 (Cap. Alts hors BTC/ETH) et Poudre sèche Stablecoins Globales.
-            * **Ligne 2 (Allocations) :** Volume Total Crypto, Majeures (BTC/ETH), Poche CORE et Poche Spéculative Total (Moonbag) avec PnL latent.
-            * **Alpha vs BTC (v3.5) :** Mesure la surperformance ou sous-performance de la position par rapport à la simple détention de Bitcoin sur la même durée ($\text{{PnL}}_{{\text{{Alt}}}} - \text{{PnL}}_{{\text{{BTC}}}}$).
+            * **Ligne 2 (Allocations) :** Volume Total Crypto, Majeures (BTC/ETH), Poche CORE, Poche Spéculative Total (Moonbag) et Stables/Cash.
+            * **BTC.D Gatekeeper (v3.6) :** Bannière doctrinale indiquant le régime de flux (Drainage BTC vs Altseason) et les consignes d'arbitrage.
+            * **Vigie 35% Intra-CORE (v3.6) :** Contrôle strict de surconcentration au sein de la poche long terme.
             """)
 
     positions = get_open_positions()
@@ -822,6 +835,53 @@ with tab_live:
     total3_b = macro_metrics.get("total3_usd_b", 650.0)
     stables_cap_b = macro_metrics.get("stablecoins_cap_b", 170.0)
 
+    # ==========================================
+    # 🔒 COMPOSANT v3.6.0 : BTC.D GATEKEEPER
+    # ==========================================
+    if btc_d >= 55.0:
+        st.markdown(
+            f"""
+            <div style="padding: 12px 18px; border-radius: 8px; border-left: 6px solid #ff4d4d; background-color: #2b1111; margin-bottom: 16px;">
+                <div style="font-size: 15px; font-weight: bold; color: #ff6666;">
+                    🔒 VERROU BTC.D ACTIF — DOMINANCE BITCOIN À {btc_d:.1f}% (&ge; 55.0%)
+                </div>
+                <div style="font-size: 13px; color: #e0e0e0; margin-top: 4px;">
+                    <b>Régime Macro :</b> Concentration des flux de liquidité sur le Bitcoin (phase de drainage).<br>
+                    <b>Consigne Doctrinale Immuable :</b> Interdiction formelle de réallouer le surplus des Majeures vers les Altcoins. Préservation du Cash et renforcement défensif exclusif sur BTC/ETH.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    elif btc_d < 50.0:
+        st.markdown(
+            f"""
+            <div style="padding: 12px 18px; border-radius: 8px; border-left: 6px solid #00ff66; background-color: #0f2b18; margin-bottom: 16px;">
+                <div style="font-size: 15px; font-weight: bold; color: #00ff66;">
+                    🟢 MODE ALTSEASON DÉCLARÉ — DOMINANCE BITCOIN À {btc_d:.1f}% (&lt; 50.0%)
+                </div>
+                <div style="font-size: 13px; color: #e0e0e0; margin-top: 4px;">
+                    Conditions optimales de rotation du capital vers les altcoins de conviction (Poche CORE et Spéculative).
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"""
+            <div style="padding: 10px 16px; border-radius: 8px; border-left: 6px solid #ffa500; background-color: #2b220f; margin-bottom: 16px;">
+                <div style="font-size: 14px; font-weight: bold; color: #ffa500;">
+                    ⚖️ RÉGIME DE TRANSITION — DOMINANCE BITCOIN À {btc_d:.1f}%
+                </div>
+                <div style="font-size: 12px; color: #ddd; margin-top: 3px;">
+                    Zone d'observation. Suivre l'expansion de TOTAL3 avant d'engager des arbitrages offensifs vers les Altcoins.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
     st.markdown("#### 🌐 Sentiment & Macro-Marché Globale")
     m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
     
@@ -840,11 +900,12 @@ with tab_live:
     total_pnl_pct = ((total_pnl_disp / total_invested_disp) * 100) if total_invested_disp > 0 else 0.0
     global_risk_buffer = ((weighted_sl_distance / total_weight_risk)) if total_weight_risk > 0 else 0.0
 
-    p_col1, p_col2, p_col3, p_col4 = st.columns(4)
+    p_col1, p_col2, p_col3, p_col4, p_col5 = st.columns(5)
     p_col1.metric("Volume Total Crypto", f"{total_crypto_only_val * curr_multiplier:,.2f} {curr_symbol}", delta="Kraken + OKX + Exodus")
     p_col2.metric("Majeures (BTC/ETH)", f"{val_majors * curr_multiplier:,.2f} {curr_symbol}", delta=f"{pct_majors:.1f}% du portfolio")
     p_col3.metric("Poche CORE", f"{val_core * curr_multiplier:,.2f} {curr_symbol}", delta=f"{pct_core:.1f}% du portfolio")
     p_col4.metric("Poche Spéculative Total", f"{total_market_disp:,.2f} {curr_symbol}", delta=f"{pct_spec:.1f}% du portfolio | PnL : {total_pnl_pct:+.2f}% ({total_pnl_disp:+,.2f} {curr_symbol})", delta_color="normal" if total_pnl_pct >= 0 else "inverse")
+    p_col5.metric("Stables & Cash", f"{val_stables_cash * curr_multiplier:,.2f} {curr_symbol}", delta=f"{pct_stables:.1f}% du portfolio (Cible : 13%)", delta_color="off")
 
     st.markdown("")
 
@@ -934,7 +995,7 @@ with tab_live:
             st.info("Aucun actif majeur détecté.")
 
     with z_col2:
-        if dict_core:
+        if dict_core and val_core > 0:
             df_core_pie = pd.DataFrame(
                 list(dict_core.items()), columns=["Actif", "Valeur"]
             )
@@ -947,9 +1008,87 @@ with tab_live:
             )
             fig_core.update_traces(textposition="inside", textinfo="percent+label")
             fig_core.update_layout(
-                margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=260
+                margin=dict(t=30, b=10, l=10, r=10), showlegend=False, height=240
             )
             st.plotly_chart(fig_core, width="stretch")
+
+            # --- VIGIE DE CONCENTRATION INTRA-CORE (35% MAX - v3.6.0) ---
+            val_core_disp = val_core * curr_multiplier
+            plafond_35_disp = val_core_disp * 0.35
+            core_meta_map = get_all_core_metadata()
+
+            st.markdown(f"##### ⚖️ Vigie 35% Max Intra-CORE (Cap: {plafond_35_disp:,.2f} {curr_symbol})")
+
+            for asset, val_disp in sorted(dict_core.items(), key=lambda x: x[1], reverse=True):
+                intra_pct = (val_disp / val_core_disp) * 100.0 if val_core_disp > 0 else 0.0
+                asset_meta = core_meta_map.get(asset, {"thesis_status": "ACTIVE", "notes": ""})
+                
+                if intra_pct >= 35.0:
+                    bar_color = "#ff4d4d"
+                    badge_status = "🚨 PLAFOND DÉPASSÉ"
+                elif intra_pct >= 30.0:
+                    bar_color = "#ffa500"
+                    badge_status = "⚠️ PROCHE CAP (30-35%)"
+                else:
+                    bar_color = "#00ffcc"
+                    badge_status = "🟢 CONFORME"
+
+                delta_cap = val_disp - plafond_35_disp
+
+                st.markdown(
+                    f"""
+                    <div style="font-size: 13px; margin-top: 6px;">
+                        <b>{asset}</b> : {val_disp:,.2f} {curr_symbol} (<b>{intra_pct:.1f}%</b> de la poche) — <span style="color: {bar_color}; font-weight: bold;">{badge_status}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+                progress_val = min(1.0, max(0.0, intra_pct / 35.0))
+                st.progress(progress_val)
+
+                if intra_pct >= 35.0:
+                    st.caption(f"✂️ Écrêtage requis : **{delta_cap:,.2f} {curr_symbol}** à réallouer vers BTC/Cash.")
+
+            # --- ÉDITION QUALIFICATIVE & CYCLE DE VIE DU CORE (v3.6.0) ---
+            with st.expander("🏷️ Cycle de vie & Thèses CORE"):
+                sel_core_asset = st.selectbox(
+                    "Actif CORE à qualifier",
+                    options=list(dict_core.keys()),
+                    key="sel_core_meta_asset"
+                )
+                current_meta = core_meta_map.get(sel_core_asset, {"thesis_status": "ACTIVE", "notes": ""})
+                
+                status_options = {
+                    "ACTIVE": "🟢 Pilier Actif (Thèse intacte)",
+                    "WATCHLIST_TRIM": "🟡 Surveillance / À écrémer (Prise de profit)",
+                    "EXIT_RECOMMENDED": "🔴 Sortie recommandée (Coût d'opportunité / Risque)"
+                }
+                
+                curr_status_key = current_meta.get("thesis_status", "ACTIVE")
+                status_idx = list(status_options.keys()).index(curr_status_key) if curr_status_key in status_options else 0
+
+                new_status = st.selectbox(
+                    "Statut doctrinal",
+                    options=list(status_options.keys()),
+                    format_func=lambda x: status_options[x],
+                    index=status_idx,
+                    key=f"status_select_{sel_core_asset}"
+                )
+                
+                new_notes = st.text_input(
+                    "Note stratégique / Thèse",
+                    value=current_meta.get("notes", ""),
+                    placeholder="Ex: Actif de flux USDT sans thèse long terme ou Pilier L1",
+                    key=f"notes_input_{sel_core_asset}"
+                )
+
+                if st.button(f"💾 Sauvegarder qualification {sel_core_asset}", key=f"btn_save_core_{sel_core_asset}"):
+                    update_core_asset_metadata(sel_core_asset, new_status, new_notes)
+                    st.cache_data.clear()
+                    st.success(f"Statut mis à jour pour {sel_core_asset} !")
+                    st.rerun()
+
         else:
             st.info("Aucun actif CORE détecté.")
 
