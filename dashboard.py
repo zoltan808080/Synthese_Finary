@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.9.1 (Benchmark BTC, Boussole de Flux Macro, Vigie Intra-CORE 35%, Sentinelle Zombies, Tickets d'Ordres & Thèses CORE 1-Click)."""
+"""Cockpit Spéculatif & Analytics Streamlit v4.0.0 (Découverte Dynamique du Marché, Boussole Macro, Vigie Intra-CORE 35%, Sentinelle Zombies & Thèses CORE 1-Click)."""
 
 import json
 import os
@@ -62,6 +62,13 @@ try:
     ZOMBIE_SENTINEL_AVAILABLE = True
 except ImportError:
     ZOMBIE_SENTINEL_AVAILABLE = False
+
+# Import du Moteur de Découverte Dynamique du Marché (v4.0.0)
+try:
+    from market_discovery_engine import get_dynamic_speculative_candidates
+    DISCOVERY_ENGINE_AVAILABLE = True
+except ImportError:
+    DISCOVERY_ENGINE_AVAILABLE = False
 
 # Import du module central d'externalisation et d'administration des prompts (SSOT v3.5+)
 try:
@@ -241,11 +248,18 @@ def get_cached_market_tech_micro_context(symbols_tuple):
 """
 
 
-def build_market_tech_micro_context(open_pos=None, balances=None):
-    symbols = {
-        "BTC", "ETH", "SOL", "NEAR", "ONDO", "PENDLE",
-        "SUI", "AVAX", "RAY", "FET", "RENDER", "STRK", "TAO",
-    }
+def build_market_tech_micro_context(open_pos=None, balances=None, dynamic_symbols=None):
+    """Agrège l'univers à screener : positions ouvertes + poche CORE + vivier dynamique."""
+    symbols = {"BTC", "ETH", "SOL"}
+    if dynamic_symbols:
+        symbols.update(dynamic_symbols)
+    elif DISCOVERY_ENGINE_AVAILABLE:
+        try:
+            _, dyn_syms = get_dynamic_speculative_candidates(top_n=15)
+            symbols.update(dyn_syms)
+        except Exception:
+            pass
+
     if open_pos:
         for p in open_pos:
             if len(p) > 1 and p[1]:
@@ -284,7 +298,6 @@ def extract_core_proposals_from_text(text: str):
     import re
     if not text or "core_proposals" not in text:
         return None
-    # Recherche bloc ```json ... ``` ou ``` ... ```
     match = re.search(r'```(?:json)?\s*(\{[\s\S]*?"core_proposals"[\s\S]*?\})\s*```', text, re.IGNORECASE)
     if match:
         try:
@@ -292,7 +305,6 @@ def extract_core_proposals_from_text(text: str):
             return data.get("core_proposals")
         except Exception:
             pass
-    # Recherche directe d'objet JSON sans backticks
     match2 = re.search(r'(\{[\s\S]*?"core_proposals"[\s\S]*?\})', text)
     if match2:
         try:
@@ -353,7 +365,6 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Amélioration visuelle des blocs de tickets d'ordres (pre / code) */
     pre, code {
         font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace !important;
         letter-spacing: -0.2px;
@@ -593,9 +604,9 @@ if not check_password():
 
 init_db()
 
-st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.9.1)")
+st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v4.0.0)")
 st.markdown(
-    "*Suivi multi-exchange temps réel (Kraken & OKX), Boussole de Flux Macro, Benchmark BTC (Alpha), Vigie CORE 35%, Sentinelle Zombies & Thèses CORE 1-Click*"
+    "*Suivi multi-exchange temps réel, Découverte Dynamique du Marché (v4.0), Boussole Macro, Benchmark BTC (Alpha), Vigie CORE 35% & Thèses CORE 1-Click*"
 )
 st.markdown("---")
 
@@ -687,8 +698,15 @@ st.sidebar.info(
 ])
 
 
-# Pre-fetch optimisé des prix en parallèle (Multi-threading)
-active_symbols_set = {"BTC"}
+# Pre-fetch optimisé des prix en parallèle (Multi-threading) incluant les pépites découvertes
+active_symbols_set = {"BTC", "ETH", "SOL"}
+try:
+    if DISCOVERY_ENGINE_AVAILABLE:
+        _, _dyn_pre = get_dynamic_speculative_candidates(top_n=15)
+        active_symbols_set.update(_dyn_pre)
+except Exception:
+    pass
+
 try:
     _open_pos_pre = get_open_positions()
     if _open_pos_pre:
@@ -754,7 +772,6 @@ with tab_live:
             sl_eur = float(p[7]) if len(p) > 7 and p[7] is not None else 0.0
             step_val = p[9] if len(p) > 9 and p[9] is not None else "ENTRY"
             
-            # Récupération du prix BTC à l'entrée (Index 12)
             btc_entry_eur = float(p[12]) if (len(p) > 12 and p[12] is not None and float(p[12]) > 0) else btc_live_eur
             is_auto = auto_tpsl_map.get(pos_id, True)
 
@@ -773,7 +790,6 @@ with tab_live:
                 ((live_eur - entry_eur) / entry_eur) * 100.0 if entry_eur > 0 else 0.0
             )
 
-            # --- CALCUL BENCHMARK BTC & ALPHA ---
             btc_pnl_pct = (((btc_live_eur - btc_entry_eur) / btc_entry_eur) * 100.0) if btc_entry_eur > 0 else 0.0
             alpha_btc_pct = pnl_pct - btc_pnl_pct
 
@@ -1691,9 +1707,17 @@ with tab_micro:
                 if asset not in ["USDT", "USDC", "EUR", "USD"]:
                     user_crypto_list.add(asset)
 
+        # Ingestion des pépites du vivier dynamique de marché (v4.0.0)
+        if DISCOVERY_ENGINE_AVAILABLE:
+            try:
+                _, dyn_syms_tab2 = get_dynamic_speculative_candidates(top_n=15)
+                user_crypto_list.update(dyn_syms_tab2)
+            except Exception:
+                pass
+
         if not user_crypto_list:
             user_crypto_list = {
-                "BTC", "ETH", "SOL", "NEAR", "ONDO", "PENDLE", "SUI", "AVAX",
+                "BTC", "ETH", "SOL", "HYPE", "WLD", "ENA", "SEI", "APT",
             }
 
         col_btn, col_info = st.columns([1, 4])
@@ -2047,9 +2071,17 @@ with tab_alerts:
     )
 
     if RSI_ENGINE_AVAILABLE:
+        dyn_rsi_syms = []
+        if DISCOVERY_ENGINE_AVAILABLE:
+            try:
+                _, dyn_rsi_syms = get_dynamic_speculative_candidates(top_n=15)
+            except Exception:
+                pass
+
         tracked_symbols = list(
             {p["Symbole"] for p in enriched_positions}
-            | {"BTC", "ETH", "SOL", "NEAR", "ONDO", "PENDLE", "SUI", "AVAX"}
+            | set(dyn_rsi_syms)
+            | {"BTC", "ETH", "SOL"}
         )
 
         if st.button("🔄 Actualiser la Heatmap RSI"):
@@ -2116,7 +2148,6 @@ with tab_alerts:
             ),
         })
 
-    # Synchronisation Vigie avec la table des zombies actifs (v3.8.0)
     zombies_in_db = get_active_zombies()
     if zombies_in_db:
         alerts_list.append({
@@ -2303,10 +2334,20 @@ with tab_ai:
     with col_p1:
         if st.button("📰 Rapport & Évaluation Spéculative", width="stretch"):
             with st.spinner(
-                "Analyse impartiale des opportunités, RSI et microstructure..."
+                "Découverte dynamique du marché et analyse technique..."
             ):
+                dyn_candidates_ai = []
+                dyn_symbols_ai = []
+                if DISCOVERY_ENGINE_AVAILABLE:
+                    try:
+                        dyn_candidates_ai, dyn_symbols_ai = get_dynamic_speculative_candidates(
+                            top_n=15, min_volume_usd=4_000_000
+                        )
+                    except Exception:
+                        pass
+
                 tech_micro_block = build_market_tech_micro_context(
-                    open_pos=open_pos, balances=all_balances
+                    open_pos=open_pos, balances=all_balances, dynamic_symbols=dyn_symbols_ai
                 )
                 from crypto_speculative_advisor import (
                     calculate_unfied_crypto_categories,
@@ -2374,6 +2415,9 @@ POSITIONS SPÉCULATIVES ACTIVES (BDD AVEC ALPHA VS BTC) :
 {json.dumps(live_positions_for_ai, indent=2, ensure_ascii=False)}
 
 {macro_prompt_block}
+
+VIVIER DYNAMIQUE DU MARCHÉ ISSU DU SCREENER (TOP 15 LIQUIDES FILTRÉS HORS PORTEFEUILLE) :
+{json.dumps(dyn_candidates_ai, indent=2, ensure_ascii=False)}
 
 {tech_micro_block}
 """
@@ -2682,7 +2726,6 @@ ACTIFS DÉTENUS EN POCHE CORE ET MAJEURES (FILTRE ANTI-DOUBLON IMPÉRATIF) :
                     st.markdown(answer)
                     st.caption(f"🤖 *Réponse générée avec succès via `{used_model}`*")
 
-                    # Détection immédiate des propositions CORE dans la nouvelle réponse
                     proposals = extract_core_proposals_from_text(answer)
                     if proposals and isinstance(proposals, dict):
                         st.markdown("---")
@@ -2725,12 +2768,63 @@ with tab_monitor:
     with st.expander("📖 Guide du Monitoring Technique & de l'Administration"):
         st.markdown("""
             Surveillez l'état de santé de vos connecteurs et administrez votre cockpit :
+            * **Découverte Dynamique :** Supervision et re-scan forcé du vivier de marché (v4.0.0).
             * **Connecteurs API :** Vérification de la disponibilité des exchanges.
             * **Configuration Gemini SSOT :** Ajustez dynamiquement la priorité des modèles, timeouts et retries.
             * **Administration Prompts SSOT :** Éditez et restaurez les prompts Markdown (`.md`) d'expertise IA.
             * **Journaux Système (Logs) :** Visualisez les derniers événements des services en arrière-plan.
             """)
 
+    # =========================================================================
+    # 🔍 SECTION v4.0.0 : PILOTAGE DU MOTEUR DE DÉCOUVERTE DYNAMIQUE
+    # =========================================================================
+    st.subheader("🔍 Moteur de Découverte Dynamique du Marché (v4.0.0)")
+    st.markdown(
+        "Supervisez et forcez en temps réel le scan des opportunités liquides d'OKX/Kraken. "
+        "Le vivier dynamique filtre automatiquement vos Majeures, votre poche CORE et vos positions ouvertes."
+    )
+
+    col_disc1, col_disc2 = st.columns([1, 3])
+    with col_disc1:
+        force_rescan = st.button("🔄 Forcer le Re-scan du Marché", type="primary", key="btn_force_rescan_admin")
+
+    with col_disc2:
+        st.caption("💡 Le scan dynamique est mis en cache pendant 15 minutes (TTL) pour préserver le CPU de la VM.")
+
+    if DISCOVERY_ENGINE_AVAILABLE:
+        try:
+            candidates_admin, symbols_admin = get_dynamic_speculative_candidates(
+                top_n=15, min_volume_usd=4_000_000, force_refresh=force_rescan
+            )
+            if force_rescan:
+                st.success("✅ Marché réanalysé en direct avec succès !")
+
+            if candidates_admin:
+                st.markdown(f"**{len(candidates_admin)} pépites actuellement sélectionnées :** `{', '.join(symbols_admin)}`")
+                df_disc_admin = pd.DataFrame(candidates_admin)[
+                    ["symbol", "last_price", "volume_24h_usd", "pnl_24h_pct", "rsi_4h", "rsi_1d", "funding_8h_pct", "opportunity_type"]
+                ].copy()
+                df_disc_admin.columns = [
+                    "Symbole", "Prix ($)", "Volume 24h ($)", "Var 24h (%)", "RSI 4h", "RSI 1D", "Funding 8h (%)", "Profil Opportunité"
+                ]
+
+                styled_disc = df_disc_admin.style.format({
+                    "Prix ($)": lambda x: f"{x:.4f} $" if x < 10 else f"{x:.2f} $",
+                    "Volume 24h ($)": lambda x: f"{x/1e6:,.1f} M$",
+                    "Var 24h (%)": "{:+,.2f}%",
+                    "RSI 4h": "{:.1f}",
+                    "RSI 1D": "{:.1f}",
+                    "Funding 8h (%)": "{:+,.4f}%",
+                })
+                st.dataframe(styled_disc, width="stretch", hide_index=True)
+            else:
+                st.info("Aucun candidat éligible extrait pour le moment.")
+        except Exception as e:
+            st.error(f"Erreur lors du scan de découverte : {e}")
+    else:
+        st.warning("⚠️ Module `market_discovery_engine.py` non disponible.")
+
+    st.markdown("---")
     st.subheader("🔌 État de Santé des Connecteurs API")
     col_m1, col_m2 = st.columns(2)
     with col_m1:
@@ -2808,10 +2902,10 @@ with tab_monitor:
             available_prompts.append("macro_arbitrage")
 
         prompt_descriptions = {
-            "advisor_speculative": "🎯 Rapport Spéculatif (19h), Screener Moonbag & Tickets d'Ordres",
+            "advisor_speculative": "🎯 Rapport Spéculatif (19h) — Découverte Dynamique Marché & Confluence (v4.0.0)",
             "auto_tpsl": "🤖 Moteur de recalibrage automatique TP/SL (Cron 8h & Manuel)",
             "flash_advice": "⚡ Conseil Flash IA & Alertes Telegram (Sentinelle 24/7)",
-            "macro_arbitrage": "⚖️ Stratégie Macro, Thèses CORE & Tickets d'Exécution",
+            "macro_arbitrage": "⚖️ Stratégie Macro, Boussole de Flux & Thèses CORE 1-Click (v3.9.1)",
             "project_rules": "⚙️ Règles fondamentales du projet, arbitrages & Cash-Neutral strict",
             "risk_manager": "🛡️ Audit de sécurité, vérification des Stop-Loss et de l'exposition",
         }

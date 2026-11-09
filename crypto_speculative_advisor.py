@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
-"""Moteur d'analyse et de recommandation spéculative Crypto v3.3.0 (Architecture SSOT & Contexte Macro Unifié)."""
+"""Moteur d'analyse et de recommandation spéculative Crypto v4.0.0 (Découverte Dynamique de Marché & Confluence IA SSOT)."""
 
 import datetime
 import json
 import logging
 import os
 import re
-from dotenv import load_dotenv
 import requests
+from dotenv import load_dotenv
 
-from db_manager import add_recommendation, get_open_positions, init_db
+from db_manager import add_recommendation, get_open_positions, init_db, get_all_core_metadata
 from exchange_connectors import (
     get_all_exchange_crypto_balances,
-    get_all_open_orders,
-    get_all_trades_history,
     get_total_verified_cash,
 )
 from gemini_manager import call_gemini_with_fallback
-from pnl_engine import calculate_pnl
 from prompt_loader import get_system_prompt
 
-# Importation du Contexte Macro SSOT
+# 1. Contexte Macro SSOT & Boussole de Flux
 try:
     from macro_market_engine import (
         get_complete_macro_context,
@@ -31,6 +28,27 @@ try:
     MACRO_ENGINE_AVAILABLE = True
 except ImportError:
     MACRO_ENGINE_AVAILABLE = False
+
+# 2. Moteur de Découverte Dynamique du Marché (v4.0.0)
+try:
+    from market_discovery_engine import get_dynamic_speculative_candidates
+    DISCOVERY_ENGINE_AVAILABLE = True
+except ImportError:
+    DISCOVERY_ENGINE_AVAILABLE = False
+
+# 3. Screener RSI Multi-TF
+try:
+    from rsi_engine import build_rsi_heatmap_dataframe
+    RSI_ENGINE_AVAILABLE = True
+except ImportError:
+    RSI_ENGINE_AVAILABLE = False
+
+# 4. Microstructure (Funding Rates & Open Interest)
+try:
+    from funding_oi_engine import get_funding_oi_summary
+    FUNDING_ENGINE_AVAILABLE = True
+except ImportError:
+    FUNDING_ENGINE_AVAILABLE = False
 
 load_dotenv()
 init_db()
@@ -63,25 +81,11 @@ def check_circuit_breaker():
             val = res.json().get("bitcoin", {}).get("eur_24h_change")
             if val is not None and val != 0.0:
                 change_24h = float(val)
-                return (change_24h <= -8.0), change_24h
+                return (change_24h <= -5.0), change_24h
     except Exception as e:
         logging.warning(f"⚠️ Erreur BTC 24h CoinGecko fallback : {e}")
 
-    try:
-        res = requests.get(
-            "https://api.okx.com/api/v5/market/ticker?instId=BTC-USDC", timeout=5
-        )
-        if res.status_code == 200:
-            data = res.json().get("data", [])[0]
-            last = float(data.get("last", 0))
-            open24h = float(data.get("open24h", 0))
-            if open24h > 0:
-                change_24h = ((last - open24h) / open24h) * 100.0
-                return (change_24h <= -8.0), change_24h
-    except Exception as e:
-        logging.warning(f"⚠️ Erreur BTC 24h OKX fallback : {e}")
-
-    return (change_24h <= -8.0), change_24h
+    return False, round(change_24h, 2)
 
 
 def fetch_fear_and_greed_index():
@@ -207,115 +211,113 @@ def fetch_live_price(sym, exch="OKX", eur_usd_rate=1.12):
     return 0.0
 
 
-def get_kraken_spot_symbols():
-    """Récupère la liste des symboles éligibles au trading Spot sur Kraken."""
-    try:
-        res = requests.get("https://api.kraken.com/0/public/AssetPairs", timeout=5)
-        if res.status_code == 200:
-            pairs = res.json().get("result", {})
-            symbols = set()
-            for p in pairs.values():
-                wsname = p.get("wsname", "")
-                if "/" in wsname:
-                    base, quote = wsname.split("/")
-                    if quote in ["EUR", "USDT", "USD"]:
-                        symbols.add(base.upper())
-            return symbols
-    except Exception:
-        pass
-    return set()
-
-
-def get_okx_spot_symbols():
-    """Récupère la liste des symboles éligibles au trading Spot sur OKX."""
-    try:
-        res = requests.get(
-            "https://www.okx.com/api/v5/public/instruments?instType=SPOT",
-            timeout=5,
-        )
-        if res.status_code == 200:
-            data = res.json().get("data", [])
-            symbols = set()
-            for inst in data:
-                inst_id = inst.get("instId", "")
-                if "-" in inst_id:
-                    base, quote = inst_id.split("-")
-                    if quote in ["EUR", "USDT", "USD"]:
-                        symbols.add(base.upper())
-            return symbols
-    except Exception:
-        pass
-    return set()
-
-
-def fetch_coingecko_trending_and_markets():
-    """Récupère les jetons en tendance CoinGecko filtrés par volume et marché."""
-    headers = {"accept": "application/json"}
-    opportunities = []
-    try:
-        res_tr = requests.get(
-            "https://api.coingecko.com/api/v3/search/trending",
-            headers=headers,
-            timeout=5,
-        )
-        trending_coins = (
-            res_tr.json().get("coins", []) if res_tr.status_code == 200 else []
-        )
-        coin_ids = [c["item"]["id"] for c in trending_coins[:10]]
-
-        if coin_ids:
-            url_mk = f"https://api.coingecko.com/api/v3/coins/markets?vs_currency=eur&ids={','.join(coin_ids)}&price_change_percentage=24h"
-            res_mk = requests.get(url_mk, headers=headers, timeout=5)
-            if res_mk.status_code == 200:
-                for coin in res_mk.json():
-                    opportunities.append({
-                        "name": coin.get("name"),
-                        "symbol": coin.get("symbol", "").upper(),
-                        "price_eur": coin.get("current_price"),
-                        "change_24h_pct": coin.get("price_change_percentage_24h"),
-                        "market_cap_eur": coin.get("market_cap"),
-                        "coingecko_id": coin.get("id"),
-                    })
-    except Exception as e:
-        logging.warning(f"⚠️ Erreur CoinGecko : {e}")
-    return opportunities
-
-
 def send_telegram_with_inline_buttons(text, inline_keyboard=None):
-    """Envoie un message formaté sur Telegram avec boutons d'action 1-click."""
+    """
+    Envoie un message formaté sur Telegram avec découpage intelligent <= 3900 caractères
+    et fallback automatique en texte brut pour garantir une réception sans faille.
+    """
+    if not BOT_TOKEN or not ALLOWED_USER_ID:
+        logging.warning("⚠️ Configuration Telegram manquante (BOT_TOKEN ou ALLOWED_USER_ID non configuré).")
+        return False
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    html_text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    html_text = re.sub(r"\*(.*?)\*", r"<b>\1</b>", html_text)
-    html_text = re.sub(r"_(.*?)_", r"<i>\1</i>", html_text)
-    html_text = re.sub(r"`(.*?)`", r"<code>\1</code>", html_text)
 
-    payload = {"chat_id": ALLOWED_USER_ID, "text": html_text, "parse_mode": "HTML"}
-    if inline_keyboard:
-        payload["reply_markup"] = {"inline_keyboard": inline_keyboard}
+    max_len = 3900
+    chunks = []
+    if len(text) <= max_len:
+        chunks = [text]
+    else:
+        current_chunk = ""
+        for line in text.splitlines(keepends=True):
+            while len(line) > max_len:
+                if current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = ""
+                chunks.append(line[:max_len])
+                line = line[max_len:]
+            if len(current_chunk) + len(line) > max_len:
+                chunks.append(current_chunk)
+                current_chunk = line
+            else:
+                current_chunk += line
+        if current_chunk.strip():
+            chunks.append(current_chunk)
 
-    try:
-        requests.post(url, json=payload, timeout=5)
-    except Exception as e:
-        logging.error(f"❌ Erreur réseau Telegram : {e}")
+    success = True
+    for i, chunk in enumerate(chunks):
+        is_last = (i == len(chunks) - 1)
+        kb = inline_keyboard if is_last else None
+
+        payload = {
+            "chat_id": ALLOWED_USER_ID,
+            "text": chunk,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+        }
+        if kb:
+            payload["reply_markup"] = {"inline_keyboard": kb}
+
+        try:
+            res = requests.post(url, json=payload, timeout=10)
+            if res.status_code != 200:
+                logging.warning(
+                    f"⚠️ Échec Telegram Markdown (HTTP {res.status_code} - {res.text}) : "
+                    "Nouvelle tentative immédiate en texte brut..."
+                )
+                payload.pop("parse_mode", None)
+                res_fallback = requests.post(url, json=payload, timeout=10)
+                if res_fallback.status_code != 200:
+                    logging.error(f"❌ Échec envoi Telegram fallback (HTTP {res_fallback.status_code}) : {res_fallback.text}")
+                    success = False
+                else:
+                    logging.info(f"✅ Message Telegram ({i+1}/{len(chunks)}) délivré avec succès (fallback texte brut).")
+            else:
+                logging.info(f"✅ Message Telegram ({i+1}/{len(chunks)}) délivré avec succès.")
+        except Exception as e:
+            logging.error(f"❌ Erreur réseau Telegram : {e}")
+            success = False
+
+    return success
 
 
 def parse_llm_json(raw_text):
-    """Extrait et décode proprement une structure JSON renvoyée par le LLM."""
+    """
+    Extrait et décode proprement une structure JSON renvoyée par le LLM,
+    même en présence de séquences d'échappement non conformes (\$, \*, \_, etc.).
+    """
     text = raw_text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
+
+    # 1. Tentative directe
     try:
         return json.loads(text, strict=False)
     except Exception:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            return json.loads(match.group(0), strict=False)
-        raise
+        pass
+
+    # 2. Nettoyage des antislashs d'échappement invalides dans les chaînes JSON
+    # Répare les séquences comme \* ou \$ qui ne sont pas des échappements JSON valides
+    cleaned = re.sub(r'\\([^"\\/bfnrtu])', r'\1', text)
+    try:
+        return json.loads(cleaned, strict=False)
+    except Exception:
+        pass
+
+    # 3. Extraction par bloc regex si du texte parasite entoure le JSON
+    match = re.search(r"(\{[\s\S]*\})", text)
+    if match:
+        candidate = match.group(1)
+        try:
+            return json.loads(candidate, strict=False)
+        except Exception:
+            candidate_cleaned = re.sub(r'\\([^"\\/bfnrtu])', r'\1', candidate)
+            return json.loads(candidate_cleaned, strict=False)
+
+    raise ValueError(f"Impossible de parser la réponse JSON du LLM : {text[:200]}...")
 
 
 def calculate_unified_crypto_categories(eur_usd_rate=1.12):
-    """Calcul 100% autonome et SSOT unifié avec le Dashboard v3.3.0 (Exchanges + Exodus + BDD SQLite)."""
+    """Calcul 100% autonome et SSOT unifié avec le Dashboard v3.9.1 (Exchanges + Exodus + BDD SQLite)."""
     all_crypto_balances = get_all_exchange_crypto_balances()
     positions = get_open_positions()
 
@@ -333,7 +335,7 @@ def calculate_unified_crypto_categories(eur_usd_rate=1.12):
 
     holdings_by_asset = {}
 
-    # 1. Valorisation des positions spéculatives actives depuis la BDD SQLite
+    # 1. Positions spéculatives actives BDD
     for p in positions:
         sym = str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
         exch = p[2] if len(p) > 2 else ""
@@ -346,7 +348,7 @@ def calculate_unified_crypto_categories(eur_usd_rate=1.12):
 
         holdings_by_asset[sym] = holdings_by_asset.get(sym, 0.0) + current_val
 
-    # 2. Valorisation des avoirs sur Exchanges & Wallets froids (avec filtre anti-doublon)
+    # 2. Soldes réels Exchanges & Wallets
     if all_crypto_balances:
         for asset, info in all_crypto_balances.items():
             amt = info.get("amount", 0.0) if isinstance(info, dict) else float(info)
@@ -365,7 +367,6 @@ def calculate_unified_crypto_categories(eur_usd_rate=1.12):
                 val_majors += asset_val
                 holdings_by_asset[asset_u] = holdings_by_asset.get(asset_u, 0.0) + asset_val
             elif asset_u in speculative_symbols:
-                # Anti-doublon strict : déjà comptabilisé via la BDD SQLite
                 pass
             else:
                 lp = fetch_live_price(asset_u, exch, eur_usd_rate=eur_usd_rate) or 0.0
@@ -401,7 +402,7 @@ def calculate_unified_crypto_categories(eur_usd_rate=1.12):
     holdings_lines = []
     for asset, val_eur in sorted(holdings_by_asset.items(), key=lambda x: x[1], reverse=True):
         if val_eur >= 0.5:
-            holdings_lines.append(f"• {asset} : {val_eur:.2f} € MAX ARBITRABLE")
+            holdings_lines.append(f"• {asset} : {val_eur:.2f} €")
 
     return {
         "total_crypto": round(total_crypto, 2),
@@ -420,91 +421,186 @@ def calculate_unified_crypto_categories(eur_usd_rate=1.12):
     }
 
 
-# Aliases pour garantie de non-régression avec les versions antérieures
 calculate_unfied_crypto_categories = calculate_unified_crypto_categories
 calculate_exact_crypto_categories = calculate_unified_crypto_categories
 
 
+def build_dynamic_market_context(open_pos_list, dynamic_candidates):
+    """
+    Construit le bloc technique (RSI Multi-TF & Microstructure Funding/OI)
+    sur l'univers dynamique combiné : positions ouvertes + candidats découverts.
+    """
+    all_symbols = set()
+    for p in open_pos_list:
+        if isinstance(p, dict) and "symbole" in p:
+            all_symbols.add(p["symbole"])
+        elif isinstance(p, (list, tuple)) and len(p) > 1 and p[1]:
+            all_symbols.add(str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip())
+
+    for c in dynamic_candidates:
+        all_symbols.add(c["symbol"])
+
+    all_symbols.update({"BTC", "ETH", "SOL"})
+    sorted_syms = sorted(list(all_symbols))
+
+    rsi_str = "RSI Non disponible"
+    if RSI_ENGINE_AVAILABLE:
+        try:
+            df_rsi = build_rsi_heatmap_dataframe(sorted_syms)
+            if not df_rsi.empty:
+                rsi_str = df_rsi.to_string(index=False)
+        except Exception as e:
+            logging.warning(f"⚠️ Erreur RSI engine : {e}")
+
+    foi_str = "Microstructure Non disponible"
+    if FUNDING_ENGINE_AVAILABLE:
+        try:
+            foi_data = get_funding_oi_summary(sorted_syms)
+            if foi_data and "pairs" in foi_data and foi_data["pairs"]:
+                df_foi = foi_data.get("pairs", [])
+                lines = [
+                    f"Funding Rate Moyen (8h) : {foi_data.get('avg_funding_rate', 0):+.4f}%",
+                    f"Open Interest Total : {foi_data.get('total_open_interest_usd', 0)/1e6:,.1f} M$",
+                    f"Paires en Surchauffe Longs (>+0.03%) : {foi_data.get('overheated_longs_count', 0)} | Squeeze Potentiels (<-0.01%) : {foi_data.get('short_squeeze_count', 0)}\n"
+                ]
+                for p_item in df_foi[:15]:
+                    lines.append(f"• {p_item.get('symbol')} ({p_item.get('exchange')}) : FR 8h={p_item.get('funding_rate_8h_pct', 0):+.4f}% | OI={p_item.get('open_interest_usd', 0)/1e6:,.1f}M$ | Biais={p_item.get('bias_status')}")
+                foi_str = "\n".join(lines)
+        except Exception as e:
+            logging.warning(f"⚠️ Erreur Funding engine : {e}")
+
+    return f"""
+---
+📊 MATRICE TECHNIQUE & SCREENER RSI MULTI-TIMEFRAME (POSITIONS OUVERTES + DÉCOUVERTE DYNAMIQUE) :
+{rsi_str}
+
+🔥 MICROSTRUCTURE DE MARCHÉ & DÉRIVÉS (FUNDING RATES 8H & OPEN INTEREST) :
+{foi_str}
+"""
+
+
 def generate_crypto_speculative_report():
-    """Génère le rapport quotidien spéculatif de 19h via Gemini (SSOT v3.3.0) et l'envoie sur Telegram avec boutons 1-click."""
-    logging.info("🚀 Démarrage de l'analyse spéculative Crypto v3.3.0 (Prompt SSOT + Macro SSOT + Gemini)...")
+    """Génère le rapport quotidien spéculatif de 19h via Gemini SSOT v4.0.0 avec découverte dynamique de marché."""
+    logging.info("🚀 [v4.0.0] Démarrage du Rapport Spéculatif (Découverte Dynamique + Confluence IA)...")
 
     is_crash, crash_pct = check_circuit_breaker()
     fng = fetch_fear_and_greed_index()
-    trades = get_all_trades_history()
-    pnl_summary = calculate_pnl(trades)
+    open_positions_db = get_open_positions()
 
-    kraken_symbols = get_kraken_spot_symbols()
-    okx_symbols = get_okx_spot_symbols()
+    # Benchmark BTC Live pour calcul d'Alpha d'entrée
+    btc_live_eur = fetch_live_price("BTC", "KRAKEN") or fetch_live_price("BTC", "OKX") or 1.0
 
+    # 1. Enregistrement des positions ouvertes avec Alpha vs BTC en direct
+    formatted_open_positions = []
+    for p in open_positions_db:
+        p_id = p[0]
+        sym = str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip()
+        exch = p[2] if len(p) > 2 else "OKX"
+        entry_p = float(p[3] or 0.0)
+        amt_e = float(p[4] or 0.0)
+        tp1_p = float(p[5] or 0.0) if len(p) > 5 else 0.0
+        sl_p = float(p[7] or 0.0) if len(p) > 7 else 0.0
+        step_val = p[9] if len(p) > 9 and p[9] else "ENTRY"
+        btc_entry = float(p[12] or 0.0) if len(p) > 12 and p[12] else btc_live_eur
+
+        lp = fetch_live_price(sym, exch) or entry_p
+        qty = (amt_e / entry_p) if entry_p > 0 else 0.0
+        val_cur = qty * lp
+        pnl_pct = ((lp - entry_p) / entry_p * 100.0) if entry_p > 0 else 0.0
+        btc_pnl = ((btc_live_eur - btc_entry) / btc_entry * 100.0) if btc_entry > 0 else 0.0
+        alpha_btc = pnl_pct - btc_pnl
+
+        formatted_open_positions.append({
+            "id": p_id,
+            "symbole": sym,
+            "exchange": exch,
+            "valeur_actuelle_eur": round(val_cur, 2),
+            "prix_entree": round(entry_p, 4),
+            "prix_actuel": round(lp, 4),
+            "pnl_pct": round(pnl_pct, 2),
+            "alpha_vs_btc_pct": round(alpha_btc, 2),
+            "tp1": round(tp1_p, 4),
+            "sl": round(sl_p, 4),
+            "etape": step_val,
+        })
+
+    # 2. Ingestion des catégories et liquidités globales
     cats = calculate_unified_crypto_categories()
     total_crypto = cats["total_crypto"]
     target_budget = total_crypto * SPECULATIVE_PCT
 
-    raw_opportunities = (
-        [] if is_crash else fetch_coingecko_trending_and_markets()
-    )
-    verified_opportunities = []
-    for item in raw_opportunities:
-        sym = item["symbol"].upper()
-        available = []
-        if sym in kraken_symbols:
-            available.append("KRAKEN")
-        if sym in okx_symbols:
-            available.append("OKX")
-        if available:
-            item["exchanges_verifies"] = available
-            verified_opportunities.append(item)
+    # 3. Moteur de Découverte Dynamique du Marché (Top 15 pépites liquides filtrées)
+    dynamic_candidates = []
+    dynamic_symbols = []
+    if DISCOVERY_ENGINE_AVAILABLE and not is_crash:
+        try:
+            dynamic_candidates, dynamic_symbols = get_dynamic_speculative_candidates(
+                top_n=15, min_volume_usd=4_000_000, force_refresh=True
+            )
+            logging.info(f"🔍 Vivier dynamique injecté : {len(dynamic_candidates)} candidats ({', '.join(dynamic_symbols[:6])}...)")
+        except Exception as e:
+            logging.error(f"⚠️ Erreur lors de la découverte dynamique : {e}")
 
-    # Contexte Macro SSOT unifié avec le Dashboard Web
+    # 4. Matrice Technique & Microstructure sur l'univers découvert
+    tech_micro_block = build_dynamic_market_context(formatted_open_positions, dynamic_candidates)
+
+    # 5. Contexte Macro SSOT & Boussole de Flux
     macro_prompt_block = (
         macro_format_prompt()
         if MACRO_ENGINE_AVAILABLE
         else f"DONNÉES DU MARCHÉ ET CONTEXTE MACRO :\n- Statut Circuit Breaker : {'🚨 DEFENSIVE MODE' if is_crash else '✅ NORMAL'} (Var BTC 24h : {crash_pct:+.2f}%)\n- Indice Fear & Greed : {fng['value']}/100 ({fng['classification']})"
     )
 
-    # Chargement dynamique des règles immuables et instructions de rôle (SSOT)
+    # 6. Extraction des métadonnées CORE pour rappel anti-doublon formel
+    core_meta_dict = {}
+    try:
+        core_meta_dict = get_all_core_metadata()
+    except Exception:
+        pass
+    core_summary = ", ".join([f"{k} ({v.get('thesis_status')})" for k, v in core_meta_dict.items()]) if core_meta_dict else "SOL, BNB, LINK, SUI, XRP"
+
     system_instruction = get_system_prompt("advisor_speculative")
 
-    user_context = f"""DONNÉES CHIFFRÉES TEMPS RÉEL (EXCHANGES + EXODUS) :
+    user_context = f"""DONNÉES CHIFFRÉES TEMPS RÉEL DU PORTEFEUILLE (EXCHANGES + EXODUS) :
 - Valeur totale du portefeuille : {total_crypto:,.2f} €
 - Enveloppe spéculative cible ({SPECULATIVE_PCT*100:.0f}%) : {target_budget:,.2f} €
 
-REPARTITION EXACTE DES ACTIFS (MÊMES DÉFINITIONS QUE LE DASHBOARD) :
-• Majeures (BTC & ETH - Spot + Staking + Exodus) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) [Cible : 55%]
-• Core / Convictions long terme : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) [Cible : 22%]
-• Spéculatives Actives (Moonbag BDD) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) [Cible : 10% / Max : 12%]
-• Liquidités Totales (Fiat + Stablecoins) : {cats['stables_cash']:,.2f} € ({cats['stables_cash_pct']:.1f}%) [Cible : 13%]
+VENTILATION EXACTE DU CAPITAL (SSOT DASHBOARD) :
+• Majeures (BTC & ETH) : {cats['btc_eth']:,.2f} € ({cats['btc_eth_pct']:.1f}%) [Cible : 55%]
+• Poche CORE (Long Terme) : {cats['core']:,.2f} € ({cats['core_pct']:.1f}%) [Cible : 22%]
+• Spéculatif Actif (Moonbag BDD) : {cats['speculative']:,.2f} € ({cats['speculative_pct']:.1f}%) [Cible : 10% / Max : 12%]
+• Liquidités Totales (Cash + Stables) : {cats['stables_cash']:,.2f} € ({cats['stables_cash_pct']:.1f}%) [Cible : 13%]
 
-DÉTAIL DES LIQUIDITÉS MOBILISABLES :
-• Stablecoins (USDT + USDC + DAI + FDUSD) : {cats['val_stables_crypto']:,.2f} €
-• Cash Fiat (EUR + USD) : {cats['total_cash_fiat']:,.2f} €
-• Total Liquidités Immédiates : {cats['stables_cash']:,.2f} €
+DÉTAIL DU CASH MOBILISABLE :
+• Stablecoins (USDT/USDC/DAI/FDUSD) : {cats['val_stables_crypto']:,.2f} €
+• Cash Fiat (EUR/USD) : {cats['total_cash_fiat']:,.2f} €
 
-PLAFONDS STRICTS D'ARBITRAGE PAR ACTIF DÉTENU (SEUIL MAXIMAL VENDABLE) :
-{cats['holdings_text']}
+ACTIFS DÉTENUS EN POCHE CORE (INTERDICTION STRICTE ANTI-DOUBLON) :
+{core_summary}
 
-POSITIONS ACTIVES SUIVIES EN BDD SQLITE :
-{json.dumps(pnl_summary['open_positions'], indent=2, ensure_ascii=False)}
+POSITIONS SPÉCULATIVES ACTIVES EN BDD (AVEC ALPHA VS BTC EN DIRECT) :
+{json.dumps(formatted_open_positions, indent=2, ensure_ascii=False)}
 
 {macro_prompt_block}
 
-OPPORTUNITÉS PRÉ-FILTRÉES (Kraken / OKX) :
-{json.dumps(verified_opportunities, indent=2, ensure_ascii=False)}
+VIVIER DYNAMIQUE DU MARCHÉ ISSU DU SCREENER (TOP 15 LIQUIDES FILTRÉS HORS PORTEFEUILLE) :
+{json.dumps(dynamic_candidates, indent=2, ensure_ascii=False)}
 
-GÉNÈRE LA RÉPONSE JSON STRICTE SUIVANTE :
+{tech_micro_block}
+
+CONSIGNE FORMAT DE RÉPONSE JSON OBLIGATOIRE :
 {{
-  "report_markdown": "Texte Markdown riche, structuré et professionnel...",
+  "report_markdown": "Texte Markdown riche rédigé selon le canevas strict (Synthèse Macro, Audit Positions, Screener Confluence et Tickets d'Ordres copiables)...",
   "recommendations": [
     {{
-      "symbol": "STRK",
+      "symbol": "SYMBOLE_DETECTE",
       "exchange": "OKX",
-      "price": 0.4500,
+      "price": 0.1234,
       "amount_eur": 100.0,
       "sell_symbol": "USDT",
-      "tp1_price": 0.9000,
-      "tp2_price": 1.8000,
-      "sl_price": 0.2500,
+      "tp1_price": 0.2468,
+      "tp2_price": 0.4936,
+      "sl_price": 0.0864,
       "sl_type": "invalidation"
     }}
   ]
@@ -524,49 +620,50 @@ GÉNÈRE LA RÉPONSE JSON STRICTE SUIVANTE :
             data = parse_llm_json(raw_text=raw_response)
             report_text = data.get("report_markdown", "")
             recs = data.get("recommendations", [])
-            logging.info(f"✅ Rapport généré avec succès via le modèle Gemini centralisé [{used_model}]")
+            logging.info(f"✅ Rapport généré avec succès via [{used_model}] avec {len(recs)} recommandation(s).")
     except Exception as e:
         logging.error(f"❌ Échec critique lors de la génération par Gemini : {e}")
 
     if report_text:
         inline_keyboard = []
         for r in recs:
-            price = r.get("price", 0.0)
-            sell_info = (
-                f" (via {r.get('sell_symbol')})" if r.get("sell_symbol") else ""
-            )
+            sym_rec = r.get("symbol", "UNKNOWN").upper().strip()
+            price = float(r.get("price", 0.0))
+            amt_eur = float(r.get("amount_eur", 100.0))
+            sell_info = f" (via {r.get('sell_symbol')})" if r.get("sell_symbol") else ""
+
             rec_id = add_recommendation(
-                symbol=r.get("symbol", "UNKNOWN"),
+                symbol=sym_rec,
                 exchange=r.get("exchange", "OKX"),
                 price=price,
-                amount_eur=r.get("amount_eur", 0.0),
-                tp1_price=r.get("tp1_price", price * 2.0),
-                tp2_price=r.get("tp2_price", price * 4.0),
-                sl_price=r.get("sl_price", price * 0.5),
+                amount_eur=amt_eur,
+                tp1_price=float(r.get("tp1_price", price * 2.0)),
+                tp2_price=float(r.get("tp2_price", price * 4.0)),
+                sl_price=float(r.get("sl_price", price * 0.70)),
                 sl_type=r.get("sl_type", "invalidation"),
             )
             inline_keyboard.append([
                 {
-                    "text": f"🔄 Arbitrer : {r.get('symbol')} ({r.get('amount_eur', 0):.0f}€){sell_info}",
+                    "text": f"🎯 Acheter {sym_rec} ({amt_eur:.0f}€){sell_info}",
                     "callback_data": f"trade_take_{rec_id}",
                 },
                 {
-                    "text": f"❌ Ignorer {r.get('symbol')}",
+                    "text": f"❌ Ignorer {sym_rec}",
                     "callback_data": f"trade_ignore_{rec_id}",
                 },
             ])
 
         header = (
-            "🎯 *RAPPORT CRYPTO SPÉCULATIF (19H) — v3.3.0*\n"
+            "🎯 *RAPPORT CRYPTO SPÉCULATIF (19H) — v4.0.0*\n"
             f"_Données du {datetime.date.today().strftime('%d/%m/%Y')} | Fear & Greed: {fng['value']}/100_\n"
-            f"_🤖 IA : `{used_model}`_\n\n"
+            f"_🤖 Découverte Dynamique Marché ({len(dynamic_candidates)} actifs) | Modèle : `{used_model}`_\n\n"
         )
 
         send_telegram_with_inline_buttons(
             header + report_text, inline_keyboard=inline_keyboard
         )
     else:
-        logging.error("❌ Échec critique : la génération de rapport a échoué.")
+        logging.error("❌ Échec critique : le rapport n'a pas pu être transmis sur Telegram.")
 
 
 if __name__ == "__main__":
