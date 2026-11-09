@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cockpit Spéculatif & Analytics Streamlit v3.9.0 (Benchmark BTC, BTC.D Gatekeeper, Vigie Intra-CORE 35%, Sentinelle Zombies, Tickets d'Ordres & Thèses CORE 1-Click)."""
+"""Cockpit Spéculatif & Analytics Streamlit v3.9.1 (Benchmark BTC, Boussole de Flux Macro, Vigie Intra-CORE 35%, Sentinelle Zombies, Tickets d'Ordres & Thèses CORE 1-Click)."""
 
 import json
 import os
@@ -280,7 +280,7 @@ def compute_ai_liquidities(balances, eur_usd_rate=1.12, fallback_cash_eur=0.0):
 
 
 def extract_core_proposals_from_text(text: str):
-    """Extrait le bloc JSON machine 'core_proposals' généré par macro_arbitrage.md (v3.9.0)."""
+    """Extrait le bloc JSON machine 'core_proposals' généré par macro_arbitrage.md (v3.9.0+)."""
     import re
     if not text or "core_proposals" not in text:
         return None
@@ -593,9 +593,9 @@ if not check_password():
 
 init_db()
 
-st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.9.0)")
+st.title("🚀 Cockpit Spéculatif & Moonbag — Dashboard Analytics (v3.9.1)")
 st.markdown(
-    "*Suivi multi-exchange temps réel (Kraken & OKX), Benchmark BTC (Alpha), Vigie CORE 35%, Sentinelle Zombies & Thèses CORE 1-Click*"
+    "*Suivi multi-exchange temps réel (Kraken & OKX), Boussole de Flux Macro, Benchmark BTC (Alpha), Vigie CORE 35%, Sentinelle Zombies & Thèses CORE 1-Click*"
 )
 st.markdown("---")
 
@@ -727,7 +727,7 @@ with tab_live:
             Inventaire global et ventilation de votre capital en temps réel (Autonome & 100% direct exchanges) :
             * **Ligne 1 (Macro & Sentiment) :** Fear & Greed Index, Circuit Breaker BTC, Dominance BTC (BTC.D), TOTAL3 (Cap. Alts hors BTC/ETH) et Poudre sèche Stablecoins Globales.
             * **Ligne 2 (Allocations) :** Volume Total Crypto, Majeures (BTC/ETH), Poche CORE, Poche Spéculative Total (Moonbag) et Stables/Cash.
-            * **BTC.D Gatekeeper (v3.6) :** Bannière doctrinale indiquant le régime de flux (Drainage BTC vs Altseason) et les consignes d'arbitrage.
+            * **Boussole de Flux Macro (v3.9.1) :** Lecture croisée (BTC.D x Dynamique BTC) modulant le niveau de sélectivité Alpha et le Score de Confluence IA sans blocage binaire arbitraire.
             * **Vigie 35% Intra-CORE (v3.6) :** Contrôle strict de surconcentration au sein de la poche long terme.
             """)
 
@@ -892,32 +892,47 @@ with tab_live:
     stables_cap_b = macro_metrics.get("stablecoins_cap_b", 170.0)
 
     # ==========================================
-    # 🔒 COMPOSANT : BTC.D GATEKEEPER
+    # 🧭 COMPOSANT v3.9.1 : BOUSSOLE DE FLUX MACRO (MARKET COMPASS)
     # ==========================================
-    if btc_d >= 55.0:
+    if is_crash or (crash_val <= -3.0 and btc_d >= 60.0):
         st.markdown(
             f"""
             <div style="padding: 12px 18px; border-radius: 8px; border-left: 6px solid #ff4d4d; background-color: #2b1111; margin-bottom: 16px;">
                 <div style="font-size: 15px; font-weight: bold; color: #ff6666;">
-                    🔒 VERROU BTC.D ACTIF — DOMINANCE BITCOIN À {btc_d:.1f}% (&ge; 55.0%)
+                    🚨 BOUSSOLE MACRO : RÉGIME RISK-OFF / SAIGNÉE ALTS — BTC 24h : {crash_val:+.2f}% | BTC.D : {btc_d:.1f}%
                 </div>
                 <div style="font-size: 13px; color: #e0e0e0; margin-top: 4px;">
-                    <b>Régime Macro :</b> Concentration des flux de liquidité sur le Bitcoin (phase de drainage).<br>
-                    <b>Consigne Doctrinale Immuable :</b> Interdiction formelle de réallouer le surplus des Majeures vers les Altcoins. Préservation du Cash et renforcement défensif exclusif sur BTC/ETH.
+                    <b>Dynamique :</b> Repli brusque du marché avec fuite de liquidité hors des Altcoins (Pilier Macro : <b>1/5 ⭐</b>).<br>
+                    <b>Posture :</b> Gel défensif des nouveaux achats spéculatifs. Préservation stricte du Cash et surveillance des Stop-Loss.
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-    elif btc_d < 50.0:
+    elif btc_d >= 60.0:
         st.markdown(
             f"""
-            <div style="padding: 12px 18px; border-radius: 8px; border-left: 6px solid #00ff66; background-color: #0f2b18; margin-bottom: 16px;">
-                <div style="font-size: 15px; font-weight: bold; color: #00ff66;">
-                    🟢 MODE ALTSEASON DÉCLARÉ — DOMINANCE BITCOIN À {btc_d:.1f}% (&lt; 50.0%)
+            <div style="padding: 12px 18px; border-radius: 8px; border-left: 6px solid #36a2eb; background-color: #102030; margin-bottom: 16px;">
+                <div style="font-size: 15px; font-weight: bold; color: #66b8ff;">
+                    🧭 BOUSSOLE MACRO : MARCHÉ MENÉ PAR BTC (BTC_LED_MARKET) — DOMINANCE À {btc_d:.1f}% (BTC 24h : {crash_val:+.2f}%)
                 </div>
                 <div style="font-size: 13px; color: #e0e0e0; margin-top: 4px;">
-                    Conditions optimales de rotation du capital vers les altcoins de conviction (Poche CORE et Spéculative).
+                    <b>Dynamique :</b> Le Bitcoin concentre le flux directeur mais aucun verrou binaire n'est actif (Pilier Macro : <b>3/5 ⭐</b>).<br>
+                    <b>Posture :</b> Trading Moonbag et arbitrages CORE <b>AUTORISÉS sous sélectivité Alpha</b> (privilégier les actifs avec Alpha vs BTC positif et RSI sain validant <b>&ge; 4/5 ⭐</b> de Confluence).
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    elif btc_d >= 57.5:
+        st.markdown(
+            f"""
+            <div style="padding: 10px 16px; border-radius: 8px; border-left: 6px solid #ffa500; background-color: #2b220f; margin-bottom: 16px;">
+                <div style="font-size: 14px; font-weight: bold; color: #ffa500;">
+                    ⚖️ BOUSSOLE MACRO : CANAL D'ÉQUILIBRE (BALANCED_ROTATION) — DOMINANCE À {btc_d:.1f}%
+                </div>
+                <div style="font-size: 12px; color: #ddd; margin-top: 3px;">
+                    Respiration saine du marché (Pilier Macro : <b>4/5 ⭐</b>). Conditions nominales pour les arbitrages intra-CORE et l'ouverture de setups Moonbag (&ge; 4/5 ⭐).
                 </div>
             </div>
             """,
@@ -926,12 +941,12 @@ with tab_live:
     else:
         st.markdown(
             f"""
-            <div style="padding: 10px 16px; border-radius: 8px; border-left: 6px solid #ffa500; background-color: #2b220f; margin-bottom: 16px;">
-                <div style="font-size: 14px; font-weight: bold; color: #ffa500;">
-                    ⚖️ RÉGIME DE TRANSITION — DOMINANCE BITCOIN À {btc_d:.1f}%
+            <div style="padding: 12px 18px; border-radius: 8px; border-left: 6px solid #00ff66; background-color: #0f2b18; margin-bottom: 16px;">
+                <div style="font-size: 15px; font-weight: bold; color: #00ff66;">
+                    🟢 BOUSSOLE MACRO : EXPANSION ALTCOINS (ALT_EXPANSION) — DOMINANCE À {btc_d:.1f}% (&lt; 57.5%)
                 </div>
-                <div style="font-size: 12px; color: #ddd; margin-top: 3px;">
-                    Zone d'observation. Suivre l'expansion de TOTAL3 avant d'engager des arbitrages offensifs vers les Altcoins.
+                <div style="font-size: 13px; color: #e0e0e0; margin-top: 4px;">
+                    Diffusion large des liquidités vers TOTAL3 (Pilier Macro : <b>5/5 ⭐</b>). Conditions optimales de rotation vers les poches CORE et Spéculative.
                 </div>
             </div>
             """,
@@ -943,7 +958,7 @@ with tab_live:
     
     m_col1.metric("Fear & Greed Index", f"{fng_data['value']}/100", delta=f"{fng_data['classification']}")
     m_col2.metric("Circuit Breaker BTC", f"{crash_val:+.2f}% (24h)", delta="NORMAL 🟢" if not is_crash else "DÉFENSIF 🚨", delta_color="normal" if not is_crash else "inverse")
-    m_col3.metric("Dominance BTC (BTC.D)", f"{btc_d:.1f} %", delta="Altseason < 50%" if btc_d < 50 else "Concentration BTC", delta_color="off")
+    m_col3.metric("Dominance BTC (BTC.D)", f"{btc_d:.1f} %", delta="Expansion Alts < 57.5%" if btc_d < 57.5 else ("Canal Équilibre" if btc_d < 60.0 else "Sélectivité Alpha (BTC-Led)"), delta_color="off")
     m_col4.metric("TOTAL3 (Cap. Alts)", f"{total3_b:,.1f} Mds $", delta="Hors BTC & ETH", delta_color="off")
     m_col5.metric("Poudre Sèche Stables", f"{stables_cap_b:,.1f} Mds $", delta="USDT / USDC / DAI", delta_color="off")
 

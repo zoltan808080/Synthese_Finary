@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-Moteur centralisé d'indicateurs macro-économiques et sentiment de marché (SSOT Macro v3.6.0).
+Moteur centralisé d'indicateurs macro-économiques et Boussole de Flux (SSOT Macro v3.9.1).
 Regroupe :
 - Fear & Greed Index (Alternative.me) & Calculateur de Cible Cash Dynamique
 - Circuit Breaker BTC (OKX / Kraken / CoinGecko - Seuil Doctrinal Crash -5.0%)
 - Triplet Macro : Dominance Bitcoin (BTC.D %), TOTAL3 (Mds $) et Stablecoins Globales (Mds $)
-- BTC.D Gatekeeper : Verrou doctrinal de rotation du capital vers les Altcoins
+- Boussole de Flux Macro (Market Compass) : Lecture croisée (BTC.D x Dynamique BTC) et pondération de Confluence
 """
 
 import time
 import functools
 import requests
+
 
 # Décorateur de cache hybride : compatible Streamlit et scripts CLI / Cron (sans avertissement ScriptRunContext)
 def safe_cache_300s(func):
@@ -70,7 +71,7 @@ def fetch_fear_and_greed_index():
 @safe_cache_300s
 def check_circuit_breaker(threshold_pct=-5.0):
     """
-    Vérifie si le Bitcoin subit une chute brutale sur 24h (Circuit Breaker SSOT v3.6 : seuil -5.0%).
+    Vérifie si le Bitcoin subit une chute brutale sur 24h (Circuit Breaker SSOT : seuil -5.0%).
     Returns: tuple (is_crash: bool, btc_24h_pct: float)
     """
     btc_24h_pct = 0.0
@@ -137,10 +138,10 @@ def get_macro_market_indicators():
     Returns: dict avec dominance, total3 en Mds $ et stablecoins cap en Mds $.
     """
     indicators = {
-        "btc_dominance": 58.0,
-        "eth_dominance": 14.5,
-        "total3_usd_b": 650.0,
-        "stablecoins_cap_b": 170.0,
+        "btc_dominance": 60.0,
+        "eth_dominance": 10.5,
+        "total3_usd_b": 700.0,
+        "stablecoins_cap_b": 250.0,
         "status": "fallback",
     }
 
@@ -191,35 +192,55 @@ def get_macro_market_indicators():
     return indicators
 
 
-def evaluate_macro_regime(btc_dominance: float, fng_value: int) -> dict:
+def evaluate_macro_regime(
+    btc_dominance: float,
+    fng_value: int,
+    btc_24h_pct: float = 0.0,
+    is_crash: bool = False,
+) -> dict:
     """
-    Évalue le régime doctrinal, le statut du BTC.D Gatekeeper et la cible de cash ajustée.
+    Évalue la Boussole de Flux Macro (Market Compass v3.9.1), la pondération du Pilier Macro (30%)
+    et la cible de cash dynamique selon le Fear & Greed.
     """
-    # 1. Régime BTC.D & Gatekeeper
-    if btc_dominance >= 55.0:
-        regime = "DRAINAGE_BTC"
+    # 1. Lecture croisée (BTC.D x Dynamique Prix BTC)
+    if is_crash or (btc_24h_pct <= -3.0 and btc_dominance >= 60.0):
+        regime = "RISK_OFF_BLEED"
         gatekeeper_locked = True
+        macro_pillar_score = "1.0/5 ⭐ (Verrou Défensif)"
         gatekeeper_desc = (
-            f"🔒 VERROU ACTIF (BTC.D: {btc_dominance:.1f}% >= 55.0%) : Drainage de liquidités vers le Bitcoin."
-            " Interdiction doctrinale de réallouer le capital des Majeures vers les Altcoins."
+            f"🚨 RÉGIME RISK_OFF_BLEED (BTC 24h: {btc_24h_pct:+.2f}%, BTC.D: {btc_dominance:.1f}%) : "
+            "Saignée des Altcoins / Repli brusque. Gel défensif des nouveaux achats spéculatifs et préservation du Cash/BTC."
         )
-    elif btc_dominance < 50.0:
-        regime = "ALTSEASON"
+    elif btc_dominance >= 60.0:
+        regime = "BTC_LED_MARKET"
         gatekeeper_locked = False
+        macro_pillar_score = "3.0/5 ⭐ (Sélectivité Alpha)"
         gatekeeper_desc = (
-            f"🟢 DÉVERROUILLÉ (BTC.D: {btc_dominance:.1f}% < 50.0%) : Régime Altseason favorable à la rotation vers CORE et Spéculatif."
+            f"🧭 RÉGIME BTC_LED_MARKET (BTC.D: {btc_dominance:.1f}% >= 60.0%, BTC 24h: {btc_24h_pct:+.2f}%) : "
+            "Le Bitcoin mène le flux mais AUCUN blocage binaire n'est appliqué. Trading Moonbag et arbitrages CORE "
+            "AUTORISÉS sur les actifs démontrant un Alpha vs BTC positif et un timing RSI sain (Confluence globale >= 4/5 ⭐)."
+        )
+    elif btc_dominance >= 57.5:
+        regime = "BALANCED_ROTATION"
+        gatekeeper_locked = False
+        macro_pillar_score = "4.0/5 ⭐ (Conditions Nominales)"
+        gatekeeper_desc = (
+            f"⚖️ RÉGIME BALANCED_ROTATION (BTC.D: {btc_dominance:.1f}% entre 57.5% et 60.0%) : "
+            "Canal d'équilibre. Conditions nominales pour les rééquilibrages intra-CORE et les setups Moonbag (>= 4/5 ⭐)."
         )
     else:
-        regime = "TRANSITION"
+        regime = "ALT_EXPANSION"
         gatekeeper_locked = False
+        macro_pillar_score = "5.0/5 ⭐ (Expansion Altseason)"
         gatekeeper_desc = (
-            f"⚖️ RÉGIME DE TRANSITION (BTC.D: {btc_dominance:.1f}%) : Neutralité. Arbitrages conditionnés à l'expansion de TOTAL3."
+            f"🟢 RÉGIME ALT_EXPANSION (BTC.D: {btc_dominance:.1f}% < 57.5%) : "
+            "Diffusion large des liquidités vers TOTAL3. Pleine offensive autorisée vers les poches CORE et Spéculative."
         )
 
     # 2. Cible Cash Dynamique selon sentiment (F&G)
     if fng_value < 25:
         target_cash_pct = 9.0  # 8-10% (Peur Extrême : déploiement opportuniste)
-        cash_posture = "DÉPLOIEMENT AGRESSIF DU CASH (Peur Extrême < 25 : Cible 8-10%)"
+        cash_posture = "DÉPLOIEMENT OPPORTUNISTE DU CASH (Peur Extrême < 25 : Cible 8-10%)"
     elif fng_value > 75:
         target_cash_pct = 19.0  # 18-20% (Cupidité Extrême : prises de profits défensives)
         cash_posture = "SÉCURISATION DÉFENSIVE EN CASH (Cupidité Extrême > 75 : Cible 18-20%)"
@@ -230,6 +251,7 @@ def evaluate_macro_regime(btc_dominance: float, fng_value: int) -> dict:
     return {
         "regime": regime,
         "gatekeeper_locked": gatekeeper_locked,
+        "macro_pillar_score": macro_pillar_score,
         "gatekeeper_desc": gatekeeper_desc,
         "target_cash_pct": target_cash_pct,
         "cash_posture": cash_posture,
@@ -238,12 +260,17 @@ def evaluate_macro_regime(btc_dominance: float, fng_value: int) -> dict:
 
 def get_complete_macro_context():
     """
-    Agrège l'ensemble de la vision macro, sentiment, régime Gatekeeper et cibles dynamiques.
+    Agrège l'ensemble de la vision macro, sentiment, Boussole de Flux et cibles dynamiques.
     """
     fng = fetch_fear_and_greed_index()
     is_crash, btc_24h = check_circuit_breaker()
     metrics = get_macro_market_indicators()
-    regime_info = evaluate_macro_regime(metrics["btc_dominance"], fng["value"])
+    regime_info = evaluate_macro_regime(
+        btc_dominance=metrics["btc_dominance"],
+        fng_value=fng["value"],
+        btc_24h_pct=btc_24h,
+        is_crash=is_crash,
+    )
 
     return {
         "fear_and_greed": fng,
@@ -255,7 +282,7 @@ def get_complete_macro_context():
 
 def format_macro_context_for_prompt():
     """
-    Génère un bloc Markdown enrichi prêt pour injection directe dans les prompts SSOT Gemini (v3.6.0).
+    Génère un bloc Markdown enrichi prêt pour injection directe dans les prompts SSOT Gemini (v3.9.1).
     """
     macro = get_complete_macro_context()
     fng = macro["fear_and_greed"]
@@ -265,11 +292,12 @@ def format_macro_context_for_prompt():
 
     cb_status = "🚨 MODE DÉFENSIF (CRASH DÉTECTÉ)" if cb["is_crash"] else "✅ NORMAL"
 
-    return f"""INDICATEURS MACRO-ÉCONOMIQUES ET SENTIMENT DE MARCHÉ (SSOT v3.6.0) :
+    return f"""INDICATEURS MACRO-ÉCONOMIQUES ET BOUSSOLE DE FLUX (SSOT v3.9.1) :
 - Indice Fear & Greed : {fng['value']}/100 ({fng['classification']}) ➔ {r['cash_posture']}
 - Statut Circuit Breaker BTC : {cb_status} (Var 24h : {cb['btc_24h_pct']:+.2f}%, Seuil : -5.0%)
 - Dominance Bitcoin (BTC.D) : {m['btc_dominance']:.1f}% | Dominance ETH : {m['eth_dominance']:.1f}%
-- Statut BTC.D Gatekeeper : {r['gatekeeper_desc']}
+- Boussole de Flux Macro (Market Compass) : {r['gatekeeper_desc']}
+- Note du Pilier Macro (30% de la Confluence) : {r['macro_pillar_score']}
 - Capitalisation TOTAL3 (Altcoins hors BTC/ETH) : {m['total3_usd_b']:,.1f} Mds $ (Baromètre de liquidité altcoins)
 - Poudre Sèche Stablecoins Globales (USDT/USDC/DAI) : {m['stablecoins_cap_b']:,.1f} Mds $ (Liquidités institutionnelles d'attente)
 - Cible Cash Dynamique Recommandée : {r['target_cash_pct']:.1f}% du portefeuille global
