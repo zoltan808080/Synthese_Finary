@@ -23,9 +23,11 @@ def generate_digest_with_fallback(client, prompt):
     en cas d'erreur de charge (429, 500, 503) ou de saturation.
     """
     modeles = [
+        "gemini-4-argon",
+        "gemini-3.8-flash",
         "gemini-3.6-flash",
-        "gemini-2.5-flash",
-        "gemini-2.0-flash"
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite"
     ]
 
     for modele in modeles:
@@ -268,6 +270,8 @@ Style HTML : Propre, moderne, responsive, police sans-serif (-apple-system, Sego
 
     # Chaîne de repli robuste (Recherche Web + Modèles de secours)
     modeles = [
+	"gemini-4-argon",
+        "gemini-3.8-flash",
         "gemini-3.6-flash",
         "gemini-3.5-flash",
         "gemini-3.5-flash-lite"
