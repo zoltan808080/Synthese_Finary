@@ -1,5 +1,17 @@
+#!/usr/bin/env python3
+"""
+Moteur de Digest Quotidien, Hebdomadaire et Mensuel du Patrimoine (v1.2.0).
+Intègre :
+- Thermomètre d'Allocation Globale (Actions vs Crypto vs Cash) avec jauge segmentée
+- Passerelle Cockpit Crypto SSOT (Boussole Macro, Fear & Greed et Cash vérifié)
+- Architecture HTML Email Responsive Hybride (PC / Mobile-First)
+- Dashboard KPI multi-horizons déterministe (24h, 7j, 30j)
+- Analyse de marché et recherche de catalyseurs via Gemini avec fallback
+"""
+
 import os
 import json
+import logging
 import http.cookiejar
 import datetime
 import smtplib
@@ -14,41 +26,32 @@ from google import genai
 from finary_uapi.signin import signin
 from finary_uapi.user_portfolio import get_portfolio_investments, get_portfolio_cryptos
 
+# Configuration du logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 load_dotenv()
 HISTORY_FILE = "portfolio_history.json"
 
-def generate_digest_with_fallback(client, prompt):
-    """
-    Appelle l'API Gemini avec bascule automatique sur un modèle de secours
-    en cas d'erreur de charge (429, 500, 503) ou de saturation.
-    """
-    modeles = [
-        "gemini-4-argon",
-        "gemini-3.8-flash",
-        "gemini-3.6-flash",
-        "gemini-3.5-flash",
-        "gemini-3.5-flash-lite"
-    ]
+# Cibles patrimoniales configurables
+TARGET_ACTIONS_PCT = float(os.getenv("TARGET_ACTIONS_PCT", "65.0"))
+TARGET_CRYPTO_PCT = float(os.getenv("TARGET_CRYPTO_PCT", "20.0"))
+TARGET_CASH_PCT = float(os.getenv("TARGET_CASH_PCT", "15.0"))
 
-    for modele in modeles:
-        logging.info(f"Tentative de génération du digest avec : {modele}")
-        
-        for tentative in range(1, 3):
-            try:
-                response = client.models.generate_content(
-                    model=modele,
-                    contents=prompt
-                )
-                if response.text:
-                    logging.info(f"Digest généré avec succès via {modele}")
-                    return response.text
-            except Exception as e:
-                logging.warning(f"Surcharge ou erreur sur {modele} (tentative {tentative}/2) : {e}")
-                time.sleep(tentative * 3) # Pause progressive de 3s puis 6s
+# Raccordement optionnel au Cockpit Crypto SSOT local
+try:
+    from macro_market_engine import get_complete_macro_context
+    MACRO_AVAILABLE = True
+except ImportError:
+    MACRO_AVAILABLE = False
 
-        logging.info(f"Bascule sur le modèle de secours suivant...")
-
-    raise RuntimeError("Tous les modèles Gemini de la chaîne ont échoué.")
+try:
+    from exchange_connectors import get_total_verified_cash
+    CASH_CONNECTOR_AVAILABLE = True
+except ImportError:
+    CASH_CONNECTOR_AVAILABLE = False
 
 
 def extract_jwt_token(filepath="jwt.json"):
@@ -60,21 +63,26 @@ def extract_jwt_token(filepath="jwt.json"):
         if raw.startswith("eyJ") or raw.startswith('"eyJ'):
             return raw.strip('"\'')
         data = json.loads(raw)
+
         def search_jwt(obj):
             if isinstance(obj, str) and obj.startswith("eyJ"):
                 return obj
             if isinstance(obj, dict):
                 for val in obj.values():
                     res = search_jwt(val)
-                    if res: return res
+                    if res:
+                        return res
             if isinstance(obj, list):
                 for item in obj:
                     res = search_jwt(item)
-                    if res: return res
+                    if res:
+                        return res
             return None
+
         return search_jwt(data)
     except Exception:
         return None
+
 
 def init_finary_session():
     secret_2fa = os.getenv("FINARY_2FA_SECRET")
@@ -99,8 +107,22 @@ def init_finary_session():
 
     return session
 
+
+def get_verified_liquidities():
+    """Récupère le cash vérifié via les connecteurs locaux ou fallback Finary."""
+    if CASH_CONNECTOR_AVAILABLE:
+        try:
+            cash_info = get_total_verified_cash()
+            val = float(cash_info.get("total_cash", 0.0))
+            if val > 0:
+                return val
+        except Exception:
+            pass
+    return float(os.getenv("FALLBACK_CASH_EUR", "0.0"))
+
+
 def build_current_snapshot(invest_data, crypto_data):
-    snapshot = {"total_invest": 0.0, "total_crypto": 0.0, "holdings": {}}
+    snapshot = {"total_invest": 0.0, "total_crypto": 0.0, "total_cash": 0.0, "holdings": {}}
     
     res_inv = invest_data.get("result", invest_data) if isinstance(invest_data, dict) else {}
     tot_inv = res_inv.get("total", {}) if isinstance(res_inv, dict) else {}
@@ -128,10 +150,11 @@ def build_current_snapshot(invest_data, crypto_data):
             item_val = float(item.get("current_value") or item.get("balance") or 0)
             snapshot["holdings"][f"{item_name} ({acc_name})"] = item_val
 
+    snapshot["total_cash"] = get_verified_liquidities()
     return snapshot
 
+
 def get_closest_past_snapshot(history, target_days_ago):
-    """Retrouve la photo du portefeuille la plus proche de N jours dans le passé."""
     today = datetime.date.today()
     target_date = today - datetime.timedelta(days=target_days_ago)
     
@@ -145,36 +168,92 @@ def get_closest_past_snapshot(history, target_days_ago):
 
     return closest_date.isoformat(), history[closest_date.isoformat()]
 
+
 def compute_multi_horizon_kpis(current_snap, history):
-    """Calcule le Tableau de Bord KPI Multi-Horizons (24h, 7d, 30d)."""
-    total_today = current_snap["total_invest"] + current_snap["total_crypto"]
-    kpis = {"total_today": total_today}
+    """Calcule le dictionnaire complet des KPIs Multi-Horizons (24h, 7j, 30j)."""
+    total_today = current_snap["total_invest"] + current_snap["total_crypto"] + current_snap.get("total_cash", 0.0)
+    kpis = {
+        "total_today": total_today,
+        "total_invest": current_snap.get("total_invest", 0.0),
+        "total_crypto": current_snap.get("total_crypto", 0.0),
+        "total_cash": current_snap.get("total_cash", 0.0),
+    }
 
     for days, key in [(1, "24h"), (7, "7d"), (30, "30d")]:
         past_date_str, prev_snap = get_closest_past_snapshot(history, days)
         if prev_snap:
-            tot_prev = prev_snap.get("total_invest", 0) + prev_snap.get("total_crypto", 0)
+            tot_prev = prev_snap.get("total_invest", 0) + prev_snap.get("total_crypto", 0) + prev_snap.get("total_cash", 0.0)
             diff = total_today - tot_prev
             pct = (diff / tot_prev * 100) if tot_prev > 0 else 0
-            kpis[key] = f"{diff:+,.2f} € ({pct:+.2f}%) [ref: {past_date_str}]"
+            kpis[key] = {
+                "diff": diff,
+                "pct": pct,
+                "ref_date": past_date_str,
+                "text": f"{diff:+,.2f} € ({pct:+.2f}%)"
+            }
         else:
-            kpis[key] = "N/A (Historique insuffisant)"
+            kpis[key] = {
+                "diff": 0.0,
+                "pct": 0.0,
+                "ref_date": "N/A",
+                "text": "N/A"
+            }
 
     return kpis
 
+
+def compute_asset_allocation(kpis):
+    """Calcule les poids réels de chaque poche et les écarts aux cibles."""
+    total = kpis["total_today"]
+    if total <= 0:
+        return {
+            "actions": {"val": 0, "pct": 0, "target": TARGET_ACTIONS_PCT, "delta": 0},
+            "crypto": {"val": 0, "pct": 0, "target": TARGET_CRYPTO_PCT, "delta": 0},
+            "cash": {"val": 0, "pct": 0, "target": TARGET_CASH_PCT, "delta": 0},
+        }
+
+    val_inv = kpis["total_invest"]
+    val_cry = kpis["total_crypto"]
+    val_csh = kpis["total_cash"]
+
+    pct_inv = (val_inv / total) * 100.0
+    pct_cry = (val_cry / total) * 100.0
+    pct_csh = (val_csh / total) * 100.0
+
+    return {
+        "actions": {
+            "val": val_inv,
+            "pct": pct_inv,
+            "target": TARGET_ACTIONS_PCT,
+            "delta": pct_inv - TARGET_ACTIONS_PCT,
+        },
+        "crypto": {
+            "val": val_cry,
+            "pct": pct_cry,
+            "target": TARGET_CRYPTO_PCT,
+            "delta": pct_cry - TARGET_CRYPTO_PCT,
+        },
+        "cash": {
+            "val": val_csh,
+            "pct": pct_csh,
+            "target": TARGET_CASH_PCT,
+            "delta": pct_csh - TARGET_CASH_PCT,
+        },
+    }
+
+
 def extract_top_positions(current_snap, top_k=6):
-    """Extrait les plus grosses positions en capital pour cibler le calendrier d'événements."""
     sorted_holdings = sorted(current_snap["holdings"].items(), key=lambda x: x[1], reverse=True)
     return [name for name, val in sorted_holdings[:top_k]]
 
+
 def compute_movers_for_period(current_snap, history, target_days_ago):
-    """Calcule les variations sur la période donnée (1, 7 ou 30 jours)."""
     past_date_str, prev_snap = get_closest_past_snapshot(history, target_days_ago)
     if not prev_snap:
         return None, f"Historique insuffisant pour calculer la période {target_days_ago} jours."
 
-    total_today = current_snap["total_invest"] + current_snap["total_crypto"]
-    total_prev = prev_snap.get("total_invest", 0) + prev_snap.get("total_crypto", 0)
+    total_today = current_snap["total_invest"] + current_snap["total_crypto"] + current_snap.get("total_cash", 0.0)
+    total_prev = prev_snap.get("total_invest", 0) + prev_snap.get("total_crypto", 0) + prev_snap.get("total_cash", 0.0)
     delta_total = total_today - total_prev
     pct_total = (delta_total / total_prev * 100) if total_prev > 0 else 0
 
@@ -194,29 +273,321 @@ def compute_movers_for_period(current_snap, history, target_days_ago):
     top_eur_down = sorted([x for x in holding_diffs if x["diff"] < 0], key=lambda x: x["diff"])[:top_n]
 
     lines = [
-        f"PERIODE : Comparaison avec le {past_date_str}",
-        f"PATRIMOINE TOTAL : {total_today:,.2f} € | Variation : {delta_total:+,.2f} € ({pct_total:+.2f}%)\n",
-        f"--- TOP {top_n} HAUSSES EN % ---"
+        f"PÉRIODE ANALYSÉE : Rapprochement vs {past_date_str}",
+        f"VALEUR PATRIMOINE : {total_today:,.2f} € | Évolution : {delta_total:+,.2f} € ({pct_total:+.2f}%)\n",
+        f"--- TOP {top_n} HAUSSES (%) ---"
     ]
     for item in top_pct_up:
-        lines.append(f"• {item['name']} : {item['val']:,.2f} € | Var: {item['diff']:+,.2f} € ({item['pct']:+.2f}%)")
+        lines.append(f"• {item['name']} : {item['val']:,.2f} € | {item['diff']:+,.2f} € ({item['pct']:+.2f}%)")
 
-    lines.append(f"\n--- TOP {top_n} BAISSES EN % ---")
+    lines.append(f"\n--- TOP {top_n} BAISSES (%) ---")
     for item in top_pct_down:
-        lines.append(f"• {item['name']} : {item['val']:,.2f} € | Var: {item['diff']:+,.2f} € ({item['pct']:+.2f}%)")
+        lines.append(f"• {item['name']} : {item['val']:,.2f} € | {item['diff']:+,.2f} € ({item['pct']:+.2f}%)")
 
-    lines.append(f"\n--- TOP {top_n} HAUSSES EN VALEUR (€) ---")
+    lines.append(f"\n--- TOP {top_n} VARIATIONS EN MONTANT (€) ---")
     for item in top_eur_up:
-        lines.append(f"• {item['name']} : {item['val']:,.2f} € | Var: {item['diff']:+,.2f} € ({item['pct']:+.2f}%)")
-
-    lines.append(f"\n--- TOP {top_n} BAISSES EN VALEUR (€) ---")
+        lines.append(f"• [+] {item['name']} : {item['diff']:+,.2f} € ({item['pct']:+.2f}%)")
     for item in top_eur_down:
-        lines.append(f"• {item['name']} : {item['val']:,.2f} € | Var: {item['diff']:+,.2f} € ({item['pct']:+.2f}%)")
+        lines.append(f"• [-] {item['name']} : {item['diff']:+,.2f} € ({item['pct']:+.2f}%)")
 
     return "\n".join(lines), None
 
+
+def render_kpi_card_html(label, kpi_obj):
+    diff = kpi_obj.get("diff", 0.0)
+    pct = kpi_obj.get("pct", 0.0)
+    ref_date = kpi_obj.get("ref_date", "")
+
+    if diff > 0:
+        badge_bg = "#ecfdf5"
+        text_color = "#059669"
+        arrow = "▲"
+    elif diff < 0:
+        badge_bg = "#fef2f2"
+        text_color = "#dc2626"
+        arrow = "▼"
+    else:
+        badge_bg = "#f3f4f6"
+        text_color = "#4b5563"
+        arrow = "—"
+
+    return f"""
+    <td class="kpi-column" style="padding: 6px; width: 33.33%; vertical-align: top;">
+        <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; text-align: center;">
+            <tr>
+                <td style="font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; padding-bottom: 4px;">
+                    {label}
+                </td>
+            </tr>
+            <tr>
+                <td style="font-size: 17px; font-weight: 800; color: {text_color}; padding-bottom: 4px;">
+                    {arrow} {diff:+,.2f} €
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <span style="display: inline-block; background-color: {badge_bg}; color: {text_color}; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">
+                        {pct:+.2f}%
+                    </span>
+                </td>
+            </tr>
+            <tr>
+                <td style="font-size: 9px; color: #9ca3af; padding-top: 4px;">
+                    Réf : {ref_date}
+                </td>
+            </tr>
+        </table>
+    </td>
+    """
+
+
+def render_allocation_thermometer_html(alloc):
+    """Génère la jauge segmentée et la légende d'allocation patrimoniale en HTML compatible email."""
+    pct_act = max(1.0, alloc["actions"]["pct"])
+    pct_cry = max(1.0, alloc["crypto"]["pct"])
+    pct_csh = max(1.0, alloc["cash"]["pct"])
+
+    def status_badge(delta):
+        if delta > 3.0:
+            return '<span style="color: #f59e0b; font-weight: 700;">▲ Surpondéré</span>'
+        elif delta < -3.0:
+            return '<span style="color: #3b82f6; font-weight: 700;">▼ Sous-pondéré</span>'
+        return '<span style="color: #10b981; font-weight: 700;">✓ Aligné</span>'
+
+    badge_act = status_badge(alloc["actions"]["delta"])
+    badge_cry = status_badge(alloc["crypto"]["delta"])
+    badge_csh = status_badge(alloc["cash"]["delta"])
+
+    return f"""
+    <!-- SECTION THERMOMÈTRE D'ALLOCATION GLOBALE -->
+    <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 16px; overflow: hidden;">
+        <tr>
+            <td style="padding: 14px 16px; border-bottom: 1px solid #f1f5f9;">
+                <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #1e293b; letter-spacing: 0.5px;">
+                    ⚖️ Thermomètre d'Allocation Patrimoniale
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 16px 16px 10px 16px;">
+                <!-- Jauge segmentée proportionnelle (Tables) -->
+                <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="border-radius: 6px; overflow: hidden; height: 12px; table-layout: fixed;">
+                    <tr>
+                        <td width="{pct_act:.1f}%" style="background-color: #2563eb; height: 12px;" title="Actions: {pct_act:.1f}%"></td>
+                        <td width="{pct_cry:.1f}%" style="background-color: #f59e0b; height: 12px;" title="Crypto: {pct_cry:.1f}%"></td>
+                        <td width="{pct_csh:.1f}%" style="background-color: #10b981; height: 12px;" title="Cash: {pct_csh:.1f}%"></td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 0 16px 14px 16px;">
+                <!-- Grille des 3 poches (Responsive) -->
+                <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td class="alloc-col" style="width: 33.33%; padding: 6px; vertical-align: top;">
+                            <div style="font-size: 11px; color: #64748b; font-weight: 600;">
+                                <span style="display: inline-block; width: 8px; height: 8px; background-color: #2563eb; border-radius: 2px; margin-right: 4px;"></span>🏛️ Actions / Titres
+                            </div>
+                            <div style="font-size: 14px; font-weight: 800; color: #1e293b; margin-top: 2px;">
+                                {alloc['actions']['val']:,.2f} €
+                            </div>
+                            <div style="font-size: 11px; color: #475569; margin-top: 1px;">
+                                <b>{alloc['actions']['pct']:.1f}%</b> (Cible: {alloc['actions']['target']:.0f}%)
+                            </div>
+                            <div style="font-size: 10px; margin-top: 2px;">
+                                {badge_act}
+                            </div>
+                        </td>
+                        <td class="alloc-col" style="width: 33.33%; padding: 6px; vertical-align: top;">
+                            <div style="font-size: 11px; color: #64748b; font-weight: 600;">
+                                <span style="display: inline-block; width: 8px; height: 8px; background-color: #f59e0b; border-radius: 2px; margin-right: 4px;"></span>🚀 Crypto-Actifs
+                            </div>
+                            <div style="font-size: 14px; font-weight: 800; color: #1e293b; margin-top: 2px;">
+                                {alloc['crypto']['val']:,.2f} €
+                            </div>
+                            <div style="font-size: 11px; color: #475569; margin-top: 1px;">
+                                <b>{alloc['crypto']['pct']:.1f}%</b> (Cible: {alloc['crypto']['target']:.0f}%)
+                            </div>
+                            <div style="font-size: 10px; margin-top: 2px;">
+                                {badge_cry}
+                            </div>
+                        </td>
+                        <td class="alloc-col" style="width: 33.33%; padding: 6px; vertical-align: top;">
+                            <div style="font-size: 11px; color: #64748b; font-weight: 600;">
+                                <span style="display: inline-block; width: 8px; height: 8px; background-color: #10b981; border-radius: 2px; margin-right: 4px;"></span>💶 Cash & Stables
+                            </div>
+                            <div style="font-size: 14px; font-weight: 800; color: #1e293b; margin-top: 2px;">
+                                {alloc['cash']['val']:,.2f} €
+                            </div>
+                            <div style="font-size: 11px; color: #475569; margin-top: 1px;">
+                                <b>{alloc['cash']['pct']:.1f}%</b> (Cible: {alloc['cash']['target']:.0f}%)
+                            </div>
+                            <div style="font-size: 10px; margin-top: 2px;">
+                                {badge_csh}
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+    """
+
+
+def render_crypto_cockpit_pill():
+    """Génère un badge synthétique de statut issu du Cockpit Crypto SSOT local."""
+    if not MACRO_AVAILABLE:
+        return ""
+    try:
+        macro = get_complete_macro_context()
+        fng = macro.get("fear_and_greed", {}).get("value", 50)
+        fng_class = macro.get("fear_and_greed", {}).get("classification", "Neutral")
+        regime = macro.get("regime", {}).get("regime", "BALANCED_ROTATION")
+        btc_d = macro.get("metrics", {}).get("btc_dominance", 59.0)
+
+        regime_labels = {
+            "RISK_OFF_BLEED": "🚨 RISK-OFF DÉFENSIF",
+            "BTC_LED_MARKET": "🧭 MARCHÉ MENÉ PAR BTC",
+            "BALANCED_ROTATION": "⚖️ CANAL D'ÉQUILIBRE",
+            "ALT_EXPANSION": "🟢 ALTSEASON ACTIVE",
+        }
+        regime_txt = regime_labels.get(regime, regime)
+
+        return f"""
+        <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: #0f172a; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #38bdf8;">
+            <tr>
+                <td style="padding: 10px 14px; font-size: 11px; color: #cbd5e1;">
+                    <b style="color: #38bdf8;">⚡ VIGIE COCKPIT CRYPTO (SSOT) :</b> {regime_txt} (BTC.D : <b>{btc_d:.1f}%</b>) | Sentiment : <b>{fng}/100</b> ({fng_class})
+                </td>
+            </tr>
+        </table>
+        """
+    except Exception:
+        return ""
+
+
+def build_responsive_email_wrapper(title, total_today, kpi_data, ai_body_html, used_model):
+    """
+    Construit l'ossature HTML responsive complète (Fluid Hybrid 600px).
+    Garantit une mise en page soignée sur PC et smartphone.
+    """
+    date_str = datetime.date.today().strftime("%d/%m/%Y")
+    alloc = compute_asset_allocation(kpi_data)
+
+    kpi_24h_html = render_kpi_card_html("Variation 24h", kpi_data["24h"])
+    kpi_7d_html = render_kpi_card_html("Variation 7 Jours", kpi_data["7d"])
+    kpi_30d_html = render_kpi_card_html("Variation 30 Jours", kpi_data["30d"])
+
+    thermometer_html = render_allocation_thermometer_html(alloc)
+    cockpit_pill_html = render_crypto_cockpit_pill()
+
+    return f"""<!DOCTYPE html>
+<html lang="fr" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
+    <title>{title}</title>
+    <style type="text/css">
+        body, table, td, a {{ -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }}
+        table, td {{ mso-table-lspace: 0pt; mso-table-rspace: 0pt; }}
+        img {{ -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; }}
+        body {{ margin: 0; padding: 0; width: 100% !important; background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }}
+        
+        @media only screen and (max-width: 580px) {{
+            .main-container {{ width: 100% !important; border-radius: 0 !important; }}
+            .kpi-column {{ display: block !important; width: 100% !important; padding: 4px 0 !important; }}
+            .alloc-col {{ display: block !important; width: 100% !important; padding: 8px 4px !important; border-bottom: 1px solid #f1f5f9; }}
+            .mobile-padding {{ padding: 16px 12px !important; }}
+            .hero-amount {{ font-size: 28px !important; }}
+        }}
+        @media (prefers-color-scheme: dark) {{
+            body {{ background-color: #0f172a !important; color: #f8fafc !important; }}
+            .main-container {{ background-color: #1e293b !important; border-color: #334155 !important; }}
+            .card-box {{ background-color: #0f172a !important; border-color: #334155 !important; color: #f8fafc !important; }}
+        }}
+    </style>
+</head>
+<body style="margin: 0; padding: 20px 0; background-color: #f3f4f6;">
+    <center>
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="table-layout: fixed;">
+            <tr>
+                <td align="center">
+                    <!-- CONTENEUR PRINCIPAL 600PX -->
+                    <table role="presentation" class="main-container" width="600" border="0" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                        
+                        <!-- HEADER & VALEUR GLOBALE -->
+                        <tr>
+                            <td class="mobile-padding" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); padding: 28px 24px; text-align: center; color: #ffffff;">
+                                <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #38bdf8; padding-bottom: 6px;">
+                                    {title}
+                                </div>
+                                <div style="font-size: 12px; color: #94a3b8; padding-bottom: 12px;">
+                                    Édition du {date_str} • Consolidation Patrimoniale Globale
+                                </div>
+                                <div class="hero-amount" style="font-size: 34px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">
+                                    {total_today:,.2f} €
+                                </div>
+                                <div style="font-size: 12px; color: #cbd5e1; padding-top: 4px;">
+                                    Patrimoine Financier & Spéculatif Total Consolidé
+                                </div>
+                            </td>
+                        </tr>
+
+                        <!-- TABLEAU DE BORD KPI RESPONSIVE -->
+                        <tr>
+                            <td style="padding: 16px 18px 8px 18px; background-color: #f8fafc;">
+                                <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+                                    <tr>
+                                        {kpi_24h_html}
+                                        {kpi_7d_html}
+                                        {kpi_30d_html}
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+
+                        <!-- THERMOMÈTRE D'ALLOCATION & PASSERELLE CRYPTO -->
+                        <tr>
+                            <td style="padding: 8px 18px 0 18px; background-color: #f8fafc;">
+                                {thermometer_html}
+                                {cockpit_pill_html}
+                            </td>
+                        </tr>
+
+                        <!-- CORPS DU RAPPORT (ANALYSE GEMINI) -->
+                        <tr>
+                            <td class="mobile-padding card-box" style="padding: 20px; font-size: 14px; line-height: 1.6; color: #334155;">
+                                {ai_body_html}
+                            </td>
+                        </tr>
+
+                        <!-- FOOTER INSTITUTIONNEL -->
+                        <tr>
+                            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 18px 20px; text-align: center; font-size: 11px; color: #94a3b8;">
+                                <div>Digest Automatisé • Serveur GCP <code>finary-digest-server</code></div>
+                                <div style="padding-top: 4px;">Modèle d'analyse IA : <b>{used_model}</b></div>
+                            </td>
+                        </tr>
+
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </center>
+</body>
+</html>
+"""
+
+
 def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, period_type):
-    """Génère la synthèse HTML enrichie (Multi-KPIs, Benchmarks et Calendrier Événements)."""
+    """
+    Fait analyser les données par Gemini et génère les sections métier (benchmarks, movers, agenda)
+    prêtes à être insérées dans le wrapper responsive.
+    """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return None
@@ -229,48 +600,51 @@ def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, period
         "monthly": "📈 Synthèse Mensuelle du Portefeuille (30 jours)"
     }
 
-    is_special_report = period_type in ["weekly", "monthly"]
+    alloc = compute_asset_allocation(kpi_data)
 
-    prompt = f"""Tu es un analyste financier privé senior. Rédige un rapport de patrimoine enrichi au format HTML pur (sans balises ```html```).
+    prompt = f"""Tu es un analyste financier privé senior. Génère les sections intérieures d'un rapport patrimonial.
+Ne génère PAS les balises <html>, <head>, <body> ni le conteneur principal (ils sont déjà gérés).
+Rends uniquement des blocs HTML propres (balises <div>, <table>, <p>, <span>) prêts à être injectés.
 
 DONNÉES DU PORTEFEUILLE :
 - Type de Rapport : {titles[period_type]}
-- Valeur Totale Actuelle : {kpi_data['total_today']:,.2f} €
-- Tableau de bord Multi-Horizons :
-  • Variation 24h  : {kpi_data['24h']}
-  • Variation 7j   : {kpi_data['7d']}
-  • Variation 30j  : {kpi_data['30d']}
+- Valeur Totale : {kpi_data['total_today']:,.2f} €
+- Allocation Réelle vs Cibles :
+  • Actions & Titres : {alloc['actions']['val']:,.2f} € ({alloc['actions']['pct']:.1f}% vs cible {alloc['actions']['target']:.0f}%)
+  • Crypto-actifs   : {alloc['crypto']['val']:,.2f} € ({alloc['crypto']['pct']:.1f}% vs cible {alloc['crypto']['target']:.0f}%)
+  • Cash & Stables  : {alloc['cash']['val']:,.2f} € ({alloc['cash']['pct']:.1f}% vs cible {alloc['cash']['target']:.0f}%)
+- Variations constatées :
+  • 24h : {kpi_data['24h']['text']}
+  • 7j  : {kpi_data['7d']['text']}
+  • 30j : {kpi_data['30d']['text']}
 
 MOUVEMENTS DE LA PÉRIODE ({period_type.upper()}) :
 {movers_data}
 
-PRINCIPALES POSITIONS DU PORTEFEUILLE (Cibles pour événements) :
+PRINCIPALES POSITIONS EN PORTEFEUILLE :
 {", ".join(top_positions)}
 
-DIRECTIVES DE RÉDACTION HTML :
-1. **Header & Dashboard Multi-Horizons** :
-   - Présente la valeur totale actuelle.
-   - Crée un tableau/grid moderne à 3 colonnes comparant les variations **24h**, **7 Jours** et **30 Jours** (très lisible avec fonds gris/bleu clair).
+CONSIGNES DE RÉDACTION DES SECTIONS :
 
-2. **Comparaison aux Indices de Référence (Benchmarks)** :
-   - Crée une section dédiée comparant la performance du portefeuille à celle des grands indices sur la période ({period_type}) : **S&P 500**, **MSCI World**, **CAC 40** et **Bitcoin**.
-   - Précise si le portefeuille surperforme ou sous-performe la tendance marché.
+1. **Section 1 : Benchmarking & Tendance des Marchés** :
+   - Compare la dynamique du portefeuille à celle des grands indices sur la période : **S&P 500**, **MSCI World**, **CAC 40** et **Bitcoin**.
+   - Précise succinctement si la répartition actuelle (notamment le poids crypto vs actions) est un vent porteur ou un frein.
+   - Présente cela sous forme d'une synthèse courte (1 paragraphe) suivie d'un mini-tableau comparatif moderne.
 
-3. **Analyse des Moteurs de Performance (Top / Flops)** :
-   - Cartes stylisées par actif (cartes blanches, bordure `#e2e8f0`, badges vert `#dcfce7`/rouge `#fee2e2`).
-   - Analyse factuelle et économique expliquant les variations.
+2. **Section 2 : Moteurs de Performance (Top / Flops)** :
+   - Pour les principaux mouvements haussiers et baissiers, présente des cartes stylisées (fond blanc, bordure 1px solid #e2e8f0, padding 10px, coins arrondis 6px).
+   - Donne l'explication économique ou l'actualité concrète expliquant ces variations.
 
-4. **📅 Calendrier des Événements à Venir (Résultats & Dividendes)** :
-   - Recherche et liste sous forme de mini-cartes ou de liste à puces les prochains événements majeurs des 7 à 14 prochains jours concernant les principales positions ({", ".join(top_positions)}) :
+3. **Section 3 : 📅 Agenda Financier & Catalyseurs à Venir** :
+   - Recherche et liste les événements clés des 7 à 14 prochains jours concernant les principales positions ({", ".join(top_positions)}) :
      • Publications de résultats trimestriels (Earnings).
-     • Dates de détachement/paiement de dividendes.
-     • Prochaines réunions centrales (FED / BCE) ou catalyseurs macro.
+     • Dates de dividendes.
+     • Décisions de politique monétaire ou catalyseurs sectoriels.
 
-Style HTML : Propre, moderne, responsive, police sans-serif (-apple-system, Segoe UI, Roboto). Pas d'avertissement financier."""
+Style : Épuré, cartes avec bordures subtiles, badges verts (#10b981) et rouges (#ef4444). Pas d'avertissement financier robotique."""
 
-    # Chaîne de repli robuste (Recherche Web + Modèles de secours)
     modeles = [
-	"gemini-4-argon",
+        "gemini-4-argon",
         "gemini-3.8-flash",
         "gemini-3.6-flash",
         "gemini-3.5-flash",
@@ -280,29 +654,34 @@ Style HTML : Propre, moderne, responsive, police sans-serif (-apple-system, Sego
     for modele in modeles:
         # 1. Tentative AVEC recherche Web (Google Search)
         try:
-            print(f"🤖 Tentative d'analyse avec {modele} (avec recherche Web)...")
+            logging.info(f"🤖 Tentative d'analyse avec {modele} (avec recherche Web)...")
             response = client.models.generate_content(
                 model=modele,
                 contents=prompt,
                 config={"tools": [{"google_search": {}}]}
             )
             if response.text:
-                return response.text
+                clean_ai_html = response.text.replace("```html", "").replace("```", "").strip()
+                return build_responsive_email_wrapper(
+                    titles[period_type], kpi_data["total_today"], kpi_data, clean_ai_html, modele
+                )
         except Exception as e:
-            print(f"⚠️ Recherche Web ou modèle {modele} indisponible ({e}). Repli en mode standard...")
+            logging.warning(f"⚠️ Recherche Web ou modèle {modele} indisponible ({e}). Bascule en mode standard...")
 
-        # 2. Repli SANS recherche Web sur le même modèle
+        # 2. Repli SANS recherche Web
         try:
             response = client.models.generate_content(
                 model=modele,
                 contents=prompt
             )
             if response.text:
-                return response.text
+                clean_ai_html = response.text.replace("```html", "").replace("```", "").strip()
+                return build_responsive_email_wrapper(
+                    titles[period_type], kpi_data["total_today"], kpi_data, clean_ai_html, f"{modele} (Standard)"
+                )
         except Exception as e:
-            print(f"❌ Échec du modèle {modele} en mode standard : {e}")
+            logging.error(f"❌ Échec du modèle {modele} en mode standard : {e}")
 
-        # Pause de 2 secondes avant de basculer sur le modèle de secours suivant
         time.sleep(2)
 
     raise RuntimeError("❌ Tous les modèles Gemini et modes de recherche ont échoué.")
@@ -316,15 +695,14 @@ def send_email_html(subject, html_content):
     recipient = os.getenv("RECIPIENT_EMAIL", smtp_email)
 
     if not smtp_email or not smtp_password:
+        logging.warning("⚠️ Identifiants SMTP non configurés. E-mail non envoyé.")
         return
-
-    clean_html = html_content.replace("```html", "").replace("```", "").strip()
 
     msg = MIMEMultipart("alternative")
     msg['From'] = smtp_email
     msg['To'] = recipient
     msg['Subject'] = subject
-    msg.attach(MIMEText(clean_html, 'html', 'utf-8'))
+    msg.attach(MIMEText(html_content, 'html', 'utf-8'))
 
     try:
         server = smtplib.SMTP(smtp_server, smtp_port)
@@ -332,9 +710,10 @@ def send_email_html(subject, html_content):
         server.login(smtp_email, smtp_password)
         server.send_message(msg)
         server.quit()
-        print(f"📧 E-mail '{subject}' envoyé avec succès !")
+        logging.info(f"📧 E-mail '{subject}' envoyé avec succès !")
     except Exception as e:
-        print(f"❌ Échec envoi e-mail '{subject}' : {e}")
+        logging.error(f"❌ Échec envoi e-mail '{subject}' : {e}")
+
 
 def run_digest():
     session = init_finary_session()
@@ -353,32 +732,31 @@ def run_digest():
         except Exception:
             history = {}
 
-    # Extraction des KPIs Multi-Horizons et des Top Positions
     kpi_data = compute_multi_horizon_kpis(current_snap, history)
     top_positions = extract_top_positions(current_snap)
 
-    # 1. RAPPORT QUOTIDIEN (Tous les jours)
+    # 1. RAPPORT QUOTIDIEN
     daily_data_text, err = compute_movers_for_period(current_snap, history, target_days_ago=1)
     if daily_data_text:
-        print("🔍 Génération du digest QUOTIDIEN enrichi...")
+        logging.info("🔍 Génération du digest QUOTIDIEN responsive avec allocation...")
         daily_html = generate_enhanced_analysis_html(kpi_data, daily_data_text, top_positions, "daily")
         if daily_html:
             send_email_html(f"📊 Digest Quotidien — {today.strftime('%d/%m/%Y')}", daily_html)
 
-    # 2. RAPPORT HEBDOMADAIRE (Chaque Dimanche - weekday() == 6)
+    # 2. RAPPORT HEBDOMADAIRE (Dimanche)
     if today.weekday() == 6:
         weekly_data_text, err_w = compute_movers_for_period(current_snap, history, target_days_ago=7)
         if weekly_data_text:
-            print("🗓️ Génération du digest HEBDOMADAIRE enrichi...")
+            logging.info("🗓️ Génération du digest HEBDOMADAIRE responsive...")
             weekly_html = generate_enhanced_analysis_html(kpi_data, weekly_data_text, top_positions, "weekly")
             if weekly_html:
                 send_email_html(f"🗓️ Bilan Hebdomadaire — Semaine du {today.strftime('%d/%m/%Y')}", weekly_html)
 
-    # 3. RAPPORT MENSUEL (Le 1er du mois - day == 1)
+    # 3. RAPPORT MENSUEL (1er du mois)
     if today.day == 1:
         monthly_data_text, err_m = compute_movers_for_period(current_snap, history, target_days_ago=30)
         if monthly_data_text:
-            print("📈 Génération du digest MENSUEL enrichi...")
+            logging.info("📈 Génération du digest MENSUEL responsive...")
             monthly_html = generate_enhanced_analysis_html(kpi_data, monthly_data_text, top_positions, "monthly")
             if monthly_html:
                 send_email_html(f"📈 Synthèse Mensuelle — {today.strftime('%B %Y')}", monthly_html)
@@ -387,6 +765,7 @@ def run_digest():
     history[today_str] = current_snap
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(history, f, indent=2)
+
 
 if __name__ == "__main__":
     run_digest()
