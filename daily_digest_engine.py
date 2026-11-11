@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Moteur de Digest Quotidien, Hebdomadaire et Mensuel du Patrimoine (v1.2.0).
+Moteur de Digest Quotidien, Hebdomadaire et Mensuel du Patrimoine (v1.3.0).
 Intègre :
+- Benchmarking Quantitatif Réel & Calcul d'Alpha vs Marché (CAC 40, S&P 500, MSCI World, BTC)
+- Vigie de Surconcentration Actions (Seuil 10% sur actions vives hors ETF)
 - Thermomètre d'Allocation Globale (Actions vs Crypto vs Cash) avec jauge segmentée
 - Passerelle Cockpit Crypto SSOT (Boussole Macro, Fear & Greed et Cash vérifié)
 - Architecture HTML Email Responsive Hybride (PC / Mobile-First)
 - Dashboard KPI multi-horizons déterministe (24h, 7j, 30j)
-- Analyse de marché et recherche de catalyseurs via Gemini avec fallback
 """
 
 import os
@@ -22,11 +23,11 @@ import time
 from dotenv import load_dotenv
 from curl_cffi import requests as curl_requests
 from google import genai
+import requests
 
 from finary_uapi.signin import signin
 from finary_uapi.user_portfolio import get_portfolio_investments, get_portfolio_cryptos
 
-# Configuration du logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
@@ -35,10 +36,18 @@ logging.basicConfig(
 load_dotenv()
 HISTORY_FILE = "portfolio_history.json"
 
-# Cibles patrimoniales configurables
+# Cibles patrimoniales
 TARGET_ACTIONS_PCT = float(os.getenv("TARGET_ACTIONS_PCT", "65.0"))
 TARGET_CRYPTO_PCT = float(os.getenv("TARGET_CRYPTO_PCT", "20.0"))
 TARGET_CASH_PCT = float(os.getenv("TARGET_CASH_PCT", "15.0"))
+MAX_EQUITY_CONCENTRATION_PCT = float(os.getenv("MAX_EQUITY_CONCENTRATION_PCT", "10.0"))
+
+DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like"
+        " Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
+}
 
 # Raccordement optionnel au Cockpit Crypto SSOT local
 try:
@@ -109,7 +118,6 @@ def init_finary_session():
 
 
 def get_verified_liquidities():
-    """Récupère le cash vérifié via les connecteurs locaux ou fallback Finary."""
     if CASH_CONNECTOR_AVAILABLE:
         try:
             cash_info = get_total_verified_cash()
@@ -170,7 +178,6 @@ def get_closest_past_snapshot(history, target_days_ago):
 
 
 def compute_multi_horizon_kpis(current_snap, history):
-    """Calcule le dictionnaire complet des KPIs Multi-Horizons (24h, 7j, 30j)."""
     total_today = current_snap["total_invest"] + current_snap["total_crypto"] + current_snap.get("total_cash", 0.0)
     kpis = {
         "total_today": total_today,
@@ -203,7 +210,6 @@ def compute_multi_horizon_kpis(current_snap, history):
 
 
 def compute_asset_allocation(kpis):
-    """Calcule les poids réels de chaque poche et les écarts aux cibles."""
     total = kpis["total_today"]
     if total <= 0:
         return {
@@ -240,6 +246,81 @@ def compute_asset_allocation(kpis):
             "delta": pct_csh - TARGET_CASH_PCT,
         },
     }
+
+
+def audit_equity_concentration(current_snap):
+    """
+    Détecte les lignes vives d'actions individuelles dont le poids dépasse
+    le seuil critique de concentration (par défaut 10% de la poche investissements).
+    Exclut automatiquement les ETF diversifiés (World, S&P 500, Stoxx, etc.).
+    """
+    total_invest = current_snap.get("total_invest", 0.0)
+    if total_invest <= 0:
+        return []
+
+    etf_keywords = ["ETF", "WORLD", "CW8", "WPEA", "S&P", "500", "STOXX", "MSCI", "LYXOR", "AMUNDI", "ISHARES", "PEA 0%"]
+    alerts = []
+
+    for item_name, item_val in current_snap.get("holdings", {}).items():
+        # Ignorer les cryptos
+        if any(cry in item_name.upper() for cry in ["BITCOIN", "ETHEREUM", "SOLANA", "KRAKEN", "OKX", "EXODUS"]):
+            continue
+
+        clean_name = item_name.upper()
+        is_etf = any(kw in clean_name for kw in etf_keywords)
+
+        if not is_etf:
+            weight_pct = (item_val / total_invest) * 100.0
+            if weight_pct >= MAX_EQUITY_CONCENTRATION_PCT:
+                alerts.append({
+                    "name": item_name.split("(")[0].strip(),
+                    "val": item_val,
+                    "weight_pct": weight_pct,
+                    "cap_pct": MAX_EQUITY_CONCENTRATION_PCT,
+                    "delta_eur": item_val - (total_invest * (MAX_EQUITY_CONCENTRATION_PCT / 100.0)),
+                })
+
+    return sorted(alerts, key=lambda x: x["weight_pct"], reverse=True)
+
+
+def fetch_benchmark_returns():
+    """
+    Récupère les performances réelles des 4 indices de référence (24h, 7j, 30j)
+    via l'API Yahoo Finance et CoinGecko.
+    """
+    benchmarks = {
+        "CAC 40": {"ticker": "^FCHI", "24h": 0.0, "7d": 0.0, "30d": 0.0},
+        "S&P 500": {"ticker": "^GSPC", "24h": 0.0, "7d": 0.0, "30d": 0.0},
+        "MSCI World": {"ticker": "CW8.PA", "24h": 0.0, "7d": 0.0, "30d": 0.0},
+        "Bitcoin": {"ticker": "BTC-EUR", "24h": 0.0, "7d": 0.0, "30d": 0.0},
+    }
+
+    session = requests.Session()
+    session.headers.update(DEFAULT_HEADERS)
+
+    for name, data in benchmarks.items():
+        sym = data["ticker"]
+        try:
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1mo&interval=1d"
+            res = session.get(url, timeout=3.5)
+            if res.status_code == 200:
+                chart = res.json().get("chart", {}).get("result", [])
+                if chart:
+                    closes = chart[0].get("indicators", {}).get("quote", [{}])[0].get("close", [])
+                    valid_closes = [c for c in closes if c is not None and c > 0]
+                    if len(valid_closes) >= 2:
+                        last = valid_closes[-1]
+                        prev_1d = valid_closes[-2]
+                        prev_7d = valid_closes[-5] if len(valid_closes) >= 5 else valid_closes[0]
+                        prev_30d = valid_closes[0]
+
+                        benchmarks[name]["24h"] = round(((last - prev_1d) / prev_1d) * 100.0, 2)
+                        benchmarks[name]["7d"] = round(((last - prev_7d) / prev_7d) * 100.0, 2)
+                        benchmarks[name]["30d"] = round(((last - prev_30d) / prev_30d) * 100.0, 2)
+        except Exception:
+            pass
+
+    return benchmarks
 
 
 def extract_top_positions(current_snap, top_k=6):
@@ -342,7 +423,6 @@ def render_kpi_card_html(label, kpi_obj):
 
 
 def render_allocation_thermometer_html(alloc):
-    """Génère la jauge segmentée et la légende d'allocation patrimoniale en HTML compatible email."""
     pct_act = max(1.0, alloc["actions"]["pct"])
     pct_cry = max(1.0, alloc["crypto"]["pct"])
     pct_csh = max(1.0, alloc["cash"]["pct"])
@@ -359,7 +439,6 @@ def render_allocation_thermometer_html(alloc):
     badge_csh = status_badge(alloc["cash"]["delta"])
 
     return f"""
-    <!-- SECTION THERMOMÈTRE D'ALLOCATION GLOBALE -->
     <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 16px; overflow: hidden;">
         <tr>
             <td style="padding: 14px 16px; border-bottom: 1px solid #f1f5f9;">
@@ -370,7 +449,6 @@ def render_allocation_thermometer_html(alloc):
         </tr>
         <tr>
             <td style="padding: 16px 16px 10px 16px;">
-                <!-- Jauge segmentée proportionnelle (Tables) -->
                 <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="border-radius: 6px; overflow: hidden; height: 12px; table-layout: fixed;">
                     <tr>
                         <td width="{pct_act:.1f}%" style="background-color: #2563eb; height: 12px;" title="Actions: {pct_act:.1f}%"></td>
@@ -382,7 +460,6 @@ def render_allocation_thermometer_html(alloc):
         </tr>
         <tr>
             <td style="padding: 0 16px 14px 16px;">
-                <!-- Grille des 3 poches (Responsive) -->
                 <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
                     <tr>
                         <td class="alloc-col" style="width: 33.33%; padding: 6px; vertical-align: top;">
@@ -435,8 +512,80 @@ def render_allocation_thermometer_html(alloc):
     """
 
 
+def render_benchmark_alpha_table_html(kpis, benchmarks, horizon_key="24h"):
+    """Génère le tableau comparatif d'Alpha face aux 4 indices réels."""
+    port_ret = kpis.get(horizon_key, {}).get("pct", 0.0)
+
+    rows = []
+    for name, data in benchmarks.items():
+        bench_ret = data.get(horizon_key, 0.0)
+        alpha = port_ret - bench_ret
+
+        color_alpha = "#059669" if alpha >= 0 else "#dc2626"
+        badge_alpha = f"{alpha:+.2f}%"
+
+        rows.append(f"""
+        <tr>
+            <td style="padding: 8px 10px; font-size: 12px; font-weight: 600; color: #334155; border-bottom: 1px solid #f1f5f9;">
+                {name}
+            </td>
+            <td style="padding: 8px 10px; font-size: 12px; text-align: center; color: #64748b; border-bottom: 1px solid #f1f5f9;">
+                {bench_ret:+.2f}%
+            </td>
+            <td style="padding: 8px 10px; font-size: 12px; font-weight: 700; text-align: right; color: {color_alpha}; border-bottom: 1px solid #f1f5f9;">
+                {badge_alpha}
+            </td>
+        </tr>
+        """)
+
+    return f"""
+    <!-- TABLEAU COMPARATIF BENCHMARK & ALPHA REEL -->
+    <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 16px; overflow: hidden;">
+        <tr>
+            <td colspan="3" style="padding: 12px 16px; border-bottom: 1px solid #f1f5f9; background-color: #f8fafc;">
+                <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #1e293b; letter-spacing: 0.5px;">
+                    🎯 Performance Réelle vs Marché & Alpha ({horizon_key.upper()})
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <th style="padding: 6px 10px; font-size: 11px; text-align: left; color: #94a3b8; font-weight: 600;">INDICE / ACTIF</th>
+            <th style="padding: 6px 10px; font-size: 11px; text-align: center; color: #94a3b8; font-weight: 600;">PERF {horizon_key.upper()}</th>
+            <th style="padding: 6px 10px; font-size: 11px; text-align: right; color: #94a3b8; font-weight: 600;">ALPHA PATRIMOINE</th>
+        </tr>
+        {''.join(rows)}
+    </table>
+    """
+
+
+def render_equity_concentration_vigie_html(alerts):
+    """Génère l'encadré d'alerte si des actions vives dépassent 10% du portefeuille actions."""
+    if not alerts:
+        return ""
+
+    items_html = []
+    for a in alerts:
+        items_html.append(
+            f"• <b>{a['name']}</b> : <b>{a['weight_pct']:.1f}%</b> de la poche actions ({a['val']:,.2f} €) — Excédent cap 10% : <b>+{a['delta_eur']:,.2f} €</b>"
+        )
+
+    return f"""
+    <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: #fffbeb; border: 1px solid #fef3c7; border-left: 4px solid #f59e0b; border-radius: 8px; margin-bottom: 16px;">
+        <tr>
+            <td style="padding: 12px 16px;">
+                <div style="font-size: 12px; font-weight: 700; color: #b45309; text-transform: uppercase; letter-spacing: 0.5px;">
+                    ⚠️ Vigie Surconcentration Actions (&gt; {MAX_EQUITY_CONCENTRATION_PCT:.0f}% du portefeuille)
+                </div>
+                <div style="font-size: 12px; color: #78350f; margin-top: 6px; line-height: 1.5;">
+                    {'<br>'.join(items_html)}
+                </div>
+            </td>
+        </tr>
+    </table>
+    """
+
+
 def render_crypto_cockpit_pill():
-    """Génère un badge synthétique de statut issu du Cockpit Crypto SSOT local."""
     if not MACRO_AVAILABLE:
         return ""
     try:
@@ -467,11 +616,7 @@ def render_crypto_cockpit_pill():
         return ""
 
 
-def build_responsive_email_wrapper(title, total_today, kpi_data, ai_body_html, used_model):
-    """
-    Construit l'ossature HTML responsive complète (Fluid Hybrid 600px).
-    Garantit une mise en page soignée sur PC et smartphone.
-    """
+def build_responsive_email_wrapper(title, total_today, kpi_data, benchmarks, equity_alerts, ai_body_html, used_model, horizon_key="24h"):
     date_str = datetime.date.today().strftime("%d/%m/%Y")
     alloc = compute_asset_allocation(kpi_data)
 
@@ -481,6 +626,8 @@ def build_responsive_email_wrapper(title, total_today, kpi_data, ai_body_html, u
 
     thermometer_html = render_allocation_thermometer_html(alloc)
     cockpit_pill_html = render_crypto_cockpit_pill()
+    benchmark_table_html = render_benchmark_alpha_table_html(kpi_data, benchmarks, horizon_key)
+    vigie_equity_html = render_equity_concentration_vigie_html(equity_alerts)
 
     return f"""<!DOCTYPE html>
 <html lang="fr" xmlns="http://www.w3.org/1999/xhtml">
@@ -516,7 +663,6 @@ def build_responsive_email_wrapper(title, total_today, kpi_data, ai_body_html, u
         <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="table-layout: fixed;">
             <tr>
                 <td align="center">
-                    <!-- CONTENEUR PRINCIPAL 600PX -->
                     <table role="presentation" class="main-container" width="600" border="0" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
                         
                         <!-- HEADER & VALEUR GLOBALE -->
@@ -550,11 +696,13 @@ def build_responsive_email_wrapper(title, total_today, kpi_data, ai_body_html, u
                             </td>
                         </tr>
 
-                        <!-- THERMOMÈTRE D'ALLOCATION & PASSERELLE CRYPTO -->
+                        <!-- THERMOMÈTRE D'ALLOCATION & BENCHMARKS REELS -->
                         <tr>
                             <td style="padding: 8px 18px 0 18px; background-color: #f8fafc;">
                                 {thermometer_html}
+                                {vigie_equity_html}
                                 {cockpit_pill_html}
+                                {benchmark_table_html}
                             </td>
                         </tr>
 
@@ -583,11 +731,7 @@ def build_responsive_email_wrapper(title, total_today, kpi_data, ai_body_html, u
 """
 
 
-def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, period_type):
-    """
-    Fait analyser les données par Gemini et génère les sections métier (benchmarks, movers, agenda)
-    prêtes à être insérées dans le wrapper responsive.
-    """
+def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, benchmarks, equity_alerts, period_type):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return None
@@ -599,12 +743,26 @@ def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, period
         "weekly": "🗓️ Bilan Hebdomadaire du Portefeuille (7 jours)",
         "monthly": "📈 Synthèse Mensuelle du Portefeuille (30 jours)"
     }
+    horizon_map = {"daily": "24h", "weekly": "7d", "monthly": "30d"}
+    current_horizon = horizon_map[period_type]
 
     alloc = compute_asset_allocation(kpi_data)
 
+    benchmarks_summary = []
+    port_ret = kpi_data[current_horizon]["pct"]
+    for b_name, b_val in benchmarks.items():
+        b_ret = b_val.get(current_horizon, 0.0)
+        alpha = port_ret - b_ret
+        benchmarks_summary.append(f"• {b_name} : {b_ret:+.2f}% (Alpha Portefeuille : {alpha:+.2f}%)")
+
+    vigie_summary = (
+        "\n".join([f"• {a['name']}: {a['weight_pct']:.1f}% (> cap {a['cap_pct']:.0f}%)" for a in equity_alerts])
+        if equity_alerts else "Aucun actif en surconcentration critique."
+    )
+
     prompt = f"""Tu es un analyste financier privé senior. Génère les sections intérieures d'un rapport patrimonial.
-Ne génère PAS les balises <html>, <head>, <body> ni le conteneur principal (ils sont déjà gérés).
-Rends uniquement des blocs HTML propres (balises <div>, <table>, <p>, <span>) prêts à être injectés.
+Ne génère PAS les balises <html>, <head>, <body>, le conteneur principal, ni le tableau des indices (ils sont déjà intégrés dans le template).
+Rends uniquement des blocs HTML propres (balises <div>, <p>, <span>) prêts à être injectés.
 
 DONNÉES DU PORTEFEUILLE :
 - Type de Rapport : {titles[period_type]}
@@ -613,10 +771,13 @@ DONNÉES DU PORTEFEUILLE :
   • Actions & Titres : {alloc['actions']['val']:,.2f} € ({alloc['actions']['pct']:.1f}% vs cible {alloc['actions']['target']:.0f}%)
   • Crypto-actifs   : {alloc['crypto']['val']:,.2f} € ({alloc['crypto']['pct']:.1f}% vs cible {alloc['crypto']['target']:.0f}%)
   • Cash & Stables  : {alloc['cash']['val']:,.2f} € ({alloc['cash']['pct']:.1f}% vs cible {alloc['cash']['target']:.0f}%)
-- Variations constatées :
-  • 24h : {kpi_data['24h']['text']}
-  • 7j  : {kpi_data['7d']['text']}
-  • 30j : {kpi_data['30d']['text']}
+- Performance du Portefeuille ({current_horizon}) : {kpi_data[current_horizon]['pct']:+.2f}% ({kpi_data[current_horizon]['diff']:+,.2f} €)
+
+BENCHMARKS RÉELS & ALPHA MESURÉS EN DIRECT ({current_horizon}) :
+{chr(10).join(benchmarks_summary)}
+
+VIGIE SURCONCENTRATION ACTIONS (SEUIL > 10%) :
+{vigie_summary}
 
 MOUVEMENTS DE LA PÉRIODE ({period_type.upper()}) :
 {movers_data}
@@ -624,24 +785,23 @@ MOUVEMENTS DE LA PÉRIODE ({period_type.upper()}) :
 PRINCIPALES POSITIONS EN PORTEFEUILLE :
 {", ".join(top_positions)}
 
-CONSIGNES DE RÉDACTION DES SECTIONS :
+CONSIGNES DE RÉDACTION :
 
-1. **Section 1 : Benchmarking & Tendance des Marchés** :
-   - Compare la dynamique du portefeuille à celle des grands indices sur la période : **S&P 500**, **MSCI World**, **CAC 40** et **Bitcoin**.
-   - Précise succinctement si la répartition actuelle (notamment le poids crypto vs actions) est un vent porteur ou un frein.
-   - Présente cela sous forme d'une synthèse courte (1 paragraphe) suivie d'un mini-tableau comparatif moderne.
+1. **Commentaire Macro & Analyse de l'Alpha** :
+   - Rédige un paragraphe synthétique expliquant la surperformance ou sous-performance du portefeuille face au S&P 500, au CAC 40 et au Bitcoin.
+   - Mentionne brièvement si l'exposition actuelle (ex: part crypto vs actions) a servi d'accélérateur ou de frein.
 
-2. **Section 2 : Moteurs de Performance (Top / Flops)** :
-   - Pour les principaux mouvements haussiers et baissiers, présente des cartes stylisées (fond blanc, bordure 1px solid #e2e8f0, padding 10px, coins arrondis 6px).
+2. **Moteurs de Performance (Top / Flops)** :
+   - Pour les principaux mouvements haussiers et baissiers, présente des cartes stylisées (fond blanc, bordure 1px solid #e2e8f0, padding 10px, coins arrondis 6px, marge 8px).
    - Donne l'explication économique ou l'actualité concrète expliquant ces variations.
 
-3. **Section 3 : 📅 Agenda Financier & Catalyseurs à Venir** :
-   - Recherche et liste les événements clés des 7 à 14 prochains jours concernant les principales positions ({", ".join(top_positions)}) :
-     • Publications de résultats trimestriels (Earnings).
-     • Dates de dividendes.
-     • Décisions de politique monétaire ou catalyseurs sectoriels.
+3. **📅 Agenda Financier & Catalyseurs Clés** :
+   - Recherche et liste sous forme de mini-cartes ou puces les événements clés des 7 à 14 prochains jours pour les principales positions ({", ".join(top_positions)}) :
+     • Publications de résultats (Earnings).
+     • Détachements de dividendes.
+     • Catalyseurs sectoriels ou réunions de banques centrales.
 
-Style : Épuré, cartes avec bordures subtiles, badges verts (#10b981) et rouges (#ef4444). Pas d'avertissement financier robotique."""
+Style : Épuré, professionnel, sans avertissement financier robotique."""
 
     modeles = [
         "gemini-4-argon",
@@ -652,7 +812,6 @@ Style : Épuré, cartes avec bordures subtiles, badges verts (#10b981) et rouges
     ]
 
     for modele in modeles:
-        # 1. Tentative AVEC recherche Web (Google Search)
         try:
             logging.info(f"🤖 Tentative d'analyse avec {modele} (avec recherche Web)...")
             response = client.models.generate_content(
@@ -663,12 +822,12 @@ Style : Épuré, cartes avec bordures subtiles, badges verts (#10b981) et rouges
             if response.text:
                 clean_ai_html = response.text.replace("```html", "").replace("```", "").strip()
                 return build_responsive_email_wrapper(
-                    titles[period_type], kpi_data["total_today"], kpi_data, clean_ai_html, modele
+                    titles[period_type], kpi_data["total_today"], kpi_data, benchmarks,
+                    equity_alerts, clean_ai_html, modele, current_horizon
                 )
         except Exception as e:
             logging.warning(f"⚠️ Recherche Web ou modèle {modele} indisponible ({e}). Bascule en mode standard...")
 
-        # 2. Repli SANS recherche Web
         try:
             response = client.models.generate_content(
                 model=modele,
@@ -677,7 +836,8 @@ Style : Épuré, cartes avec bordures subtiles, badges verts (#10b981) et rouges
             if response.text:
                 clean_ai_html = response.text.replace("```html", "").replace("```", "").strip()
                 return build_responsive_email_wrapper(
-                    titles[period_type], kpi_data["total_today"], kpi_data, clean_ai_html, f"{modele} (Standard)"
+                    titles[period_type], kpi_data["total_today"], kpi_data, benchmarks,
+                    equity_alerts, clean_ai_html, f"{modele} (Standard)", current_horizon
                 )
         except Exception as e:
             logging.error(f"❌ Échec du modèle {modele} en mode standard : {e}")
@@ -734,12 +894,18 @@ def run_digest():
 
     kpi_data = compute_multi_horizon_kpis(current_snap, history)
     top_positions = extract_top_positions(current_snap)
+    equity_alerts = audit_equity_concentration(current_snap)
+
+    logging.info("📈 Récupération des cours des indices de référence (CAC 40, S&P 500, MSCI World, BTC)...")
+    benchmarks = fetch_benchmark_returns()
 
     # 1. RAPPORT QUOTIDIEN
     daily_data_text, err = compute_movers_for_period(current_snap, history, target_days_ago=1)
     if daily_data_text:
-        logging.info("🔍 Génération du digest QUOTIDIEN responsive avec allocation...")
-        daily_html = generate_enhanced_analysis_html(kpi_data, daily_data_text, top_positions, "daily")
+        logging.info("🔍 Génération du digest QUOTIDIEN avec Benchmarks & Alpha réels...")
+        daily_html = generate_enhanced_analysis_html(
+            kpi_data, daily_data_text, top_positions, benchmarks, equity_alerts, "daily"
+        )
         if daily_html:
             send_email_html(f"📊 Digest Quotidien — {today.strftime('%d/%m/%Y')}", daily_html)
 
@@ -747,8 +913,10 @@ def run_digest():
     if today.weekday() == 6:
         weekly_data_text, err_w = compute_movers_for_period(current_snap, history, target_days_ago=7)
         if weekly_data_text:
-            logging.info("🗓️ Génération du digest HEBDOMADAIRE responsive...")
-            weekly_html = generate_enhanced_analysis_html(kpi_data, weekly_data_text, top_positions, "weekly")
+            logging.info("🗓️ Génération du digest HEBDOMADAIRE avec Benchmarks & Alpha...")
+            weekly_html = generate_enhanced_analysis_html(
+                kpi_data, weekly_data_text, top_positions, benchmarks, equity_alerts, "weekly"
+            )
             if weekly_html:
                 send_email_html(f"🗓️ Bilan Hebdomadaire — Semaine du {today.strftime('%d/%m/%Y')}", weekly_html)
 
@@ -756,12 +924,13 @@ def run_digest():
     if today.day == 1:
         monthly_data_text, err_m = compute_movers_for_period(current_snap, history, target_days_ago=30)
         if monthly_data_text:
-            logging.info("📈 Génération du digest MENSUEL responsive...")
-            monthly_html = generate_enhanced_analysis_html(kpi_data, monthly_data_text, top_positions, "monthly")
+            logging.info("📈 Génération du digest MENSUEL avec Benchmarks & Alpha...")
+            monthly_html = generate_enhanced_analysis_html(
+                kpi_data, monthly_data_text, top_positions, benchmarks, equity_alerts, "monthly"
+            )
             if monthly_html:
                 send_email_html(f"📈 Synthèse Mensuelle — {today.strftime('%B %Y')}", monthly_html)
 
-    # Sauvegarde de l'historique
     history[today_str] = current_snap
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(history, f, indent=2)
