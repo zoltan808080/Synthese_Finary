@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
 """
-Moteur de Digest Quotidien, Hebdomadaire et Mensuel du Patrimoine (v1.5.0).
-Jalon 2 (Moteur de Conseil & Arbitrage Multi-Horizons) :
-- Chargement du prompt de doctrine patrimoniale (prompts/wealth_advisory.md)
-- Directives d'arbitrage différenciées selon l'horizon :
-  • Daily   : Veille micro, alertes surconcentrations (> 10%), opportunités court terme
-  • Weekly  : Élagage sectoriel CTO Bourso vs CTO LCL, maximisation abondement PEE
-  • Monthly : Rebalancement macro 360° (90/8/2) et fléchage de l'épargne par les flux
-- Raccordement SSOT Crypto (Kraken/OKX : 3 209,85 €)
-- Intégration du compte espèces CTO LCL (id: e71c7b8c-42d7-436e-a225-575927094588 : 640,11 €)
-- Rapatriement du Livret A LCL (16 921,10 €) et matelas sanctuarisé de 10 000 €
-- Calcul de la Poudre Sèche active totale (10 787,09 €)
-- Benchmarking Réel & Calcul d'Alpha vs Marché (CAC 40, S&P 500, MSCI World, BTC)
+Moteur de Digest Quotidien, Hebdomadaire et Mensuel du Patrimoine (v1.6.0).
+Jalon 3 (Module Rente, Dividendes & Intérêts) :
+- Rapatriement natif Finary des dividendes et rendements (annual_income, yield)
+- Calcul automatique des intérêts annuels du Livret A LCL (3.0%)
+- Module HTML '🌱 Moteur de Rente & Cash-Flow Passif' (annuel et mensualisé)
+- Jalon 2 : Doctrine patrimoniale (prompts/wealth_advisory.md) et tickets Bourse
+- Jalon 1 : Trésorerie unifiée Poudre Sèche (Crypto SSOT, CTO LCL 640€, Surplus Livret A)
 - Architecture HTML Email Responsive Hybride (PC / Mobile-First)
 """
 
@@ -32,6 +27,7 @@ import requests
 
 from finary_uapi.signin import signin
 from finary_uapi.user_holdings_accounts import get_holdings_accounts
+from finary_uapi.user_portfolio import get_portfolio_investments_dividends
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,6 +46,7 @@ MAX_EQUITY_CONCENTRATION_PCT = float(os.getenv("MAX_EQUITY_CONCENTRATION_PCT", "
 
 # Buffer de sécurité pour Livret A / LDDS (Épargne de précaution sanctuarisée hors investissement)
 EMERGENCY_FUND_BUFFER_EUR = float(os.getenv("EMERGENCY_FUND_BUFFER_EUR", "10000.0"))
+LIVRET_A_RATE_PCT = float(os.getenv("LIVRET_A_RATE_PCT", "3.0"))
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -155,6 +152,43 @@ def fetch_finary_portfolio_section(session, section_name):
             pass
 
     return {}
+
+
+def fetch_dividends_and_yield_metrics(session, livret_a_balance=16921.10):
+    """
+    Rapatrie les flux de rente et dividendes depuis l'API Finary
+    et intègre les intérêts projetés du Livret A.
+    """
+    metrics = {
+        "annual_income_div": 0.0,
+        "yield_pct": 0.0,
+        "annual_equity_div": 0.0,
+        "yield_equity_pct": 0.0,
+        "annual_etf_div": 0.0,
+        "yield_etf_pct": 0.0,
+        "annual_livret_interest": round(livret_a_balance * (LIVRET_A_RATE_PCT / 100.0), 2),
+        "total_annual_passive_income": 0.0,
+        "monthly_passive_income": 0.0,
+    }
+
+    try:
+        data = get_portfolio_investments_dividends(session)
+        res = data.get("result", data) if isinstance(data, dict) else data
+        if isinstance(res, dict):
+            metrics["annual_income_div"] = float(res.get("annual_income") or 0.0)
+            metrics["yield_pct"] = float(res.get("yield") or 0.0)
+            metrics["annual_equity_div"] = float(res.get("annual_income_equity") or 0.0)
+            metrics["yield_equity_pct"] = float(res.get("yield_equity") or 0.0)
+            metrics["annual_etf_div"] = float(res.get("annual_income_etf") or 0.0)
+            metrics["yield_etf_pct"] = float(res.get("yield_etf") or 0.0)
+    except Exception as e:
+        logging.warning(f"⚠️ Erreur lors de la récupération des dividendes : {e}")
+
+    total_annual = metrics["annual_income_div"] + metrics["annual_livret_interest"]
+    metrics["total_annual_passive_income"] = round(total_annual, 2)
+    metrics["monthly_passive_income"] = round(total_annual / 12.0, 2)
+
+    return metrics
 
 
 def get_verified_crypto_liquidities():
@@ -574,6 +608,62 @@ def render_kpi_card_html(label, kpi_obj):
     """
 
 
+def render_passive_income_card_html(div_metrics):
+    """Génère la carte du Moteur de Rente & Cash-Flow Passif."""
+    total_annuel = div_metrics.get("total_annual_passive_income", 0.0)
+    mensuel = div_metrics.get("monthly_passive_income", 0.0)
+    div_annuel = div_metrics.get("annual_income_div", 0.0)
+    livret_interet = div_metrics.get("annual_livret_interest", 0.0)
+    yield_global = div_metrics.get("yield_pct", 0.0)
+
+    return f"""
+    <!-- CARTE MOTEUR DE RENTE & CASH-FLOW PASSIF -->
+    <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 16px; overflow: hidden;">
+        <tr>
+            <td style="padding: 12px 16px; border-bottom: 1px solid #f1f5f9; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);">
+                <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #1e293b; letter-spacing: 0.5px;">
+                            🌱 Moteur de Rente & Cash-Flow Passif (Projeté)
+                        </td>
+                        <td align="right" style="font-size: 11px; color: #059669; font-weight: 700;">
+                            Rendement Distr. : {yield_global:.2f}%
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 14px 16px;">
+                <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td class="alloc-col" style="width: 50%; padding-right: 8px; vertical-align: top;">
+                            <div style="font-size: 11px; color: #64748b; font-weight: 600;">Flux Annuel Projeté</div>
+                            <div style="font-size: 20px; font-weight: 800; color: #0f172a; margin-top: 2px;">
+                                {total_annuel:,.2f} € <span style="font-size: 12px; font-weight: 600; color: #64748b;">/ an</span>
+                            </div>
+                            <div style="font-size: 11px; color: #475569; margin-top: 4px; line-height: 1.4;">
+                                • Dividendes Titres : <b>{div_annuel:,.2f} €</b><br>
+                                • Intérêts Livret A (3.0%) : <b>{livret_interet:,.2f} €</b>
+                            </div>
+                        </td>
+                        <td class="alloc-col" style="width: 50%; padding-left: 8px; vertical-align: top; border-left: 1px dashed #e2e8f0;">
+                            <div style="font-size: 11px; color: #64748b; font-weight: 600;">Génération Mensuelle Moyenne</div>
+                            <div style="font-size: 20px; font-weight: 800; color: #059669; margin-top: 2px;">
+                                ~{mensuel:,.2f} € <span style="font-size: 12px; font-weight: 600; color: #059669;">/ mois</span>
+                            </div>
+                            <div style="font-size: 11px; color: #166534; margin-top: 4px; line-height: 1.4;">
+                                ✓ Trésorerie passive réinjectée en Poudre Sèche pour alimenter les investissements programmés.
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+    """
+
+
 def render_allocation_thermometer_html(alloc):
     pct_act = max(1.0, alloc["actions"]["pct"])
     pct_cry = max(1.0, alloc["crypto"]["pct"])
@@ -607,7 +697,7 @@ def render_allocation_thermometer_html(alloc):
                     <tr>
                         <td style="padding: 10px 14px;">
                             <div style="font-size: 11px; font-weight: 700; color: #166534; text-transform: uppercase; letter-spacing: 0.5px;">
-                                🛡️ Matelas de Sécurité Sanctuarisé (Livrets d'Épargne)
+                                🛡️ Matelas de Sécurité Sanctuarisé (Livret A LCL)
                             </div>
                             <div style="font-size: 12px; color: #15803d; margin-top: 3px; line-height: 1.4;">
                                 Solde Livret A : <b>{total_savings:,.2f} €</b> | Matelas Protégé : <b>{emergency_cushion:,.2f} €</b> (Buffer d'urgence : {emergency_target:,.0f} €)
@@ -692,7 +782,7 @@ def render_allocation_thermometer_html(alloc):
         </tr>
         <tr>
             <td style="padding: 0 16px 12px 16px; font-size: 11px; color: #64748b; border-top: 1px dashed #f1f5f9; padding-top: 8px;">
-                <b>Détail Poudre Sèche :</b> Stables & Cash Crypto : <b>{crypto_cash:,.2f} €</b> | Espèces Courtage : <b>{brokerage_cash:,.2f} €</b> | Surplus Livrets : <b>{arbitrable_savings:,.2f} €</b>
+                <b>Détail Poudre Sèche :</b> Stables & Cash Crypto : <b>{crypto_cash:,.2f} €</b> | Espèces Courtage : <b>{brokerage_cash:,.2f} €</b> | Surplus Livret A : <b>{arbitrable_savings:,.2f} €</b>
             </td>
         </tr>
         {emergency_box}
@@ -801,7 +891,7 @@ def render_crypto_cockpit_pill():
         return ""
 
 
-def build_responsive_email_wrapper(title, total_today, kpi_data, benchmarks, equity_alerts, ai_body_html, used_model, horizon_key="24h"):
+def build_responsive_email_wrapper(title, total_today, kpi_data, benchmarks, equity_alerts, div_metrics, ai_body_html, used_model, horizon_key="24h"):
     date_str = datetime.date.today().strftime("%d/%m/%Y")
     alloc = compute_asset_allocation(kpi_data)
 
@@ -810,6 +900,7 @@ def build_responsive_email_wrapper(title, total_today, kpi_data, benchmarks, equ
     kpi_30d_html = render_kpi_card_html("Variation 30 Jours", kpi_data["30d"])
 
     thermometer_html = render_allocation_thermometer_html(alloc)
+    passive_income_html = render_passive_income_card_html(div_metrics)
     cockpit_pill_html = render_crypto_cockpit_pill()
     benchmark_table_html = render_benchmark_alpha_table_html(kpi_data, benchmarks, horizon_key)
     vigie_equity_html = render_equity_concentration_vigie_html(equity_alerts)
@@ -885,6 +976,7 @@ def build_responsive_email_wrapper(title, total_today, kpi_data, benchmarks, equ
                         <tr>
                             <td style="padding: 8px 18px 0 18px; background-color: #f8fafc;">
                                 {thermometer_html}
+                                {passive_income_html}
                                 {vigie_equity_html}
                                 {cockpit_pill_html}
                                 {benchmark_table_html}
@@ -917,7 +1009,6 @@ def build_responsive_email_wrapper(title, total_today, kpi_data, benchmarks, equ
 
 
 def load_wealth_advisory_instructions():
-    """Charge la doctrine patrimoniale et les restrictions strictes depuis le fichier markdown."""
     if os.path.exists(ADVISORY_PROMPT_FILE):
         try:
             with open(ADVISORY_PROMPT_FILE, "r", encoding="utf-8") as f:
@@ -927,7 +1018,7 @@ def load_wealth_advisory_instructions():
     return "Consulte exclusivement les comptes existants (CTO BoursoBank, CTO LCL, PEE EDF, Mon Petit Placement, Crypto, Livret A). Interdiction formelle de recommander un PEA ou une Assurance-Vie."
 
 
-def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, benchmarks, equity_alerts, period_type):
+def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, benchmarks, equity_alerts, div_metrics, period_type):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return None
@@ -973,6 +1064,10 @@ def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, benchm
 - Détail Trésorerie :
   • Poudre Sèche active : {cd.get('total_dry_powder', 0):,.2f} € (Stables crypto: {cd.get('crypto_cash', 0):,.2f} € | Espèces courtage: {cd.get('brokerage_cash', 0):,.2f} € | Surplus Livret A: {cd.get('arbitrable_savings', 0):,.2f} €)
   • Matelas de Sécurité Sanctuarisé (Livret A LCL) : {cd.get('emergency_cushion', 0):,.2f} € (Exclu des investissements)
+- Métriques de Rente & Cash-Flow Passif :
+  • Revenu Passif Financier Global : {div_metrics['total_annual_passive_income']:,.2f} € / an (~{div_metrics['monthly_passive_income']:,.2f} € / mois)
+  • Dividendes Titres annuels : {div_metrics['annual_income_div']:,.2f} € (Rendement: {div_metrics['yield_pct']:.2f}%)
+  • Intérêts Livret A annuels : {div_metrics['annual_livret_interest']:,.2f} € (3.0% net)
 - Performance du Portefeuille ({current_horizon}) : {kpi_data[current_horizon]['pct']:+.2f}% ({kpi_data[current_horizon]['diff']:+,.2f} €)
 
 BENCHMARKS RÉELS & ALPHA MESURÉS EN DIRECT ({current_horizon}) :
@@ -1000,6 +1095,7 @@ CONSIGNES DE RÉDACTION :
 3. **🎯 CONSEILS TACTIQUES & ARBITRAGES PATRIMONIAUX (HORIZON : {period_type.upper()})** :
    - Applique strictement la doctrine de l'horizon {period_type.upper()} définie dans les instructions.
    - Rappel formel : interdiction de suggérer un PEA ou une Assurance-Vie. Travaille uniquement avec le CTO BoursoBank, le CTO LCL, le PEE avec abondement, Mon Petit Placement, la Crypto ou le surplus Livret A.
+   - Intègre la rente passive mensuelle (~{div_metrics['monthly_passive_income']:.0f} €/mois) comme flux d'alimentation naturel pour les réinvestissements.
    - Si une opportunité ou un arbitrage net se dégage, produis impérativement le ticket d'arbitrage normé dans un bloc <pre> stylisé.
 
 4. **📅 Agenda Financier & Catalyseurs Clés** :
@@ -1027,7 +1123,7 @@ Ne génère PAS les balises <html>, <head>, <body>, le conteneur principal ni le
                 clean_ai_html = response.text.replace("```html", "").replace("```", "").strip()
                 return build_responsive_email_wrapper(
                     titles[period_type], kpi_data["total_today"], kpi_data, benchmarks,
-                    equity_alerts, clean_ai_html, modele, current_horizon
+                    equity_alerts, div_metrics, clean_ai_html, modele, current_horizon
                 )
         except Exception as e:
             logging.warning(f"⚠️ Recherche Web ou modèle {modele} indisponible ({e}). Bascule en mode standard...")
@@ -1041,7 +1137,7 @@ Ne génère PAS les balises <html>, <head>, <body>, le conteneur principal ni le
                 clean_ai_html = response.text.replace("```html", "").replace("```", "").strip()
                 return build_responsive_email_wrapper(
                     titles[period_type], kpi_data["total_today"], kpi_data, benchmarks,
-                    equity_alerts, clean_ai_html, f"{modele} (Standard)", current_horizon
+                    equity_alerts, div_metrics, clean_ai_html, f"{modele} (Standard)", current_horizon
                 )
         except Exception as e:
             logging.error(f"❌ Échec du modèle {modele} en mode standard : {e}")
@@ -1095,6 +1191,10 @@ def run_digest():
     today = datetime.date.today()
     today_str = today.isoformat()
 
+    # Rapatriement des flux de dividendes et calcul du rendement passif
+    livret_balance = current_snap.get("cash_details", {}).get("total_savings", 16921.10)
+    div_metrics = fetch_dividends_and_yield_metrics(session, livret_balance)
+
     history = {}
     if os.path.exists(HISTORY_FILE):
         try:
@@ -1110,12 +1210,12 @@ def run_digest():
     logging.info("📈 Récupération des cours des indices de référence (CAC 40, S&P 500, MSCI World, BTC)...")
     benchmarks = fetch_benchmark_returns()
 
-    # 1. RAPPORT QUOTIDIEN (Tous les jours)
+    # 1. RAPPORT QUOTIDIEN
     daily_data_text, err = compute_movers_for_period(current_snap, history, target_days_ago=1)
     if daily_data_text:
-        logging.info("🔍 Génération du digest QUOTIDIEN (Conseils Tactiques & Risques)...")
+        logging.info("🔍 Génération du digest QUOTIDIEN enrichi (Jalon 3 Rente & Cash-Flow)...")
         daily_html = generate_enhanced_analysis_html(
-            kpi_data, daily_data_text, top_positions, benchmarks, equity_alerts, "daily"
+            kpi_data, daily_data_text, top_positions, benchmarks, equity_alerts, div_metrics, "daily"
         )
         if daily_html:
             send_email_html(f"📊 Digest Quotidien — {today.strftime('%d/%m/%Y')}", daily_html)
@@ -1124,9 +1224,9 @@ def run_digest():
     if today.weekday() == 6:
         weekly_data_text, err_w = compute_movers_for_period(current_snap, history, target_days_ago=7)
         if weekly_data_text:
-            logging.info("🗓️ Génération du digest HEBDOMADAIRE (Arbitrages & Rotation Sectorielle)...")
+            logging.info("🗓️ Génération du digest HEBDOMADAIRE enrichi...")
             weekly_html = generate_enhanced_analysis_html(
-                kpi_data, weekly_data_text, top_positions, benchmarks, equity_alerts, "weekly"
+                kpi_data, weekly_data_text, top_positions, benchmarks, equity_alerts, div_metrics, "weekly"
             )
             if weekly_html:
                 send_email_html(f"🗓️ Bilan Hebdomadaire — Semaine du {today.strftime('%d/%m/%Y')}", weekly_html)
@@ -1135,9 +1235,9 @@ def run_digest():
     if today.day == 1:
         monthly_data_text, err_m = compute_movers_for_period(current_snap, history, target_days_ago=30)
         if monthly_data_text:
-            logging.info("📈 Génération du digest MENSUEL (Macro-Allocation 360°)...")
+            logging.info("📈 Génération du digest MENSUEL enrichi...")
             monthly_html = generate_enhanced_analysis_html(
-                kpi_data, monthly_data_text, top_positions, benchmarks, equity_alerts, "monthly"
+                kpi_data, monthly_data_text, top_positions, benchmarks, equity_alerts, div_metrics, "monthly"
             )
             if monthly_html:
                 send_email_html(f"📈 Synthèse Mensuelle — {today.strftime('%B %Y')}", monthly_html)
