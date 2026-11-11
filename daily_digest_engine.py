@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-Moteur de Digest Quotidien, Hebdomadaire et Mensuel du Patrimoine (v1.4.2).
-Jalon 1 (Trésorerie Réelle & Poudre Sèche) :
+Moteur de Digest Quotidien, Hebdomadaire et Mensuel du Patrimoine (v1.5.0).
+Jalon 2 (Moteur de Conseil & Arbitrage Multi-Horizons) :
+- Chargement du prompt de doctrine patrimoniale (prompts/wealth_advisory.md)
+- Directives d'arbitrage différenciées selon l'horizon :
+  • Daily   : Veille micro, alertes surconcentrations (> 10%), opportunités court terme
+  • Weekly  : Élagage sectoriel CTO Bourso vs CTO LCL, maximisation abondement PEE
+  • Monthly : Rebalancement macro 360° (90/8/2) et fléchage de l'épargne par les flux
 - Raccordement SSOT Crypto (Kraken/OKX : 3 209,85 €)
-- Intégration précise du compte espèces CTO LCL (id: e71c7b8c-42d7-436e-a225-575927094588 : 640,11 €)
-- Rapatriement du Livret A LCL (16 921,10 €) via get_holdings_accounts
-- Sanctuarisation du matelas de précaution de 10 000 € (EMERGENCY_FUND_BUFFER_EUR)
-- Calcul de la Poudre Sèche active totale (10 991,59 €)
-- Thermomètre d'allocation patrimoniale recalibré (Actions vs Crypto vs Poudre Sèche)
+- Intégration du compte espèces CTO LCL (id: e71c7b8c-42d7-436e-a225-575927094588 : 640,11 €)
+- Rapatriement du Livret A LCL (16 921,10 €) et matelas sanctuarisé de 10 000 €
+- Calcul de la Poudre Sèche active totale (10 787,09 €)
 - Benchmarking Réel & Calcul d'Alpha vs Marché (CAC 40, S&P 500, MSCI World, BTC)
-- Vigie de Surconcentration Actions (Seuil 10% sur actions vives hors ETF)
 - Architecture HTML Email Responsive Hybride (PC / Mobile-First)
 """
 
@@ -38,6 +40,7 @@ logging.basicConfig(
 
 load_dotenv()
 HISTORY_FILE = "portfolio_history.json"
+ADVISORY_PROMPT_FILE = "prompts/wealth_advisory.md"
 
 # Cibles patrimoniales configurables (.env avec defaults alignés sur votre profil réel)
 TARGET_ACTIONS_PCT = float(os.getenv("TARGET_ACTIONS_PCT", "90.0"))
@@ -128,9 +131,6 @@ def init_finary_session():
 
 
 def fetch_finary_portfolio_section(session, section_name):
-    """
-    Interroge une section du portefeuille Finary (investments, cryptos).
-    """
     try:
         import finary_uapi.user_portfolio as up
         func_name = f"get_portfolio_{section_name}"
@@ -158,10 +158,6 @@ def fetch_finary_portfolio_section(session, section_name):
 
 
 def get_verified_crypto_liquidities():
-    """
-    Récupère la trésorerie crypto exacte (Fiat + Stables sur Kraken & OKX)
-    directement depuis le SSOT crypto (calculate_unified_crypto_categories).
-    """
     if CRYPTO_ADVISOR_AVAILABLE:
         try:
             cats = calculate_unified_crypto_categories()
@@ -182,18 +178,11 @@ def get_verified_crypto_liquidities():
 
 
 def extract_finary_cash_and_savings(invest_data, holdings_data=None):
-    """
-    Extrait et ventile de manière robuste l'ensemble de la trésorerie :
-    1. Cash espèces de courtage (BoursoBank via investissements + LCL via holdings_accounts)
-    2. Livret A LCL et Buffer d'urgence sanctuarisé
-    3. Trésorerie investissable active (Poudre Sèche)
-    """
     brokerage_cash = 0.0
     brokerage_cash_details = []
     total_savings = 0.0
     savings_details = []
 
-    # 1. Espèces BoursoBank / PEA via invest_data
     res_inv = invest_data.get("result", invest_data) if isinstance(invest_data, dict) else {}
     for acc in res_inv.get("accounts", []):
         acc_name = acc.get("name", "Courtage")
@@ -225,12 +214,10 @@ def extract_finary_cash_and_savings(invest_data, holdings_data=None):
             acc_balance = float(acc.get("balance") or acc.get("current_value") or 0.0)
             if acc_balance > (sec_sum + 1.0):
                 diff = acc_balance - sec_sum
-                # Le compte LCL ORD (DE) SENANT a son compte espèces dédié dans holdings_accounts
                 if not any(kw in acc_name.upper() for kw in ["ORD", "SENANT", "LCL"]):
                     brokerage_cash += diff
                     brokerage_cash_details.append(f"{acc_name} (Espèces déduites) : {diff:,.2f} €")
 
-    # 2. Analyse précise des holdings_accounts (Livret A + Compte d'espèces CTO LCL)
     if holdings_data:
         accs = holdings_data.get("result", holdings_data) if isinstance(holdings_data, dict) else holdings_data
         if isinstance(accs, dict):
@@ -255,24 +242,16 @@ def extract_finary_cash_and_savings(invest_data, holdings_data=None):
             elif isinstance(b_type, str):
                 type_slug = b_type.lower()
 
-            # A. Compte CTO LCL (id: e71c7b8c-42d7-436e-a225-575927094588 ou balance 640.11 €)
             if a_id == "e71c7b8c-42d7-436e-a225-575927094588" or (abs(f_bal - 640.11) < 0.5 and "dépôt" in a_name.lower()):
                 brokerage_cash += f_bal
                 brokerage_cash_details.append(f"CTO LCL (Espèces 0985W) : {f_bal:,.2f} €")
-
-            # B. Livret A / LDDS / Livrets d'épargne
             elif "livret" in type_slug or "savings" in type_slug or any(kw in a_name.upper() for kw in ["LIVRET A", "LDD", "CSL"]):
                 total_savings += f_bal
                 savings_details.append(f"{a_name} : {f_bal:,.2f} €")
 
-    # 3. Formule Doctrinale du Matelas de Sécurité (Buffer Sanctuarisé)
     emergency_cushion = min(total_savings, EMERGENCY_FUND_BUFFER_EUR)
     arbitrable_savings = max(0.0, total_savings - EMERGENCY_FUND_BUFFER_EUR)
-
-    # 4. Liquidités Crypto SSOT (Kraken / OKX)
     crypto_cash = get_verified_crypto_liquidities()
-
-    # 5. Total Poudre Sèche (Trésorerie activement investissable)
     total_dry_powder = crypto_cash + brokerage_cash + arbitrable_savings
 
     return {
@@ -317,7 +296,6 @@ def build_current_snapshot(invest_data, crypto_data, holdings_data=None):
             item_val = float(item.get("current_value") or item.get("balance") or 0)
             snapshot["holdings"][f"{item_name} ({acc_name})"] = item_val
 
-    # Extraction unifiée de la trésorerie et de la poudre sèche
     cash_info = extract_finary_cash_and_savings(invest_data, holdings_data)
     snapshot["total_cash"] = cash_info["total_dry_powder"]
     snapshot["cash_details"] = cash_info
@@ -445,10 +423,6 @@ def audit_equity_concentration(current_snap):
 
 
 def fetch_benchmark_returns():
-    """
-    Récupère les performances réelles des 4 indices de référence (24h, 7j, 30j).
-    Utilise curl_cffi pour Yahoo Finance et CoinGecko pour le Bitcoin.
-    """
     benchmarks = {
         "CAC 40": {"ticker": "^FCHI", "24h": 0.0, "7d": 0.0, "30d": 0.0},
         "S&P 500": {"ticker": "^GSPC", "24h": 0.0, "7d": 0.0, "30d": 0.0},
@@ -456,7 +430,6 @@ def fetch_benchmark_returns():
         "Bitcoin": {"ticker": "BTC", "24h": 0.0, "7d": 0.0, "30d": 0.0},
     }
 
-    # 1. Bitcoin via CoinGecko
     try:
         url_btc = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=eur&days=32&interval=daily"
         r_btc = curl_requests.get(url_btc, headers=DEFAULT_HEADERS, timeout=4.0)
@@ -473,7 +446,6 @@ def fetch_benchmark_returns():
     except Exception as e:
         logging.warning(f"⚠️ Erreur benchmark BTC CoinGecko : {e}")
 
-    # 2. Indices boursiers via Yahoo Finance sous curl_cffi
     session_y = curl_requests.Session(impersonate="chrome110")
     for name in ["CAC 40", "S&P 500", "MSCI World"]:
         sym = benchmarks[name]["ticker"]
@@ -919,7 +891,7 @@ def build_responsive_email_wrapper(title, total_today, kpi_data, benchmarks, equ
                             </td>
                         </tr>
 
-                        <!-- CORPS DU RAPPORT (ANALYSE GEMINI) -->
+                        <!-- CORPS DU RAPPORT (ANALYSE & CONSEIL GEMINI) -->
                         <tr>
                             <td class="mobile-padding card-box" style="padding: 20px; font-size: 14px; line-height: 1.6; color: #334155;">
                                 {ai_body_html}
@@ -944,6 +916,17 @@ def build_responsive_email_wrapper(title, total_today, kpi_data, benchmarks, equ
 """
 
 
+def load_wealth_advisory_instructions():
+    """Charge la doctrine patrimoniale et les restrictions strictes depuis le fichier markdown."""
+    if os.path.exists(ADVISORY_PROMPT_FILE):
+        try:
+            with open(ADVISORY_PROMPT_FILE, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception:
+            pass
+    return "Consulte exclusivement les comptes existants (CTO BoursoBank, CTO LCL, PEE EDF, Mon Petit Placement, Crypto, Livret A). Interdiction formelle de recommander un PEA ou une Assurance-Vie."
+
+
 def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, benchmarks, equity_alerts, period_type):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -961,6 +944,7 @@ def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, benchm
 
     alloc = compute_asset_allocation(kpi_data)
     cd = alloc.get("cash_details", {})
+    advisory_doctrine = load_wealth_advisory_instructions()
 
     benchmarks_summary = []
     port_ret = kpi_data[current_horizon]["pct"]
@@ -975,20 +959,20 @@ def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, benchm
     )
 
     nl = "\n"
-    prompt = f"""Tu es un analyste financier privé senior. Génère les sections intérieures d'un rapport patrimonial.
-Ne génère PAS les balises <html>, <head>, <body>, le conteneur principal, ni le tableau des indices (ils sont déjà intégrés dans le template).
-Rends uniquement des blocs HTML propres (balises <div>, <p>, <span>) prêts à être injectés.
+    prompt = f"""{advisory_doctrine}
 
-DONNÉES DU PORTEFEUILLE :
-- Type de Rapport : {titles[period_type]}
+---
+
+### DONNÉES DU PORTEFEUILLE ACTIF :
+- Type de Rapport : {titles[period_type]} (Horizon: {period_type.upper()})
 - Valeur Totale Investissable : {kpi_data['total_today']:,.2f} €
-- Allocation Réelle vs Cibles :
+- Ventilation Réelle vs Cibles :
   • Actions & Titres : {alloc['actions']['val']:,.2f} € ({alloc['actions']['pct']:.1f}% vs cible {alloc['actions']['target']:.0f}%)
   • Crypto-actifs   : {alloc['crypto']['val']:,.2f} € ({alloc['crypto']['pct']:.1f}% vs cible {alloc['crypto']['target']:.0f}%)
   • Poudre Sèche    : {alloc['cash']['val']:,.2f} € ({alloc['cash']['pct']:.1f}% vs cible {alloc['cash']['target']:.0f}%)
 - Détail Trésorerie :
-  • Poudre Sèche active (Stables Crypto + Espèces courtage + Surplus Livret A) : {cd.get('total_dry_powder', 0):,.2f} €
-  • Matelas de Sécurité Sanctuarisé (Livret A LCL, hors investissement) : {cd.get('emergency_cushion', 0):,.2f} €
+  • Poudre Sèche active : {cd.get('total_dry_powder', 0):,.2f} € (Stables crypto: {cd.get('crypto_cash', 0):,.2f} € | Espèces courtage: {cd.get('brokerage_cash', 0):,.2f} € | Surplus Livret A: {cd.get('arbitrable_savings', 0):,.2f} €)
+  • Matelas de Sécurité Sanctuarisé (Livret A LCL) : {cd.get('emergency_cushion', 0):,.2f} € (Exclu des investissements)
 - Performance du Portefeuille ({current_horizon}) : {kpi_data[current_horizon]['pct']:+.2f}% ({kpi_data[current_horizon]['diff']:+,.2f} €)
 
 BENCHMARKS RÉELS & ALPHA MESURÉS EN DIRECT ({current_horizon}) :
@@ -1006,20 +990,22 @@ PRINCIPALES POSITIONS EN PORTEFEUILLE :
 CONSIGNES DE RÉDACTION :
 
 1. **Commentaire Macro & Analyse de l'Alpha** :
-   - Rédige un paragraphe synthétique expliquant la surperformance ou sous-performance du portefeuille face au S&P 500, au CAC 40 et au Bitcoin.
+   - Explique la surperformance ou sous-performance du portefeuille face au S&P 500, au CAC 40 et au Bitcoin.
    - Mentionne brièvement si l'exposition actuelle a servi d'accélérateur ou de frein.
 
 2. **Moteurs de Performance (Top / Flops)** :
-   - Pour les principaux mouvements haussiers et baissiers, présente des cartes stylisées (fond blanc, bordure 1px solid #e2e8f0, padding 10px, coins arrondis 6px, marge 8px).
+   - Présente des cartes stylisées (fond blanc, bordure 1px solid #e2e8f0, padding 10px, coins arrondis 6px, marge 8px).
    - Donne l'explication économique ou l'actualité concrète expliquant ces variations.
 
-3. **📅 Agenda Financier & Catalyseurs Clés** :
-   - Recherche et liste sous forme de mini-cartes ou puces les événements clés des 7 à 14 prochains jours pour les principales positions ({", ".join(top_positions)}) :
-     • Publications de résultats (Earnings).
-     • Détachements de dividendes.
-     • Catalyseurs sectoriels ou réunions de banques centrales.
+3. **🎯 CONSEILS TACTIQUES & ARBITRAGES PATRIMONIAUX (HORIZON : {period_type.upper()})** :
+   - Applique strictement la doctrine de l'horizon {period_type.upper()} définie dans les instructions.
+   - Rappel formel : interdiction de suggérer un PEA ou une Assurance-Vie. Travaille uniquement avec le CTO BoursoBank, le CTO LCL, le PEE avec abondement, Mon Petit Placement, la Crypto ou le surplus Livret A.
+   - Si une opportunité ou un arbitrage net se dégage, produis impérativement le ticket d'arbitrage normé dans un bloc <pre> stylisé.
 
-Style : Épuré, professionnel, sans avertissement financier robotique."""
+4. **📅 Agenda Financier & Catalyseurs Clés** :
+   - Liste les événements clés des 7 à 14 prochains jours pour les principales positions ({", ".join(top_positions)}) (Earnings, dividendes, réunions banques centrales).
+
+Ne génère PAS les balises <html>, <head>, <body>, le conteneur principal ni le tableau des indices (déjà gérés dans le wrapper). Rends uniquement des blocs HTML propres."""
 
     modeles = [
         "gemini-4-argon",
@@ -1096,11 +1082,9 @@ def send_email_html(subject, html_content):
 def run_digest():
     session = init_finary_session()
 
-    # 1. Rapatriement des données d'investissement et crypto Finary
     invest_data = fetch_finary_portfolio_section(session, "investments")
     crypto_data = fetch_finary_portfolio_section(session, "cryptos")
 
-    # 2. Rapatriement des comptes bancaires et livrets d'épargne via holdings_accounts
     try:
         holdings_data = get_holdings_accounts(session)
     except Exception as e:
@@ -1126,10 +1110,10 @@ def run_digest():
     logging.info("📈 Récupération des cours des indices de référence (CAC 40, S&P 500, MSCI World, BTC)...")
     benchmarks = fetch_benchmark_returns()
 
-    # 1. RAPPORT QUOTIDIEN
+    # 1. RAPPORT QUOTIDIEN (Tous les jours)
     daily_data_text, err = compute_movers_for_period(current_snap, history, target_days_ago=1)
     if daily_data_text:
-        logging.info("🔍 Génération du digest QUOTIDIEN (Jalon 1 finalisé)...")
+        logging.info("🔍 Génération du digest QUOTIDIEN (Conseils Tactiques & Risques)...")
         daily_html = generate_enhanced_analysis_html(
             kpi_data, daily_data_text, top_positions, benchmarks, equity_alerts, "daily"
         )
@@ -1140,7 +1124,7 @@ def run_digest():
     if today.weekday() == 6:
         weekly_data_text, err_w = compute_movers_for_period(current_snap, history, target_days_ago=7)
         if weekly_data_text:
-            logging.info("🗓️ Génération du digest HEBDOMADAIRE avec Benchmarks & Alpha...")
+            logging.info("🗓️ Génération du digest HEBDOMADAIRE (Arbitrages & Rotation Sectorielle)...")
             weekly_html = generate_enhanced_analysis_html(
                 kpi_data, weekly_data_text, top_positions, benchmarks, equity_alerts, "weekly"
             )
@@ -1151,7 +1135,7 @@ def run_digest():
     if today.day == 1:
         monthly_data_text, err_m = compute_movers_for_period(current_snap, history, target_days_ago=30)
         if monthly_data_text:
-            logging.info("📈 Génération du digest MENSUEL avec Benchmarks & Alpha...")
+            logging.info("📈 Génération du digest MENSUEL (Macro-Allocation 360°)...")
             monthly_html = generate_enhanced_analysis_html(
                 kpi_data, monthly_data_text, top_positions, benchmarks, equity_alerts, "monthly"
             )
