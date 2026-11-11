@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-Moteur de Digest Quotidien, Hebdomadaire et Mensuel du Patrimoine (v1.3.0).
+Moteur de Digest Quotidien, Hebdomadaire et Mensuel du Patrimoine (v1.3.1).
 Intègre :
+- Cibles d'allocation patrimoniale personnalisables (90% Actions / 8% Crypto / 2% Cash)
+- Résolution du blocage des indices Yahoo Finance (curl_cffi impersonate Chrome)
+- Rapatriement direct du Bitcoin via l'API CoinGecko
 - Benchmarking Quantitatif Réel & Calcul d'Alpha vs Marché (CAC 40, S&P 500, MSCI World, BTC)
 - Vigie de Surconcentration Actions (Seuil 10% sur actions vives hors ETF)
-- Thermomètre d'Allocation Globale (Actions vs Crypto vs Cash) avec jauge segmentée
+- Thermomètre d'Allocation Globale avec jauge segmentée
 - Passerelle Cockpit Crypto SSOT (Boussole Macro, Fear & Greed et Cash vérifié)
 - Architecture HTML Email Responsive Hybride (PC / Mobile-First)
-- Dashboard KPI multi-horizons déterministe (24h, 7j, 30j)
 """
 
 import os
@@ -36,10 +38,10 @@ logging.basicConfig(
 load_dotenv()
 HISTORY_FILE = "portfolio_history.json"
 
-# Cibles patrimoniales
-TARGET_ACTIONS_PCT = float(os.getenv("TARGET_ACTIONS_PCT", "65.0"))
-TARGET_CRYPTO_PCT = float(os.getenv("TARGET_CRYPTO_PCT", "20.0"))
-TARGET_CASH_PCT = float(os.getenv("TARGET_CASH_PCT", "15.0"))
+# Cibles patrimoniales configurables (.env avec defaults alignés sur votre profil réel)
+TARGET_ACTIONS_PCT = float(os.getenv("TARGET_ACTIONS_PCT", "90.0"))
+TARGET_CRYPTO_PCT = float(os.getenv("TARGET_CRYPTO_PCT", "8.0"))
+TARGET_CASH_PCT = float(os.getenv("TARGET_CASH_PCT", "2.0"))
 MAX_EQUITY_CONCENTRATION_PCT = float(os.getenv("MAX_EQUITY_CONCENTRATION_PCT", "10.0"))
 
 DEFAULT_HEADERS = {
@@ -249,11 +251,6 @@ def compute_asset_allocation(kpis):
 
 
 def audit_equity_concentration(current_snap):
-    """
-    Détecte les lignes vives d'actions individuelles dont le poids dépasse
-    le seuil critique de concentration (par défaut 10% de la poche investissements).
-    Exclut automatiquement les ETF diversifiés (World, S&P 500, Stoxx, etc.).
-    """
     total_invest = current_snap.get("total_invest", 0.0)
     if total_invest <= 0:
         return []
@@ -262,7 +259,6 @@ def audit_equity_concentration(current_snap):
     alerts = []
 
     for item_name, item_val in current_snap.get("holdings", {}).items():
-        # Ignorer les cryptos
         if any(cry in item_name.upper() for cry in ["BITCOIN", "ETHEREUM", "SOLANA", "KRAKEN", "OKX", "EXODUS"]):
             continue
 
@@ -285,24 +281,41 @@ def audit_equity_concentration(current_snap):
 
 def fetch_benchmark_returns():
     """
-    Récupère les performances réelles des 4 indices de référence (24h, 7j, 30j)
-    via l'API Yahoo Finance et CoinGecko.
+    Récupère les performances réelles des 4 indices de référence (24h, 7j, 30j).
+    Utilise curl_cffi (impersonate Chrome) pour contourner le blocage Yahoo Finance sur GCP,
+    et CoinGecko pour le Bitcoin.
     """
     benchmarks = {
         "CAC 40": {"ticker": "^FCHI", "24h": 0.0, "7d": 0.0, "30d": 0.0},
         "S&P 500": {"ticker": "^GSPC", "24h": 0.0, "7d": 0.0, "30d": 0.0},
         "MSCI World": {"ticker": "CW8.PA", "24h": 0.0, "7d": 0.0, "30d": 0.0},
-        "Bitcoin": {"ticker": "BTC-EUR", "24h": 0.0, "7d": 0.0, "30d": 0.0},
+        "Bitcoin": {"ticker": "BTC", "24h": 0.0, "7d": 0.0, "30d": 0.0},
     }
 
-    session = requests.Session()
-    session.headers.update(DEFAULT_HEADERS)
+    # 1. Rapatriement direct du Bitcoin via CoinGecko
+    try:
+        url_btc = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=eur&days=32&interval=daily"
+        r_btc = curl_requests.get(url_btc, headers=DEFAULT_HEADERS, timeout=4.0)
+        if r_btc.status_code == 200:
+            prices = [p[1] for p in r_btc.json().get("prices", []) if p[1] > 0]
+            if len(prices) >= 2:
+                last_p = prices[-1]
+                p_1d = prices[-2]
+                p_7d = prices[-8] if len(prices) >= 8 else prices[0]
+                p_30d = prices[0]
+                benchmarks["Bitcoin"]["24h"] = round(((last_p - p_1d) / p_1d) * 100.0, 2)
+                benchmarks["Bitcoin"]["7d"] = round(((last_p - p_7d) / p_7d) * 100.0, 2)
+                benchmarks["Bitcoin"]["30d"] = round(((last_p - p_30d) / p_30d) * 100.0, 2)
+    except Exception as e:
+        logging.warning(f"⚠️ Erreur benchmark BTC CoinGecko : {e}")
 
-    for name, data in benchmarks.items():
-        sym = data["ticker"]
+    # 2. Rapatriement des indices boursiers via Yahoo Finance sous curl_cffi (bypass HTTP 403)
+    session_y = curl_requests.Session(impersonate="chrome110")
+    for name in ["CAC 40", "S&P 500", "MSCI World"]:
+        sym = benchmarks[name]["ticker"]
         try:
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=1mo&interval=1d"
-            res = session.get(url, timeout=3.5)
+            res = session_y.get(url, headers=DEFAULT_HEADERS, timeout=5.0)
             if res.status_code == 200:
                 chart = res.json().get("chart", {}).get("result", [])
                 if chart:
@@ -311,14 +324,16 @@ def fetch_benchmark_returns():
                     if len(valid_closes) >= 2:
                         last = valid_closes[-1]
                         prev_1d = valid_closes[-2]
-                        prev_7d = valid_closes[-5] if len(valid_closes) >= 5 else valid_closes[0]
+                        prev_7d = valid_closes[-6] if len(valid_closes) >= 6 else valid_closes[0]
                         prev_30d = valid_closes[0]
 
                         benchmarks[name]["24h"] = round(((last - prev_1d) / prev_1d) * 100.0, 2)
                         benchmarks[name]["7d"] = round(((last - prev_7d) / prev_7d) * 100.0, 2)
                         benchmarks[name]["30d"] = round(((last - prev_30d) / prev_30d) * 100.0, 2)
-        except Exception:
-            pass
+            else:
+                logging.warning(f"⚠️ Échec Yahoo Finance pour {name} (HTTP {res.status_code})")
+        except Exception as e:
+            logging.warning(f"⚠️ Erreur récupération indice {name} : {e}")
 
     return benchmarks
 
@@ -428,9 +443,9 @@ def render_allocation_thermometer_html(alloc):
     pct_csh = max(1.0, alloc["cash"]["pct"])
 
     def status_badge(delta):
-        if delta > 3.0:
+        if delta > 2.0:
             return '<span style="color: #f59e0b; font-weight: 700;">▲ Surpondéré</span>'
-        elif delta < -3.0:
+        elif delta < -2.0:
             return '<span style="color: #3b82f6; font-weight: 700;">▼ Sous-pondéré</span>'
         return '<span style="color: #10b981; font-weight: 700;">✓ Aligné</span>'
 
@@ -513,7 +528,6 @@ def render_allocation_thermometer_html(alloc):
 
 
 def render_benchmark_alpha_table_html(kpis, benchmarks, horizon_key="24h"):
-    """Génère le tableau comparatif d'Alpha face aux 4 indices réels."""
     port_ret = kpis.get(horizon_key, {}).get("pct", 0.0)
 
     rows = []
@@ -539,7 +553,6 @@ def render_benchmark_alpha_table_html(kpis, benchmarks, horizon_key="24h"):
         """)
 
     return f"""
-    <!-- TABLEAU COMPARATIF BENCHMARK & ALPHA REEL -->
     <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 16px; overflow: hidden;">
         <tr>
             <td colspan="3" style="padding: 12px 16px; border-bottom: 1px solid #f1f5f9; background-color: #f8fafc;">
@@ -559,7 +572,6 @@ def render_benchmark_alpha_table_html(kpis, benchmarks, horizon_key="24h"):
 
 
 def render_equity_concentration_vigie_html(alerts):
-    """Génère l'encadré d'alerte si des actions vives dépassent 10% du portefeuille actions."""
     if not alerts:
         return ""
 
@@ -789,7 +801,7 @@ CONSIGNES DE RÉDACTION :
 
 1. **Commentaire Macro & Analyse de l'Alpha** :
    - Rédige un paragraphe synthétique expliquant la surperformance ou sous-performance du portefeuille face au S&P 500, au CAC 40 et au Bitcoin.
-   - Mentionne brièvement si l'exposition actuelle (ex: part crypto vs actions) a servi d'accélérateur ou de frein.
+   - Mentionne brièvement si l'exposition actuelle a servi d'accélérateur ou de frein.
 
 2. **Moteurs de Performance (Top / Flops)** :
    - Pour les principaux mouvements haussiers et baissiers, présente des cartes stylisées (fond blanc, bordure 1px solid #e2e8f0, padding 10px, coins arrondis 6px, marge 8px).
