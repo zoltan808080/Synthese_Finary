@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-Cockpit Patrimonial Actions, ETF & Épargne Salariale — Streamlit App v1.0.0
-Architecture miroir du Cockpit Crypto v4.0.0 :
-- Boussole Macro Bourse (VIX, 10Y US, MSCI World CW8.PA vs SMA200)
-- Gouvernance étanche en 4 Poches (Socle Salarial LT, Cœur Indiciel MT, Spéculatif 'Actions Chocs' CT, Poudre Sèche)
-- Benchmark MSCI World (Alpha vs CW8.PA) & Sentinelle Zombies / Tax-Loss Harvesting
-- Gestion dynamique des positions spéculatives (PRU, TP1/TP2, SL, Break-Even 1-Click, Auto IA)
-- Assistant IA Pro (gemini_manager + prompt_loader SSOT) avec Tickets Bourse & Thèses 1-Click
-- Administration complète (Mapping st.data_editor, .env, Prompts .md + backup .bak)
+Cockpit Patrimonial Actions, ETF & Épargne Salariale — Streamlit App v2.0.0
+Évolutions v2.0.0 :
+- Centre d'Alertes & Réconciliation Finary <-> BDD (détection auto nouveaux achats spéculatifs + onboarding 1-Click, écarts volume, lignes fantômes)
+- Notifications Telegram temps réel sur chaque action (Onboarding, Clôture FIFO, Break-Even, Modification paliers, Prompts SSOT)
+- Découverte Dynamique du Marché séparée (Vivier Spéculatif 'Actions Chocs' vs Vivier CORE ETF/Blue Chips) avec re-scan forcé
+- Déclencheur manuel du recalibrage Auto TP/SL IA (equity_auto_tpsl.py)
+- Guides de lecture 100 % dédiés Bourse, ETF, CTO & Épargne Salariale
 """
 
 import json
@@ -16,11 +15,13 @@ import re
 import subprocess
 import pandas as pd
 import plotly.express as px
+import requests
 import streamlit as st
 from dotenv import load_dotenv
 
 from equity_db_manager import (
     init_equity_db,
+    get_connection,
     get_all_classifications,
     upsert_asset_classification,
     get_open_speculative_equities,
@@ -47,7 +48,24 @@ from daily_digest_engine import (
 )
 from finary_uapi.user_holdings_accounts import get_holdings_accounts
 
-# Mutualisation des briques transverses du Cockpit Crypto
+try:
+    from equity_reconciliation import audit_equity_database_vs_finary
+    RECON_AVAILABLE = True
+except ImportError:
+    RECON_AVAILABLE = False
+
+try:
+    from equity_discovery_engine import get_dynamic_equity_candidates
+    DISCOVERY_AVAILABLE = True
+except ImportError:
+    DISCOVERY_AVAILABLE = False
+
+try:
+    from equity_auto_tpsl import run_equity_auto_tpsl_cycle
+    AUTO_TPSL_AVAILABLE = True
+except ImportError:
+    AUTO_TPSL_AVAILABLE = False
+
 from gemini_manager import (
     call_gemini_with_fallback,
     load_gemini_config,
@@ -69,12 +87,11 @@ except ImportError:
 load_dotenv(override=True)
 
 st.set_page_config(
-    page_title="Cockpit Actions, ETF & Patrimoine",
+    page_title="Cockpit Actions, ETF & Patrimoine (v2.0)",
     page_icon="🏛️",
     layout="wide",
 )
 
-# Styling terminal monospace pour les Tickets d'Ordres Bourse
 st.markdown(
     """
     <style>
@@ -94,6 +111,23 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+
+def send_telegram_notify(text):
+    """Envoie une notification Telegram immédiate lors d'une opération sur le cockpit."""
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    user_id = os.getenv("TELEGRAM_ALLOWED_USER_ID")
+    if not bot_token or not user_id:
+        return
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    try:
+        requests.post(
+            url,
+            json={"chat_id": user_id, "text": text, "parse_mode": "Markdown"},
+            timeout=4,
+        )
+    except Exception:
+        pass
 
 
 def check_password():
@@ -161,7 +195,6 @@ def get_cached_finary_wealth_state():
     div_metrics = fetch_dividends_and_yield_metrics(session, livret_bal, re_data.get("monthly_rent_lmnp", 791.0))
     sal_data = compute_current_month_salary_breakdown(div_metrics, re_data)
 
-    # Extraction des lignes actives
     res_inv = invest_data.get("result", invest_data) if isinstance(invest_data, dict) else {}
     raw_lines = []
     for acc in res_inv.get("accounts", []):
@@ -221,9 +254,9 @@ def extract_equity_proposals_from_text(text: str):
 # ==============================================================================
 # HEADER & SIDEBAR
 # ==============================================================================
-st.title("🏛️ Cockpit Actions, ETF & Patrimoine — Dashboard Analytics (v1.0.0)")
+st.title("🏛️ Cockpit Actions, ETF & Patrimoine — Dashboard Analytics (v2.0.0)")
 st.markdown(
-    "*Pilotage par Poches (Socle Salarial LT / Cœur Indiciel MT / Spéculatif 'Actions Chocs' CT), Boussole Macro VIX/CW8, Benchmark MSCI World & IA SSOT*"
+    "*Pilotage par Poches (Socle Salarial LT / Cœur Indiciel MT / Spéculatif 'Actions Chocs' CT), Découverte Dynamique, Réconciliation Finary, Alertes Telegram & IA SSOT*"
 )
 st.markdown("---")
 
@@ -231,7 +264,7 @@ with st.sidebar:
     st.header("⚙️ Gouvernance Patrimoniale")
     buffer_livret = float(os.getenv("EMERGENCY_FUND_BUFFER_EUR", "13500.0"))
     st.metric("🛡️ Matelas Livret A Sanctuarisé", f"{buffer_livret:,.0f} €", delta="Intouchable")
-    st.info("⛔ **Doctrine Périmètre :** Zéro nouveau PEA, Zéro Assurance-Vie. Pilotage exclusif CTO Bourso/LCL, PEE/PERCO EDF & MPP.")
+    st.info("⛔ **Doctrine Périmètre :** Zéro nouveau PEA, Zéro Assurance-Vie. Pilotage exclusif CTO Bourso/LCL, PEE/PERCO/PERO EDF & Mon Petit Placement.")
 
     if st.button("⚡ Rafraîchir les données Live", type="primary", use_container_width=True):
         st.cache_data.clear()
@@ -250,26 +283,35 @@ sal_data = wealth_state["sal_data"]
 classifications = get_all_classifications()
 class_map = {c["asset_key"]: c for c in classifications}
 
-# Auto-enregistrement en BDD si une nouvelle ligne apparaît dans Finary
+salarial_kw = ["PEE", "PEG", "PERCO", "PERO", "EGEPARGNE", "EGÉPARGNE", "PROFIL EQUILIBRE", "LBPAM", "EDF"]
+etf_core_kw = ["ETF", "WORLD", "CW8", "WPEA", "S&P", "500", "STOXX", "MSCI", "LYXOR", "AMUNDI", "ISHARES", "GOLD", "ETC", "PETIT PLACEMENT", "IAM ", "21SHARES"]
+
 new_finary_lines = []
 for line in finary_lines:
     ak = line["asset_key"]
     if ak not in class_map:
+        upper_ctx = f"{line['account']} {line['name']}".upper()
+        if any(k in upper_ctx for k in salarial_kw):
+            auto_bucket = "LT_SALARIAL"
+        elif any(k in upper_ctx for k in etf_core_kw):
+            auto_bucket = "MT_CORE_ETF"
+        else:
+            auto_bucket = "CT_SPECULATIVE"
+
         upsert_asset_classification(
             asset_key=ak,
             name=line["name"],
             account=line["account"],
             isin=line["isin"],
             yahoo_ticker="",
-            bucket="MT_CORE_ETF",
+            bucket=auto_bucket,
         )
-        new_finary_lines.append(line)
+        new_finary_lines.append({**line, "auto_bucket": auto_bucket})
 
 if new_finary_lines:
     classifications = get_all_classifications()
     class_map = {c["asset_key"]: c for c in classifications}
 
-# Collecte de tous les tickers Yahoo mappés pour requête parallèle
 all_tickers = [c["yahoo_ticker"] for c in classifications if c["yahoo_ticker"]]
 all_tickers.append("CW8.PA")
 yahoo_metrics_map = get_cached_yahoo_metrics(tuple(sorted(set(all_tickers))))
@@ -278,7 +320,6 @@ cw8_info = yahoo_metrics_map.get("CW8.PA", {})
 cw8_live_price = cw8_info.get("price", 708.8) or 708.8
 cw8_24h_pct = cw8_info.get("change_24h_pct", 0.0)
 
-# Ventilation des 3 poches Actions + Poudre Sèche Bourse
 val_lt_salarial = 0.0
 val_mt_core = 0.0
 val_ct_speculative = 0.0
@@ -332,7 +373,6 @@ for line in finary_lines:
         val_ct_speculative += val
         dict_ct_speculative[line["name"]] = dict_ct_speculative.get(line["name"], 0.0) + val
 
-# Poudre sèche dédiée Bourse = Espèces Courtage (CTO LCL 0985W + Bourso) + Surplus Livret A (> 13 500 €)
 brokerage_cash = cash_info.get("brokerage_cash", 656.14)
 arbitrable_savings = cash_info.get("arbitrable_savings", 3421.10)
 poudre_seche_bourse = brokerage_cash + arbitrable_savings
@@ -346,13 +386,20 @@ pct_cash = (poudre_seche_bourse / total_equity_portfolio * 100.0) if total_equit
 
 macro_compass = get_cached_macro_compass()
 
+discrepancies = (
+    audit_equity_database_vs_finary(finary_lines, yahoo_metrics_map)
+    if RECON_AVAILABLE else []
+)
+alert_badge = f" ({len(discrepancies)})" if discrepancies else ""
+
 # ==============================================================================
-# ONGLETS DU DASHBOARD
+# ONGLETS DU DASHBOARD (6 ONGLETS STRUCTURÉS)
 # ==============================================================================
-tab_overview, tab_spec, tab_screener, tab_ai, tab_admin = st.tabs([
+tab_overview, tab_spec, tab_screener, tab_alerts, tab_ai, tab_admin = st.tabs([
     "📊 Vue Globale & 4 Poches",
     "🚀 Poche Spéculative ('Actions Chocs')",
-    "🔥 Screener RSI, MT/LT & Zombies",
+    "🔥 Screener RSI & Découverte Marché",
+    f"🔔 Centre d'Alertes & Réconciliation{alert_badge}",
     "🤖 Assistant IA Pro & Tickets",
     "🛠️ Administration, Mapping & SSOT",
 ])
@@ -361,6 +408,16 @@ tab_overview, tab_spec, tab_screener, tab_ai, tab_admin = st.tabs([
 # ONGLET 1 : VUE GLOBALE & GOUVERNANCE DES 4 POCHES
 # ==============================================================================
 with tab_overview:
+    with st.expander("📖 Guide de lecture — Vue Globale & Gouvernance des 4 Poches"):
+        st.markdown("""
+            Synthèse patrimoniale et allocation stratégique de vos actifs boursiers et salariaux :
+            * **Boussole Macro Bourse :** Croisement en direct de l'indice de volatilité **VIX**, du **Taux 10 ans US (`^TNX`)** et de la tendance du **MSCI World (`CW8.PA`)** par rapport à sa moyenne mobile 200 jours (SMA 200).
+            * **1. Socle Salarial & Retraite (`LT_SALARIAL`) :** PEG EDF, PERCO et PERO. Enveloppe sanctuarisée dédiée à la capture de l'abondement employeur et à l'horizon retraite.
+            * **2. Cœur Indiciel & Fonds (`MT_CORE_ETF`) :** ETF mondiaux/régionaux (CTO BoursoBank & LCL), ETC Or Physique et fonds Mon Petit Placement. Soumis à une **Vigie de surconcentration à 35 % max** par ligne.
+            * **3. Poche Spéculative 'Actions Chocs' (`CT_SPECULATIVE`) :** Titres vifs tactiques plafonnés à **6 % max** du portefeuille global, suivis avec PRU, TP1 et Stop-Loss.
+            * **4. Poudre Sèche Bourse :** Espèces courtage (CTO LCL `0985W` + BoursoBank) + surplus du Livret A au-delà du matelas de sécurité sanctuarisé (**13 500 €**).
+        """)
+
     regime = macro_compass["regime"]
     vix = macro_compass["vix"]
     tnx = macro_compass["us_10y_yield"]
@@ -414,7 +471,7 @@ with tab_overview:
     m1.metric("Indice VIX (Volatilité)", f"{vix:.2f}", delta="Calme < 20" if vix < 20 else "Tension > 20", delta_color="normal" if vix < 20 else "inverse")
     m2.metric("Taux 10 Ans US (^TNX)", f"{tnx:.2f} %", delta="Référence Taux", delta_color="off")
     m3.metric("MSCI World (CW8.PA)", f"{cw8_live_price:.2f} €", delta=f"{cw8_24h_pct:+.2f}% (24h) | {cw8_sma:+.1f}% vs SMA200")
-    m4.metric("Cash-Flow Net du Mois", f"{sal_data['net_free_cash_flow_month']:+,.2f} €", delta=f"Salaire + Passif - Prêt RP")
+    m4.metric("Cash-Flow Net du Mois", f"{sal_data['net_free_cash_flow_month']:+,.2f} €", delta="Salaire + Passif - Prêt RP")
     m5.metric("Taux d'Indépendance", f"{sal_data['independence_ratio']:.1f} %", delta=f"Rente : {div_metrics['monthly_passive_income']:,.0f} €/mois")
 
     st.markdown("")
@@ -445,7 +502,7 @@ with tab_overview:
         st.write(f"• **Socle Retraite & Salarial (LT) :** **{val_lt_salarial:,.2f} €** ({pct_lt:.1f}%) — *Intouchable, captation abondement EDF.*")
         st.write(f"• **Cœur Indiciel & Fonds (MT/LT) :** **{val_mt_core:,.2f} €** ({pct_mt:.1f}%) — *Moteur de capitalisation diversifié.*")
         st.write(f"• **Poche Spéculative 'Play' (CT) :** **{val_ct_speculative:,.2f} €** ({pct_ct:.1f}%) — *Enveloppe asymétrique sous TP/SL.*")
-        st.write(f"• **Poudre Sèche Bourse :** **{poudre_seche_bourse:,.2f} €** ({pct_cash:.1f}%) — *Matelas Livret A de 13 500 € strictement isolé.*")
+        st.write(f"• **Poudre Sèche Bourse :** **{poudre_seche_bourse:,.2f} €** ({pct_cash:.1f}%) — *Matelas Livret A de {buffer_livret:,.0f} € strictement isolé.*")
         st.info("💡 Les trois graphiques ci-dessous détaillent chaque poche et appliquent la **Vigie 35% Max** sur le Cœur Indiciel.")
 
     st.markdown("---")
@@ -468,7 +525,6 @@ with tab_overview:
             fig_mt.update_layout(margin=dict(t=35, b=10, l=10, r=10), showlegend=False, height=240)
             st.plotly_chart(fig_mt, use_container_width=True)
 
-            # Vigie 35% Max Intra-Cœur (Top 5 lignes)
             plafond_35 = val_mt_core * 0.35
             core_meta_map = get_all_core_etf_metadata()
             st.markdown(f"##### ⚖️ Vigie 35% Max Intra-Cœur (Cap: {plafond_35:,.0f} €)")
@@ -490,6 +546,7 @@ with tab_overview:
                 new_nt = st.text_input("Note stratégique", value=c_meta["notes"], key="eq_core_nt")
                 if st.button("💾 Enregistrer Thèse", key="btn_save_eq_core"):
                     update_core_etf_metadata(sel_core, new_st, new_nt)
+                    send_telegram_notify(f"🏷️ *THÈSE CŒUR MT/LT MISE À JOUR*\n• **{sel_core}** : `{new_st}`\n• Note : _{new_nt}_")
                     st.success(f"Thèse mise à jour pour {sel_core} !")
                     st.rerun()
 
@@ -505,13 +562,18 @@ with tab_overview:
 # ONGLET 2 : ZOOM POCHE SPÉCULATIVE ('ACTIONS CHOCS / PLAY')
 # ==============================================================================
 with tab_spec:
+    with st.expander("📖 Guide de lecture — Pilotage de la Poche Spéculative ('Actions Chocs')"):
+        st.markdown("""
+            Suivi opérationnel des actions vives logées sur votre **CTO LCL (`ORD DE SENANT`)** ou **CTO BoursoBank** :
+            * **PRU & Cours Live :** Comparaison entre votre Prix de Revient Unitaire Finary et le cours temps réel Yahoo Finance.
+            * **Alpha vs CW8 :** Mesure la surperformance ou sous-performance relative de chaque titre face à l'indice **MSCI World (`CW8.PA`)**.
+            * **Mode `🤖 Auto IA` vs `👤 Manuel` :** Les positions en mode *Auto IA* ont leurs paliers TP1 et Stop-Loss recalibrés automatiquement par la sentinelle `equity_auto_tpsl.py` (mi-séance Paris 12h30 & ouverture US 18h00) avec **Verrou Ratchet** (le SL ne baisse jamais).
+            * **Break-Even 1-Click :** Remonte instantanément le Stop-Loss au niveau du PRU pour sécuriser un *Free Ride* sans risque de perte en capital.
+        """)
+
     st.subheader("🚀 Pilotage de la Poche Spéculative ('Actions Chocs / Play')")
-    st.markdown(
-        "Suivi en temps réel de vos titres vifs tactiques avec **PRU Finary**, **Paliers TP1/SL**, **Mode Auto IA / Manuel** et **Alpha vs MSCI World (`CW8.PA`)**."
-    )
 
     spec_db_rows = get_open_speculative_equities()
-    # Indexation des valeurs live Finary par (nom, compte)
     finary_lookup = {(l["name"], l["account"]): l for l in finary_lines}
 
     enriched_spec = []
@@ -523,7 +585,6 @@ with tab_spec:
         f_item = finary_lookup.get((sym, acc), {})
         ym = yahoo_metrics_map.get(ytick, {})
 
-        # Priorité au cours live Yahoo si disponible, sinon valorisation Finary
         live_p = ym.get("price", 0.0)
         if live_p > 0 and qty > 0:
             curr_val = qty * live_p
@@ -626,8 +687,12 @@ with tab_spec:
                 key="eq_be_sel",
             )
             if st.button("🛡️ Passer en Break-Even (SL = PRU)", type="primary", key="btn_eq_be"):
+                be_row = df_spec[df_spec["ID"] == be_id].iloc[0]
                 set_equity_break_even(be_id)
-                st.success(f"✅ Stop-Loss aligné sur le PRU pour la ligne ID {be_id} !")
+                send_telegram_notify(
+                    f"🛡️ *ACTION SÉCURISÉE (BREAK-EVEN)*\n• **{be_row['Action']}** (`{be_row['Ticker']}`)\n• Nouveau Stop-Loss calé sur PRU : **{be_row['PRU']:.2f} €**"
+                )
+                st.success(f"✅ Stop-Loss aligné sur le PRU pour {be_row['Action']} !")
                 st.rerun()
 
         with sp_t2:
@@ -665,6 +730,9 @@ with tab_spec:
                 update_equity_levels(ed_id, n_tp1, n_tp2, n_sl)
                 if sk in st.session_state:
                     del st.session_state[sk]
+                send_telegram_notify(
+                    f"✏️ *PALIERS ACTIONS MIS À JOUR*\n• **{r_ed['Action']}** (`{r_ed['Ticker']}`)\n• TP1 : **{n_tp1:.2f} €** | Stop-Loss : **{n_sl:.2f} €**"
+                )
                 st.success("✅ Paliers mis à jour en base !")
                 st.rerun()
 
@@ -675,12 +743,15 @@ with tab_spec:
                 format_func=lambda x: f"ID {x} — {df_spec[df_spec['ID']==x]['Action'].values[0]} ({df_spec[df_spec['ID']==x]['Mode'].values[0]})",
                 key="eq_au_sel",
             )
+            au_row = df_spec[df_spec["ID"] == au_id].iloc[0]
             ac1, ac2 = st.columns(2)
             if ac1.button("🤖 Activer Auto IA", type="primary", key="btn_eq_auto_on"):
                 toggle_equity_auto_tpsl(au_id, True)
+                send_telegram_notify(f"🤖 *MODE AUTO TP/SL ACTIVÉ (ACTIONS)*\n• **{au_row['Action']}** est désormais piloté par l'IA.")
                 st.rerun()
             if ac2.button("👤 Passer en Manuel", key="btn_eq_auto_off"):
                 toggle_equity_auto_tpsl(au_id, False)
+                send_telegram_notify(f"👤 *MODE AUTO TP/SL DÉSACTIVÉ (ACTIONS)*\n• **{au_row['Action']}** repasse en gestion manuelle.")
                 st.rerun()
 
         with sp_t4:
@@ -694,6 +765,9 @@ with tab_spec:
             ex_p = st.number_input("Prix de vente exécuté (€)", value=float(r_cl["Cours Live"]), format="%.2f", key="in_eq_exit")
             if st.button("🔒 Archiver la clôture", key="btn_eq_close"):
                 close_equity_trade(cl_id, exit_price=ex_p, reason="MANUAL_CLOSE")
+                send_telegram_notify(
+                    f"🔒 *POSITION ACTION CLÔTURÉE (FIFO)*\n• **{r_cl['Action']}** (`{r_cl['Compte']}`)\n• Prix sortie : **{ex_p:.2f} €** (PRU : {r_cl['PRU']:.2f} €)"
+                )
                 st.success("✅ Opération archivée dans le journal FIFO !")
                 st.rerun()
     else:
@@ -708,11 +782,19 @@ with tab_spec:
             st.info("Aucune opération clôturée enregistrée.")
 
 # ==============================================================================
-# ONGLET 3 : SCREENER RSI MULTI-TF, ZOOM MT/LT & SENTINELLE ZOMBIES / TAX-LOSS
+# ONGLET 3 : SCREENER RSI MULTI-TF & DÉCOUVERTE DYNAMIQUE DU MARCHÉ
 # ==============================================================================
 with tab_screener:
-    st.subheader("🔥 Heatmap RSI Multi-Timeframe (ETF & Actions Vives)")
-    st.markdown("Cartographie technique temps réel pour repérer les **zones de survente (`RSI 1D ≤ 30`)** propices au déploiement de la Poudre Sèche.")
+    with st.expander("📖 Guide de lecture — Screener RSI & Découverte Dynamique du Marché"):
+        st.markdown("""
+            Outil de détection des points d'entrée techniques et d'exploration d'opportunités hors portefeuille :
+            * **Heatmap RSI Multi-Timeframe :** Calcule le RSI (1h, 4h, 1D) et l'écart à la SMA 200 sur l'ensemble de vos ETF et actions vives. Un **RSI 1D ≤ 30** (vert vif) signale une zone de survente propice au déploiement progressif de votre Poudre Sèche.
+            * **Découverte Dynamique Séparée :** Scanne un vivier liquide Euronext Paris & US éligible à vos CTO (en filtrant automatiquement vos titres déjà détenus) et sépare :
+              1. **Opportunités Spéculatives ('Actions Chocs') :** Rebonds techniques RSI ou momentum supérieur au MSCI World.
+              2. **Opportunités CORE / MT-LT (ETF & Blue Chips) :** Points d'accumulation DCA sur replis de marché.
+        """)
+
+    st.subheader("🔥 Heatmap RSI Multi-Timeframe (Portefeuille Actuel : ETF & Actions Vives)")
 
     screener_rows = []
     for item in enriched_all_lines:
@@ -746,13 +828,174 @@ with tab_screener:
 
         oversold = df_scr[df_scr["RSI 1D"] <= 35]["Titre"].tolist()
         if oversold:
-            st.success(f"💡 **Zone d'accumulation technique (RSI 1D ≤ 35) :** {', '.join(oversold)}")
+            st.success(f"💡 **Zone d'accumulation technique en portefeuille (RSI 1D ≤ 35) :** {', '.join(oversold)}")
+
+    st.markdown("---")
+    st.subheader("🔭 Découverte Dynamique du Marché (Hors Portefeuille — Spéculatif vs CORE)")
+
+    if DISCOVERY_AVAILABLE:
+        d_c1, d_c2 = st.columns([1, 4])
+        with d_c1:
+            force_disc = st.button("🔄 Forcer Re-scan Marché", type="primary", key="btn_eq_force_disc")
+        with d_c2:
+            st.caption("Scan multi-threadé Euronext & US filtrant automatiquement les titres déjà détenus en portefeuille (Cache TTL 15 min).")
+
+        disc_data = get_dynamic_equity_candidates(top_spec=8, top_core=8, force_refresh=force_disc)
+        col_d_spec, col_d_core = st.columns(2)
+
+        with col_d_spec:
+            st.markdown("##### 🚀 Vivier Spéculatif ('Actions Chocs / Play')")
+            if disc_data.get("speculative"):
+                df_d_spec = pd.DataFrame(disc_data["speculative"])[
+                    ["ticker", "name", "price", "alpha_vs_cw8", "rsi_1d", "opportunity_type"]
+                ]
+                df_d_spec.columns = ["Ticker", "Valeur", "Cours", "Alpha CW8", "RSI 1D", "Signal"]
+                st.dataframe(
+                    df_d_spec.style.map(color_rsi, subset=["RSI 1D"]).format({
+                        "Cours": "{:.2f}",
+                        "Alpha CW8": "{:+.2f}%",
+                        "RSI 1D": "{:.1f}",
+                    }),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        with col_d_core:
+            st.markdown("##### 💎 Vivier CORE / MT-LT (ETF & Blue Chips)")
+            if disc_data.get("core"):
+                df_d_core = pd.DataFrame(disc_data["core"])[
+                    ["ticker", "name", "price", "dist_sma200_pct", "rsi_1d", "opportunity_type"]
+                ]
+                df_d_core.columns = ["Ticker", "Support", "Cours", "vs SMA200", "RSI 1D", "Signal"]
+                st.dataframe(
+                    df_d_core.style.map(color_rsi, subset=["RSI 1D"]).format({
+                        "Cours": "{:.2f}",
+                        "vs SMA200": "{:+.1f}%",
+                        "RSI 1D": "{:.1f}",
+                    }),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+    else:
+        st.info("Module `equity_discovery_engine.py` non disponible.")
+
+# ==============================================================================
+# ONGLET 4 : CENTRE D'ALERTES, RÉCONCILIATION & ZOMBIES CTO
+# ==============================================================================
+with tab_alerts:
+    with st.expander("📖 Guide de lecture — Centre d'Alertes, Réconciliation & Fiscalité CTO"):
+        st.markdown("""
+            Vigie automatisée de cohérence comptable et de gestion des risques Bourse :
+            * **Détection Auto des Nouveaux Achats Finary :** Dès qu'un nouvel ordre d'achat exécuté sur votre CTO LCL ou BoursoBank remonte via Finary, le système le détecte ici et vous permet de l'**intégrer en 1 clic** dans votre cockpit Play (avec PRU exact et alerte Telegram).
+            * **Synchronisation des Volumes & Lignes Fantômes :** Détecte les renforts partiels ($\ge 15\ \%$) et les positions vendues à archiver dans le journal FIFO.
+            * **Sentinelle Zombies & Tax-Loss Harvesting (PFU 30 %) :** Identifie les actions vives sur CTO accusant une moins-value latente sévère (`≤ -15 %`) et chiffre l'économie d'impôt réalisable en fin d'année fiscale.
+        """)
+
+    st.subheader("🕵️ Rapprochement Finary vs Base de Données (`equity_wealth.db`)")
+
+    if discrepancies:
+        st.warning(f"🔔 **{len(discrepancies)} événement(s) ou écart(s) détecté(s) entre Finary et votre cockpit :**")
+        for idx_d, disc in enumerate(discrepancies):
+            d_type = disc["type"]
+            d_sym = disc["symbol"]
+            d_acc = disc["account"]
+            d_id = disc.get("id")
+
+            if d_type == "NEW_SPECULATIVE_DETECTED":
+                border_c, bg_c, badge = "#00ffcc", "#152a26", "💡 NOUVEL ACHAT SPÉCULATIF DÉTECTÉ"
+            elif d_type == "GHOST_POSITION":
+                border_c, bg_c, badge = "#ff4d4d", "#2a1515", "🔴 POSITION VENDUE / FANTÔME"
+            else:
+                border_c, bg_c, badge = "#ffa500", "#2a2215", "🟡 ÉCART DE QUANTITÉ (RENFORT / ALLÈGEMENT)"
+
+            st.markdown(
+                f"""
+                <div style="padding: 12px 16px; border-radius: 8px; border: 1px solid {border_c}; margin-bottom: 10px; background-color: {bg_c};">
+                    <h4 style="margin: 0; color: {border_c};">{badge} — {d_sym} ({d_acc})</h4>
+                    <p style="margin: 4px 0 0 0; font-size: 13px; color: #eee;">{disc['desc']}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            if d_type == "NEW_SPECULATIVE_DETECTED":
+                c_b1, c_b2 = st.columns(2)
+                with c_b1:
+                    if st.button(
+                        f"🚀 Ajouter au Cockpit Play ({d_sym} — {disc['current_val']:,.2f} €)",
+                        type="primary",
+                        key=f"onboard_spec_{idx_d}_{d_sym}",
+                    ):
+                        add_speculative_equity(
+                            symbol=d_sym,
+                            account=d_acc,
+                            price_entry=disc["price_entry"],
+                            quantity=disc["quantity"],
+                            amount_eur=disc["amount_eur"],
+                            yahoo_ticker=disc.get("yahoo_ticker", ""),
+                            isin=disc.get("isin", ""),
+                            cw8_price_entry=cw8_live_price,
+                        )
+                        send_telegram_notify(
+                            f"🚀 *NOUVELLE ACTION INTÉGRÉE AU COCKPIT PLAY*\n• **{d_sym}** sur _{d_acc}_\n• Montant : **{disc['amount_eur']:,.2f} €** (PRU : {disc['price_entry']:.2f} €)\n• Suivi TP/SL et sentinelle activés."
+                        )
+                        st.cache_data.clear()
+                        st.success(f"✅ {d_sym} ajouté à votre Poche Spéculative !")
+                        st.rerun()
+                with c_b2:
+                    if st.button(
+                        f"💎 Reclasser en Cœur MT/LT ({d_sym})",
+                        key=f"reclass_core_{idx_d}_{d_sym}",
+                    ):
+                        ak_reclass = f"{disc['isin']}_{d_acc}" if disc.get("isin") else f"{d_sym}_{d_acc}"
+                        upsert_asset_classification(
+                            asset_key=ak_reclass,
+                            name=d_sym,
+                            account=d_acc,
+                            isin=disc.get("isin", ""),
+                            yahoo_ticker=disc.get("yahoo_ticker", ""),
+                            bucket="MT_CORE_ETF",
+                        )
+                        send_telegram_notify(f"💎 *ACTION RECLASSÉE EN CŒUR MT/LT*\n• **{d_sym}** transféré hors poche spéculative.")
+                        st.cache_data.clear()
+                        st.success(f"✅ {d_sym} reclassé en Cœur MT/LT !")
+                        st.rerun()
+
+            elif d_type == "VOLUME_MISMATCH":
+                if st.button(
+                    f"🔄 Synchroniser quantité & PRU ID {d_id} ({d_sym} -> {disc['finary_qty']:.2f} titres)",
+                    key=f"sync_vol_eq_{d_id}",
+                ):
+                    conn = get_connection()
+                    c = conn.cursor()
+                    c.execute(
+                        "UPDATE speculative_equities SET quantity = ?, price_entry = ?, amount_eur = ? WHERE id = ?",
+                        (disc["adjusted_qty"], disc["adjusted_pru"], disc["adjusted_amount_eur"], d_id),
+                    )
+                    conn.commit()
+                    conn.close()
+                    send_telegram_notify(
+                        f"🔄 *VOLUME ACTION RESYNCHRONISÉ*\n• **{d_sym}** : {disc['finary_qty']:.2f} titres | PRU : {disc['adjusted_pru']:.2f} €"
+                    )
+                    st.cache_data.clear()
+                    st.success(f"✅ Ligne {d_sym} resynchronisée avec Finary !")
+                    st.rerun()
+
+            elif d_type == "GHOST_POSITION":
+                if st.button(
+                    f"🔒 Archiver la vente en FIFO ID {d_id} ({d_sym})",
+                    key=f"close_ghost_eq_{d_id}",
+                ):
+                    close_equity_trade(d_id, exit_price=disc["exit_price"], reason="FINARY_SOLD_SYNC")
+                    send_telegram_notify(f"🧹 *VENTE SYNCHRONISÉE & ARCHIVÉE (FIFO)*\n• **{d_sym}** clôturé en base de données.")
+                    st.cache_data.clear()
+                    st.success(f"✅ Position {d_sym} archivée dans le journal FIFO !")
+                    st.rerun()
+    else:
+        st.success("✅ Parfaite synchronisation : toutes vos lignes Finary sont alignées avec la base de données.")
 
     st.markdown("---")
     st.subheader("🧟 Sentinelle des Actifs Zombies & Tax-Loss Harvesting (CTO)")
-    st.markdown(
-        "Détection des actions vives sur CTO accusant une **attrition sévère (`PnL Latent ≤ -15%`)** permettant de purger une moins-value fiscale (économie PFU 30%) au profit d'un ETF."
-    )
 
     zombies = [
         item for item in enriched_all_lines
@@ -780,11 +1023,38 @@ with tab_screener:
         st.success("🟢 Aucune action zombie en attrition critique détectée.")
 
 # ==============================================================================
-# ONGLET 4 : ASSISTANT IA PRO & TICKETS D'ORDRES BOURSE (SSOT)
+# ONGLET 5 : ASSISTANT IA PRO & TICKETS D'ORDRES BOURSE (SSOT)
 # ==============================================================================
 with tab_ai:
+    with st.expander("📖 Guide de lecture — Assistant IA Stratège Bourse & Tickets d'Ordres"):
+        st.markdown("""
+            Votre comité d'investissement IA piloté par vos règles patrimoniales SSOT :
+            * **Recalibrage Auto TP/SL (IA) :** Exécute à la demande le moteur `equity_auto_tpsl.py` pour remonter les Stop-Loss (Verrou Ratchet) et sécuriser les lignes en gain ≥ +25 %.
+            * **Audits Spécialisés en 1 Clic :**
+              1. *Audit Poche Spéculative :* Identifie les prises de profit sur vos actions chocs et les opportunités d'achat du vivier dynamique.
+              2. *Audit Protection & Tax-Loss CTO :* Vérifie vos Stop-Loss et propose des arbitrages fiscaux (purge de moins-values latentes CTO).
+              3. *Arbitrages Macro MT/LT :* Oriente votre flux d'épargne mensuel (salaire + 13e mois + loyer LMNP) vers vos ETF cœur de portefeuille, avec **application 1-Click des thèses en BDD**.
+        """)
+
     st.subheader("🤖 Stratège Actions & Patrimoine IA (Prompts SSOT & Tickets Bourse)")
-    st.markdown("Lancez une analyse spécialisée en 1 clic ou interrogez directement l'IA sur vos 4 poches :")
+
+    if AUTO_TPSL_AVAILABLE:
+        st.markdown("##### ⚡ Gestion Automatique des Paliers TP/SL Actions (IA)")
+        col_a1, col_a2 = st.columns([2, 3])
+        with col_a1:
+            if st.button("🤖 Lancer le Recalibrage Auto TP/SL (IA)", type="primary", use_container_width=True):
+                with st.spinner("Analyse des cours live, RSI et recalibrage Ratchet..."):
+                    res_tpsl = run_equity_auto_tpsl_cycle(manual_trigger=True)
+                    for lg in res_tpsl["logs"]:
+                        st.write(lg)
+                    if res_tpsl["updated_count"] > 0:
+                        send_telegram_notify(
+                            f"🤖 *RECALIBRAGE AUTO TP/SL ACTIONS (IA)*\n• {res_tpsl['updated_count']} ligne(s) ajustée(s) via le dashboard."
+                        )
+                        st.cache_data.clear()
+        with col_a2:
+            st.caption("💡 S'exécute automatiquement via Cron à 12h30 et 18h00 (Lun–Ven), ou à la demande ci-contre.")
+        st.markdown("---")
 
     ai_c1, ai_c2, ai_c3 = st.columns(3)
     preset_prompt = None
@@ -825,6 +1095,14 @@ with tab_ai:
         ensure_ascii=False,
     )
 
+    dyn_discovery_block = ""
+    if DISCOVERY_AVAILABLE:
+        try:
+            d_ai = get_dynamic_equity_candidates(top_spec=6, top_core=6)
+            dyn_discovery_block = f"\nVIVIER DYNAMIQUE DU MARCHÉ (HORS PORTEFEUILLE) :\n{json.dumps(d_ai, indent=2, ensure_ascii=False)}"
+        except Exception:
+            pass
+
     common_wealth_header = f"""
 DONNÉES PATRIMONIALES & MACRO EN TEMPS RÉEL :
 - Boussole Macro Bourse : Régime {macro_compass['regime']} ({macro_compass['macro_stars']}/5 ⭐) | VIX : {macro_compass['vix']} | Taux 10Y US : {macro_compass['us_10y_yield']}% | MSCI World (CW8.PA) : {cw8_live_price} € ({cw8_24h_pct:+.2f}% 24h, {cw8_sma:+.1f}% vs SMA200)
@@ -832,12 +1110,13 @@ DONNÉES PATRIMONIALES & MACRO EN TEMPS RÉEL :
   1. Socle Salarial & Retraite (LT_SALARIAL) : {val_lt_salarial:,.2f} € ({pct_lt:.1f}%)
   2. Cœur Indiciel & Fonds (MT_CORE_ETF) : {val_mt_core:,.2f} € ({pct_mt:.1f}%)
   3. Poche Spéculative 'Actions Chocs' (CT_SPECULATIVE) : {val_ct_speculative:,.2f} € ({pct_ct:.1f}%) [Cap Strict ≤ 6%]
-  4. Poudre Sèche Bourse : {poudre_seche_bourse:,.2f} € (Espèces Courtage : {brokerage_cash:,.2f} € | Surplus Livret A > 13 500 € : {arbitrable_savings:,.2f} €)
+  4. Poudre Sèche Bourse : {poudre_seche_bourse:,.2f} € (Espèces Courtage : {brokerage_cash:,.2f} € | Surplus Livret A > {buffer_livret:,.0f} € : {arbitrable_savings:,.2f} €)
 - Matelas de Sécurité Sanctuarisé (Livret A LCL) : {buffer_livret:,.2f} € (Intouchable)
 - Capacité d'Épargne & Flux Mensuel :
   • Salaire Net du Mois : {sal_data['current_month_salary']:,.2f} € {sal_data['detail_label']}
   • Revenus Passifs (LMNP 791 € + Dividendes + Intérêts) : {div_metrics['monthly_passive_income']:,.2f} €/mois (Taux Indépendance : {sal_data['independence_ratio']:.1f}%)
   • Solde Net Après Mensualité Crédit RP (-{re_data['monthly_loan_payment']:,.2f} €) : {sal_data['net_free_cash_flow_month']:+,.2f} €/mois
+{dyn_discovery_block}
 """
 
     with ai_c1:
@@ -883,10 +1162,11 @@ DONNÉES PATRIMONIALES & MACRO EN TEMPS RÉEL :
                     if st.button("✨ Appliquer ces qualifications en BDD (1-Click)", type="primary", key=f"apply_eq_prop_h_{idx_m}"):
                         for p_name, p_d in props.items():
                             update_core_etf_metadata(p_name, p_d.get("status", "ACTIVE"), p_d.get("notes", ""))
+                        send_telegram_notify(f"✨ *QUALIFICATIONS THÈSES BOURSE APPLIQUÉES (1-CLICK IA)*\n• {len(props)} support(s) mis à jour en BDD.")
                         st.success("✅ Qualifications enregistrées en base de données !")
                         st.rerun()
 
-    u_in = st.chat_input("Ex: Quelle part de ma poudre sèche déployer sur l'ETF S&P 500 ou EM Asia cette semaine ?")
+    u_in = st.chat_input("Ex: Quelle part de ma poudre sèche déployer sur l'ETF S&P 500 ou NVIDIA cette semaine ?")
     to_run = u_in or preset_prompt
 
     if to_run:
@@ -913,14 +1193,18 @@ DONNÉES PATRIMONIALES & MACRO EN TEMPS RÉEL :
                     st.error(f"⚠️ Erreur Gemini : {e}")
 
 # ==============================================================================
-# ONGLET 5 : ADMINISTRATION, MAPPING DES POCHES & SSOT CONTROL PANEL
+# ONGLET 6 : ADMINISTRATION, MAPPING DES POCHES & SSOT CONTROL PANEL
 # ==============================================================================
 with tab_admin:
-    st.subheader("🗂️ Référentiel & Classification des Lignes Finary (Mapping SSOT)")
-    st.markdown(
-        "Modifiez librement l'affectation d'un titre entre **`LT_SALARIAL`**, **`MT_CORE_ETF`** et **`CT_SPECULATIVE`**, ou ajustez son **Ticker Yahoo Finance** :"
-    )
+    with st.expander("📖 Guide de lecture — Administration & Gouvernance SSOT"):
+        st.markdown("""
+            Panneau de contrôle centralisé de votre infrastructure Bourse & Patrimoine :
+            * **Référentiel des 66 Lignes Finary :** Reclassez à tout moment un titre entre **`LT_SALARIAL`**, **`MT_CORE_ETF`** et **`CT_SPECULATIVE`**, ou ajustez son ticker Yahoo Finance (`.PA`, `.DE`, US).
+            * **Paramètres Financiers (`.env`) :** Pilotez votre matelas Livret A sanctuarisé (**13 500 €**), votre salaire net socle et votre prime annuelle partagés avec le digest matinal.
+            * **Configuration Gemini & Prompts SSOT (`.md`) :** Éditez vos consignes d'investissement avec sauvegarde `.bak` automatique et notification Telegram.
+        """)
 
+    st.subheader("🗂️ Référentiel & Classification des Lignes Finary (Mapping SSOT)")
     df_class = pd.DataFrame(classifications)
     if not df_class.empty:
         edited_df = st.data_editor(
@@ -953,6 +1237,7 @@ with tab_admin:
                     bucket=r["bucket"],
                 )
             st.cache_data.clear()
+            send_telegram_notify("🗂️ *MAPPING DES POCHES BOURSE MIS À JOUR VIA WEB*")
             st.success("✅ Classification et tickers Yahoo mis à jour en base de données !")
             st.rerun()
 
@@ -987,14 +1272,14 @@ with tab_admin:
             with open(".env", "w", encoding="utf-8") as f:
                 f.writelines(new_env_lines)
             st.cache_data.clear()
+            send_telegram_notify(f"⚙️ *PARAMÈTRES PATRIMONIAUX MIS À JOUR*\n• Buffer Livret A : **{new_buffer:,.0f} €**")
             st.success("✅ Paramètres enregistrés dans `.env` !")
             st.rerun()
 
-    # Administration des Prompts Markdown SSOT (Mutualisé avec prompt_loader.py)
     st.markdown("---")
     st.subheader("📜 Administration des Prompts System SSOT (`.md`)")
     if PROMPT_LOADER_AVAILABLE:
-        all_p = sorted(list(set(list_available_prompts() + ["equity_advisor_speculative", "equity_risk_manager", "equity_macro_arbitrage", "wealth_advisory"])))
+        all_p = sorted(list(set(list_available_prompts() + ["equity_advisor_speculative", "equity_risk_manager", "equity_macro_arbitrage", "equity_auto_tpsl", "wealth_advisory"])))
         sel_p = st.selectbox("Fichier Prompt à éditer", options=all_p, format_func=lambda x: f"prompts/{x}.md", key="sel_eq_prompt_admin")
         raw_p_txt = get_raw_prompt(sel_p)
         edited_p_txt = st.text_area(f"Contenu — prompts/{sel_p}.md", value=raw_p_txt, height=280, key=f"ta_eq_{sel_p}")
@@ -1002,11 +1287,24 @@ with tab_admin:
         if pc1.button("💾 Enregistrer le Prompt", type="primary", key=f"sv_eq_{sel_p}"):
             if save_system_prompt(sel_p, edited_p_txt):
                 st.cache_data.clear()
+                send_telegram_notify(f"📜 *PROMPT SSOT BOURSE MODIFIÉ*\n• `prompts/{sel_p}.md` sauvegardé (backup `.bak` créé).")
                 st.success(f"✅ Prompt `prompts/{sel_p}.md` sauvegardé (backup `.bak` créé) !")
                 st.rerun()
         if pc2.button("🔄 Restaurer Backup (.bak)", key=f"rs_eq_{sel_p}"):
             if restore_backup_prompt(sel_p):
                 st.cache_data.clear()
+                send_telegram_notify(f"🔄 *PROMPT SSOT BOURSE RESTAURÉ*\n• `prompts/{sel_p}.md` restauré depuis `.bak`.")
                 st.success(f"✅ Prompt `prompts/{sel_p}.md` restauré !")
                 st.rerun()
-               
+
+    st.markdown("---")
+    st.subheader("📜 Journaux Système en Direct (Systemd Logs)")
+    log_srv = st.selectbox("Service à inspecter", ["equity-streamlit.service", "equity-cloudflare.service", "finary-bot.service"])
+    if st.button("🔄 Rafraîchir les logs", key="btn_eq_logs"):
+        st.rerun()
+    try:
+        res_log = subprocess.run(f"journalctl -u {log_srv} -n 25 --no-pager", shell=True, capture_output=True, text=True, timeout=3)
+        out_log = res_log.stdout if res_log.returncode == 0 and res_log.stdout.strip() else f"Astuce SSH : sudo journalctl -u {log_srv} -n 25"
+    except Exception as e:
+        out_log = str(e)
+    st.text_area(f"Logs pour {log_srv}", out_log, height=220)
