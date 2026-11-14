@@ -708,7 +708,7 @@ def audit_equity_concentration(current_snap):
     if total_invest <= 0:
         return []
 
-    etf_keywords = ["ETF", "WORLD", "CW8", "WPEA", "S&P", "500", "STOXX", "MSCI", "LYXOR", "AMUNDI", "ISHARES", "PEA 0%"]
+    etf_keywords = ["ETF", "WORLD", "CW8", "WPEA", "S&P", "500", "STOXX", "MSCI", "LYXOR", "AMUNDI", "ISHARES", "PEA 0%", "EGEPARGNE", "EGÉPARGNE", "PROFIL EQUILIBRE", "PERCO", "PERO", "PEE", "LBPAM", "EDF"]
     alerts = []
 
     for item_name, item_val in current_snap.get("holdings", {}).items():
@@ -1424,6 +1424,7 @@ def build_responsive_email_wrapper(title, total_today, kpi_data, benchmarks, equ
             .alloc-col {{ display: block !important; width: 100% !important; padding: 8px 4px !important; border-bottom: 1px solid #f1f5f9; }}
             .mobile-padding {{ padding: 16px 12px !important; }}
             .hero-amount {{ font-size: 28px !important; }}
+        pre {{ white-space: pre-wrap; word-wrap: break-word; font-size: 11px; background-color: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; border-left: 4px solid #38bdf8; }}
         }}
         @media (prefers-color-scheme: dark) {{
             body {{ background-color: #0f172a !important; color: #f8fafc !important; }}

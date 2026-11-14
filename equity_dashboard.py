@@ -939,7 +939,6 @@ with tab_alerts:
                         send_telegram_notify(
                             f"🚀 *NOUVELLE ACTION INTÉGRÉE AU COCKPIT PLAY*\n• **{d_sym}** sur _{d_acc}_\n• Montant : **{disc['amount_eur']:,.2f} €** (PRU : {disc['price_entry']:.2f} €)\n• Suivi TP/SL et sentinelle activés."
                         )
-                        st.cache_data.clear()
                         st.success(f"✅ {d_sym} ajouté à votre Poche Spéculative !")
                         st.rerun()
                 with c_b2:
