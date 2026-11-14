@@ -508,10 +508,10 @@ def fetch_live_price(sym, exch):
     clean_exch = str(exch).upper().strip() if exch else ""
     if clean_sym in ["EUR", "USD"]:
         return 1.0 if clean_sym == "EUR" else (1.0 / eur_usd_rate)
-    if clean_exch:
-        return fetch_live_price_cached(sym, exch, eur_usd_rate)
     if clean_sym in _bulk_prices_map and _bulk_prices_map[clean_sym] is not None:
         return _bulk_prices_map[clean_sym]
+    if clean_exch:
+        return fetch_live_price_cached(sym, exch, eur_usd_rate)
     return fetch_live_price_cached(sym, exch, eur_usd_rate)
 
 
@@ -535,6 +535,7 @@ def fetch_bulk_live_prices(symbols_tuple, eur_usd_rate):
     return prices
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def get_cached_crypto_balances():
     return get_all_exchange_crypto_balances()
 
@@ -1172,7 +1173,6 @@ with tab_live:
 
                 if st.button(f"💾 Sauvegarder qualification {sel_core_asset}", key=f"btn_save_core_{sel_core_asset}"):
                     update_core_asset_metadata(sel_core_asset, new_status, new_notes)
-                    st.cache_data.clear()
                     st.success(f"Statut mis à jour pour {sel_core_asset} !")
                     st.rerun()
 
@@ -1399,7 +1399,6 @@ with tab_live:
                 if st.button("🛡️ Passer en Break-Even", type="primary"):
                     be_row = df_pos[df_pos["ID"] == selected_be_id].iloc[0]
                     set_trade_break_even(selected_be_id)
-                    st.cache_data.clear()
                     send_telegram_notify(
                         f"🛡️ *POSITION SÉCURISÉE (BREAK-EVEN)*\n•"
                         f" **{be_row['Symbole']}** (ID {selected_be_id})\n• Nouveau SL"
@@ -1412,96 +1411,100 @@ with tab_live:
                     st.rerun()
 
         with act_tab3:
-            st.markdown(
-                "**Ajuster manuellement ou via les raccourcis (-10%, -15%, -20%) les"
-                " paliers TP / SL**"
-            )
-            selected_edit_id = st.selectbox(
-                "Position à modifier",
-                options=df_pos["ID"].tolist(),
-                format_func=lambda x: (
-                    f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
-                    f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]})"
-                ),
-                key="edit_select",
-            )
-
-            curr_row = df_pos[df_pos["ID"] == selected_edit_id].iloc[0]
-            raw_entry = curr_row["Prix Entrée"]
-            raw_tp1 = curr_row["TP1"]
-            raw_sl = curr_row["Stop-Loss"]
-
-            state_key = f"preset_sl_val_{selected_edit_id}"
-            if state_key not in st.session_state:
-                st.session_state[state_key] = (
-                    float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70)
+            @st.fragment
+            def render_sl_tp_editor_fragment():
+                st.markdown(
+                    "**Ajuster manuellement ou via les raccourcis (-10%, -15%, -20%) les"
+                    " paliers TP / SL**"
+                )
+                selected_edit_id = st.selectbox(
+                    "Position à modifier",
+                    options=df_pos["ID"].tolist(),
+                    format_func=lambda x: (
+                        f"ID {x} - {df_pos[df_pos['ID'] == x]['Symbole'].values[0]}"
+                        f" ({df_pos[df_pos['ID'] == x]['Exchange'].values[0]})"
+                    ),
+                    key="edit_select",
                 )
 
-            st.markdown(
-                "**⚡ Raccourcis de calcul SL rapide (par rapport au prix d'entrée)"
-                " :**"
-            )
-            r_c1, r_c2, r_c3, r_c4 = st.columns(4)
+                curr_row = df_pos[df_pos["ID"] == selected_edit_id].iloc[0]
+                raw_entry = curr_row["Prix Entrée"]
+                raw_tp1 = curr_row["TP1"]
+                raw_sl = curr_row["Stop-Loss"]
 
-            if r_c1.button("-10% (Resserré)", key="btn_sl_10"):
-                st.session_state[state_key] = float(raw_entry * 0.90)
-                st.rerun()
-            if r_c2.button("-15% (Standard)", key="btn_sl_15"):
-                st.session_state[state_key] = float(raw_entry * 0.85)
-                st.rerun()
-            if r_c3.button("-20% (Modéré)", key="btn_sl_20"):
-                st.session_state[state_key] = float(raw_entry * 0.80)
-                st.rerun()
-            if r_c4.button("-30% (Large)", key="btn_sl_30"):
-                st.session_state[state_key] = float(raw_entry * 0.70)
-                st.rerun()
+                state_key = f"preset_sl_val_{selected_edit_id}"
+                if state_key not in st.session_state:
+                    st.session_state[state_key] = (
+                        float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70)
+                    )
 
-            e_col1, e_col2, e_col3 = st.columns(3)
-            with e_col1:
-                new_tp1 = st.number_input(
-                    f"Nouveau TP1 ({curr_symbol})",
-                    value=float(raw_tp1) if raw_tp1 > 0 else float(raw_entry * 2.0),
-                    format="%.4f",
-                    key=f"input_tp1_{selected_edit_id}",
+                st.markdown(
+                    "**⚡ Raccourcis de calcul SL rapide (par rapport au prix d'entrée)"
+                    " :**"
                 )
-            with e_col2:
-                new_tp2 = st.number_input(
-                    f"Nouveau TP2 ({curr_symbol})",
-                    value=float(raw_entry * 4.0),
-                    format="%.4f",
-                    key=f"input_tp2_{selected_edit_id}",
-                )
-            with e_col3:
-                new_sl = st.number_input(
-                    f"Nouveau Stop-Loss ({curr_symbol})",
-                    value=st.session_state[state_key],
-                    format="%.4f",
-                    key=f"input_sl_field_{selected_edit_id}",
-                )
+                r_c1, r_c2, r_c3, r_c4 = st.columns(4)
 
-            if st.button("💾 Enregistrer les nouveaux paliers"):
-                update_trade_levels(
-                    selected_edit_id,
-                    tp1_price=new_tp1 / curr_multiplier,
-                    tp2_price=new_tp2 / curr_multiplier,
-                    sl_price=new_sl / curr_multiplier,
-                )
+                if r_c1.button("-10% (Resserré)", key="btn_sl_10"):
+                    st.session_state[state_key] = float(raw_entry * 0.90)
+                    st.rerun()
+                if r_c2.button("-15% (Standard)", key="btn_sl_15"):
+                    st.session_state[state_key] = float(raw_entry * 0.85)
+                    st.rerun()
+                if r_c3.button("-20% (Modéré)", key="btn_sl_20"):
+                    st.session_state[state_key] = float(raw_entry * 0.80)
+                    st.rerun()
+                if r_c4.button("-30% (Large)", key="btn_sl_30"):
+                    st.session_state[state_key] = float(raw_entry * 0.70)
+                    st.rerun()
 
-                if state_key in st.session_state:
-                    del st.session_state[state_key]
+                e_col1, e_col2, e_col3 = st.columns(3)
+                with e_col1:
+                    new_tp1 = st.number_input(
+                        f"Nouveau TP1 ({curr_symbol})",
+                        value=float(raw_tp1) if raw_tp1 > 0 else float(raw_entry * 2.0),
+                        format="%.4f",
+                        key=f"input_tp1_{selected_edit_id}",
+                    )
+                with e_col2:
+                    new_tp2 = st.number_input(
+                        f"Nouveau TP2 ({curr_symbol})",
+                        value=float(raw_entry * 4.0),
+                        format="%.4f",
+                        key=f"input_tp2_{selected_edit_id}",
+                    )
+                with e_col3:
+                    new_sl = st.number_input(
+                        f"Nouveau Stop-Loss ({curr_symbol})",
+                        value=st.session_state[state_key],
+                        format="%.4f",
+                        key=f"input_sl_field_{selected_edit_id}",
+                    )
 
-                st.cache_data.clear()
-                send_telegram_notify(
-                    f"✏️ *PALIERS MIS À JOUR VIA DASHBOARD*\n•"
-                    f" **{curr_row['Symbole']}** (ID {selected_edit_id})\n• Nouveau TP1"
-                    f" : {new_tp1:.4f} {curr_symbol}\n• Nouveau SL : {new_sl:.4f}"
-                    f" {curr_symbol}"
-                )
-                st.success(
-                    f"✅ Paliers mis à jour pour {curr_row['Symbole']} (ID"
-                    f" {selected_edit_id}) !"
-                )
-                st.rerun()
+                if st.button("💾 Enregistrer les nouveaux paliers"):
+                    update_trade_levels(
+                        selected_edit_id,
+                        tp1_price=new_tp1 / curr_multiplier,
+                        tp2_price=new_tp2 / curr_multiplier,
+                        sl_price=new_sl / curr_multiplier,
+                    )
+
+                    if state_key in st.session_state:
+                        del st.session_state[state_key]
+
+                    send_telegram_notify(
+                        f"✏️ *PALIERS MIS À JOUR VIA DASHBOARD*\n•"
+                        f" **{curr_row['Symbole']}** (ID {selected_edit_id})\n• Nouveau TP1"
+                        f" : {new_tp1:.4f} {curr_symbol}\n• Nouveau SL : {new_sl:.4f}"
+                        f" {curr_symbol}"
+                    )
+                    st.success(
+                        f"✅ Paliers mis à jour pour {curr_row['Symbole']} (ID"
+                        f" {selected_edit_id}) !"
+                    )
+                    st.rerun()
+
+
+            render_sl_tp_editor_fragment()
 
         with act_tab4:
             st.markdown(
@@ -1530,7 +1533,6 @@ with tab_live:
                     key="btn_enable_auto",
                 ):
                     toggle_auto_tp_sl(selected_auto_id, True)
-                    st.cache_data.clear()
                     send_telegram_notify(
                         f"🤖 *MODE AUTO TP/SL ACTIVÉ VIA WEB*\n•"
                         f" **{auto_row['Symbole']}** (ID {selected_auto_id}) est désormais"
@@ -1549,7 +1551,6 @@ with tab_live:
                     key="btn_disable_auto",
                 ):
                     toggle_auto_tp_sl(selected_auto_id, False)
-                    st.cache_data.clear()
                     send_telegram_notify(
                         f"👤 *MODE AUTO TP/SL DÉSACTIVÉ VIA WEB*\n•"
                         f" **{auto_row['Symbole']}** (ID {selected_auto_id}) repasse en"
@@ -1724,7 +1725,7 @@ with tab_micro:
         with col_btn:
             refresh_foi = st.button("🔄 Rafraîchir Funding/OI", key="btn_refresh_foi")
 
-        if refresh_foi or "funding_data" not in st.session_state:
+        if refresh_foi:
             with st.spinner(
                 f"Analyse des dérivés pour vos {len(user_crypto_list)} actifs..."
             ):
@@ -2052,7 +2053,6 @@ with tab_alerts:
             with z_btn_c1:
                 if st.button(f"🛡️ Réhabiliter / Sortir de veille ({z_sym})", key=f"btn_rehab_{z_sym}"):
                     clear_zombie_record(z_sym)
-                    st.cache_data.clear()
                     st.success(f"Actif {z_sym} retiré de la table des zombies.")
                     st.rerun()
             with z_btn_c2:
@@ -2646,7 +2646,6 @@ POSITIONS SPÉCULATIVES ACTIVES EN BDD :
                                 thesis_status=p_data.get("status", "ACTIVE"),
                                 notes=p_data.get("notes", "")
                             )
-                        st.cache_data.clear()
                         send_telegram_notify(
                             f"🏷️ *THÈSES CORE MISES À JOUR (1-CLICK IA)*\n• {len(proposals)} actif(s) qualifié(s) automatiquement en BDD."
                         )

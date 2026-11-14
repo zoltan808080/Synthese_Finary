@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-Moteur de Digest Quotidien, Hebdomadaire et Mensuel du Patrimoine (v1.8.0).
+Moteur de Digest Quotidien, Hebdomadaire et Mensuel du Patrimoine (v1.9.0).
+Jalon 6 (Raccordement SSOT Cockpit Actions & 4 Poches Bourse) :
+- Ventilation des actifs boursiers/salariaux en 4 poches étanches (Socle Salarial LT, Cœur Indiciel MT, Spéculatif 'Actions Chocs' CT, Poudre Sèche Bourse)
+- Intégration de la Boussole Macro Bourse (VIX, Taux 10Y US, MSCI World CW8 vs SMA200)
+- Vigie du plafond strict de 6% sur la Poche Spéculative Actions
 Jalon 5 (Module Salarial, Cash-Flow Global & Indépendance Financière) :
 - Intégration du cadre salarial net après PAS (Salaire socle + Prime annuelle)
 - Cadencement précis du 13e mois EDF (50% en juin, 40% en novembre, 10% en décembre)
@@ -49,7 +53,7 @@ TARGET_CASH_PCT = float(os.getenv("TARGET_CASH_PCT", "2.0"))
 MAX_EQUITY_CONCENTRATION_PCT = float(os.getenv("MAX_EQUITY_CONCENTRATION_PCT", "10.0"))
 
 # Buffer de sécurité pour Livret A / LDDS (Épargne de précaution sanctuarisée hors investissement)
-EMERGENCY_FUND_BUFFER_EUR = float(os.getenv("EMERGENCY_FUND_BUFFER_EUR", "10000.0"))
+EMERGENCY_FUND_BUFFER_EUR = float(os.getenv("EMERGENCY_FUND_BUFFER_EUR", "13500.0"))
 LIVRET_A_RATE_PCT = float(os.getenv("LIVRET_A_RATE_PCT", "3.0"))
 
 # Paramètres du prêt immobilier actif (ID 127314)
@@ -79,6 +83,23 @@ except ImportError:
         CRYPTO_ADVISOR_AVAILABLE = True
     except ImportError:
         CRYPTO_ADVISOR_AVAILABLE = False
+
+# Raccordement SSOT avec le Cockpit Actions (Jalon 6)
+try:
+    from equity_db_manager import (
+        init_equity_db,
+        get_all_classifications,
+        get_open_speculative_equities,
+    )
+    EQUITY_DB_AVAILABLE = True
+except ImportError:
+    EQUITY_DB_AVAILABLE = False
+
+try:
+    from equity_market_engine import get_equity_macro_compass
+    EQUITY_MACRO_AVAILABLE = True
+except ImportError:
+    EQUITY_MACRO_AVAILABLE = False
 
 
 def extract_jwt_token(filepath="jwt.json"):
@@ -111,11 +132,7 @@ def extract_jwt_token(filepath="jwt.json"):
         return None
 
 
-def init_finary_session():
-    secret_2fa = os.getenv("FINARY_2FA_SECRET")
-    otp_code = pyotp.TOTP(secret_2fa).now() if secret_2fa else ""
-    signin(otp_code=otp_code)
-
+def _build_session_from_disk():
     session = curl_requests.Session(impersonate="chrome110")
     token = extract_jwt_token("jwt.json")
     if token:
@@ -131,8 +148,35 @@ def init_finary_session():
                 session.cookies.set(cookie.name, cookie.value, domain=cookie.domain, path=cookie.path)
         except Exception:
             pass
-
     return session
+
+
+def init_finary_session():
+    # 1. Réutiliser la session existante si le JWT/cookies sont encore valides
+    session = _build_session_from_disk()
+    if "Authorization" in session.headers:
+        try:
+            check = session.get("https://api.finary.com/users/me", headers=DEFAULT_HEADERS, timeout=5.0)
+            if check.status_code == 200:
+                return session
+        except Exception:
+            pass
+
+    # 2. Sinon authentification 2FA avec gestion de collision de fenêtre TOTP (30s)
+    secret_2fa = os.getenv("FINARY_2FA_SECRET")
+    otp_code = pyotp.TOTP(secret_2fa).now() if secret_2fa else ""
+    try:
+        signin(otp_code=otp_code)
+    except RuntimeError as e:
+        if "Incorrect code" in str(e) and secret_2fa:
+            wait_sec = 31 - (int(time.time()) % 30)
+            logging.warning(f"⏳ Collision TOTP 2FA Finary, attente de {wait_sec}s pour le prochain code...")
+            time.sleep(wait_sec)
+            signin(otp_code=pyotp.TOTP(secret_2fa).now())
+        else:
+            raise
+
+    return _build_session_from_disk()
 
 
 def fetch_finary_portfolio_section(session, section_name):
@@ -191,7 +235,6 @@ def extract_real_estate_and_loans(session, holdings_data=None):
     except Exception as e:
         logging.warning(f"⚠️ Erreur récupération real_estates : {e}")
 
-    # Fallback si l'endpoint dédié renvoie vide
     if not re_items:
         re_items = [
             {"name": "Greg_SOLSTICE (Résidence Principale)", "val": 458242.0, "rent": 0.0, "category": "live_primary"},
@@ -216,7 +259,6 @@ def extract_real_estate_and_loans(session, holdings_data=None):
             name = str(a.get("name") or "")
             bal = float(a.get("balance") or 0.0)
 
-            # Identification du prêt actif avec solde ~316k€ (exclut le doublon 372k€)
             if ("loan" in type_slug.lower() or "pret" in name.lower() or "prêt" in name.lower()):
                 if 250000.0 < bal < 350000.0:
                     loan_crd = bal
@@ -440,6 +482,98 @@ def extract_finary_cash_and_savings(invest_data, holdings_data=None):
         "emergency_buffer_target": round(EMERGENCY_FUND_BUFFER_EUR, 2),
         "arbitrable_savings": round(arbitrable_savings, 2),
         "total_dry_powder": round(total_dry_powder, 2),
+    }
+
+
+def compute_equity_4_pockets_breakdown(invest_data, cash_details):
+    """
+    Ventile les actifs boursiers et salariaux selon le référentiel SSOT equity_wealth.db
+    en 4 poches étanches : LT_SALARIAL, MT_CORE_ETF, CT_SPECULATIVE et CASH_BOURSE.
+    """
+    class_map = {}
+    open_spec_count = 0
+    if EQUITY_DB_AVAILABLE:
+        try:
+            init_equity_db()
+            for c in get_all_classifications():
+                class_map[c["asset_key"]] = c
+            open_spec_count = len(get_open_speculative_equities())
+        except Exception as e:
+            logging.warning(f"⚠️ Erreur lecture equity_wealth.db : {e}")
+
+    salarial_kw = ["PEE", "PEG", "PERCO", "PERO", "EGEPARGNE", "EGÉPARGNE", "PROFIL EQUILIBRE", "LBPAM", "EDF"]
+    etf_core_kw = ["ETF", "WORLD", "CW8", "WPEA", "S&P", "500", "STOXX", "MSCI", "LYXOR", "AMUNDI", "ISHARES", "GOLD", "ETC", "PETIT PLACEMENT", "IAM ", "21SHARES"]
+
+    val_lt = 0.0
+    val_mt = 0.0
+    val_ct = 0.0
+    spec_lines = []
+
+    res_inv = invest_data.get("result", invest_data) if isinstance(invest_data, dict) else {}
+    for acc in res_inv.get("accounts", []):
+        acc_name = str(acc.get("name") or "Inconnu").strip()
+        securities = acc.get("bank_account_securities") or acc.get("securities") or acc.get("holdings") or []
+        for item in securities:
+            sec = item.get("security", {}) if isinstance(item.get("security"), dict) else {}
+            name = str(sec.get("name") or item.get("name") or "Titre inconnu").strip()
+            isin = str(sec.get("isin") or item.get("isin") or "").strip()
+            val = float(item.get("current_value") or item.get("balance") or 0.0)
+            pru = float(item.get("buying_price") or item.get("average_buying_price") or 0.0)
+            qty = float(item.get("quantity") or 0.0)
+            if val <= 0.5:
+                continue
+
+            asset_key = f"{isin}_{acc_name}" if isin and isin != "N/A" else f"{name}_{acc_name}"
+            meta = class_map.get(asset_key)
+            if meta:
+                if meta.get("is_excluded"):
+                    continue
+                bucket = meta.get("bucket", "MT_CORE_ETF")
+            else:
+                upper_ctx = f"{acc_name} {name}".upper()
+                if any(k in upper_ctx for k in salarial_kw):
+                    bucket = "LT_SALARIAL"
+                elif any(k in upper_ctx for k in etf_core_kw):
+                    bucket = "MT_CORE_ETF"
+                else:
+                    bucket = "CT_SPECULATIVE"
+
+            if bucket == "LT_SALARIAL":
+                val_lt += val
+            elif bucket == "MT_CORE_ETF":
+                val_mt += val
+            else:
+                val_ct += val
+                cost_b = (qty * pru) if (qty > 0 and pru > 0) else val
+                pnl_p = ((val - cost_b) / cost_b * 100.0) if cost_b > 0 else 0.0
+                spec_lines.append(f"{name} ({pnl_p:+.1f}%)")
+
+    brokerage_cash = float(cash_details.get("brokerage_cash", 0.0))
+    arbitrable_savings = float(cash_details.get("arbitrable_savings", 0.0))
+    cash_bourse = brokerage_cash + arbitrable_savings
+
+    total_eq = val_lt + val_mt + val_ct + cash_bourse
+    pct_lt = (val_lt / total_eq * 100.0) if total_eq > 0 else 0.0
+    pct_mt = (val_mt / total_eq * 100.0) if total_eq > 0 else 0.0
+    pct_ct = (val_ct / total_eq * 100.0) if total_eq > 0 else 0.0
+    pct_cash = (cash_bourse / total_eq * 100.0) if total_eq > 0 else 0.0
+
+    macro_eq = {"regime": "BALANCED_EQUITY_TREND", "macro_stars": 4, "vix": 19.0, "us_10y_yield": 4.3, "cw8_dist_sma200_pct": 5.0}
+    if EQUITY_MACRO_AVAILABLE:
+        try:
+            macro_eq = get_equity_macro_compass()
+        except Exception as e:
+            logging.warning(f"⚠️ Erreur Boussole Macro Bourse : {e}")
+
+    return {
+        "total_equity_scope": round(total_eq, 2),
+        "lt_salarial": {"val": round(val_lt, 2), "pct": round(pct_lt, 1)},
+        "mt_core_etf": {"val": round(val_mt, 2), "pct": round(pct_mt, 1)},
+        "ct_speculative": {"val": round(val_ct, 2), "pct": round(pct_ct, 1), "cap_pct": 6.0, "is_over_cap": pct_ct > 6.0},
+        "cash_bourse": {"val": round(cash_bourse, 2), "pct": round(pct_cash, 1)},
+        "open_spec_count": open_spec_count,
+        "spec_lines_preview": spec_lines[:6],
+        "macro_compass": macro_eq,
     }
 
 
@@ -752,6 +886,83 @@ def render_kpi_card_html(label, kpi_obj):
     """
 
 
+def render_equity_pockets_card_html(eq_pockets):
+    """Génère la carte de Gouvernance des 4 Poches Actions & Boussole Macro Bourse (Jalon 6)."""
+    lt = eq_pockets["lt_salarial"]
+    mt = eq_pockets["mt_core_etf"]
+    ct = eq_pockets["ct_speculative"]
+    cb = eq_pockets["cash_bourse"]
+    mc = eq_pockets.get("macro_compass", {})
+
+    vix = mc.get("vix", 19.0)
+    cw8_sma = mc.get("cw8_dist_sma200_pct", 0.0)
+    regime = mc.get("regime", "BALANCED_EQUITY_TREND")
+    stars = mc.get("macro_stars", 4)
+
+    ct_badge = (
+        '<span style="color: #dc2626; font-weight: 700;">⚠️ Cap &gt; 6%</span>'
+        if ct.get("is_over_cap")
+        else '<span style="color: #059669; font-weight: 700;">✓ Cap ≤ 6%</span>'
+    )
+
+    return f"""
+    <!-- CARTE GOUVERNANCE DES 4 POCHES ACTIONS & BOUSSOLE BOURSE (SSOT) -->
+    <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 16px; overflow: hidden;">
+        <tr>
+            <td style="padding: 12px 16px; border-bottom: 1px solid #f1f5f9; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);">
+                <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: #1e293b; letter-spacing: 0.5px;">
+                            🏛️ Cockpit Actions : 4 Poches Stratégiques (SSOT)
+                        </td>
+                        <td align="right" style="font-size: 11px; color: #0284c7; font-weight: 700;">
+                            Boussole : {stars}/5 ⭐ (VIX {vix:.1f})
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 12px 16px;">
+                <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                        <td class="alloc-col" style="width: 25%; padding: 4px; vertical-align: top;">
+                            <div style="font-size: 10px; color: #64748b; font-weight: 700;">1. SOCLE SALARIAL LT</div>
+                            <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-top: 2px;">{lt['val']:,.0f} €</div>
+                            <div style="font-size: 11px; color: #2563eb; font-weight: 700;">{lt['pct']:.1f}%</div>
+                            <div style="font-size: 9px; color: #64748b;">PEE / PERCO / PERO</div>
+                        </td>
+                        <td class="alloc-col" style="width: 25%; padding: 4px; vertical-align: top; border-left: 1px solid #f1f5f9;">
+                            <div style="font-size: 10px; color: #64748b; font-weight: 700;">2. CŒUR INDIC. MT</div>
+                            <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-top: 2px;">{mt['val']:,.0f} €</div>
+                            <div style="font-size: 11px; color: #0d9488; font-weight: 700;">{mt['pct']:.1f}%</div>
+                            <div style="font-size: 9px; color: #64748b;">ETF + MPP + Gold</div>
+                        </td>
+                        <td class="alloc-col" style="width: 25%; padding: 4px; vertical-align: top; border-left: 1px solid #f1f5f9;">
+                            <div style="font-size: 10px; color: #64748b; font-weight: 700;">3. SPÉCULATIF PLAY</div>
+                            <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-top: 2px;">{ct['val']:,.0f} €</div>
+                            <div style="font-size: 11px; color: #e11d48; font-weight: 700;">{ct['pct']:.1f}%</div>
+                            <div style="font-size: 9px;">{ct_badge}</div>
+                        </td>
+                        <td class="alloc-col" style="width: 25%; padding: 4px; vertical-align: top; border-left: 1px solid #f1f5f9;">
+                            <div style="font-size: 10px; color: #64748b; font-weight: 700;">4. CASH BOURSE</div>
+                            <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-top: 2px;">{cb['val']:,.0f} €</div>
+                            <div style="font-size: 11px; color: #d97706; font-weight: 700;">{cb['pct']:.1f}%</div>
+                            <div style="font-size: 9px; color: #64748b;">Courtage + Surplus LA</div>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 8px 16px; background-color: #f8fafc; border-top: 1px dashed #e2e8f0; font-size: 11px; color: #475569;">
+                <b>Régime Bourse :</b> <code>{regime}</code> • <b>MSCI World (CW8) vs SMA200 :</b> <b>{cw8_sma:+.1f}%</b>
+            </td>
+        </tr>
+    </table>
+    """
+
+
 def render_salary_cashflow_card_html(sal_data, div_metrics, re_data):
     """Génère la carte Flux d'Activité, Rente & Indépendance Financière (Jalon 5)."""
     cur_sal = sal_data["current_month_salary"]
@@ -969,7 +1180,7 @@ def render_allocation_thermometer_html(alloc):
     arbitrable_savings = cd.get("arbitrable_savings", 0.0)
     total_savings = cd.get("total_savings", 0.0)
     emergency_cushion = cd.get("emergency_cushion", 0.0)
-    emergency_target = cd.get("emergency_buffer_target", 10000.0)
+    emergency_target = cd.get("emergency_buffer_target", 13500.0)
 
     emergency_box = ""
     if total_savings > 0 or emergency_cushion > 0:
@@ -1174,7 +1385,7 @@ def render_crypto_cockpit_pill():
         return ""
 
 
-def build_responsive_email_wrapper(title, total_today, kpi_data, benchmarks, equity_alerts, div_metrics, re_data, sal_data, ai_body_html, used_model, period_type="daily", horizon_key="24h"):
+def build_responsive_email_wrapper(title, total_today, kpi_data, benchmarks, equity_alerts, div_metrics, re_data, sal_data, eq_pockets, ai_body_html, used_model, period_type="daily", horizon_key="24h"):
     date_str = datetime.date.today().strftime("%d/%m/%Y")
     alloc = compute_asset_allocation(kpi_data)
 
@@ -1183,6 +1394,7 @@ def build_responsive_email_wrapper(title, total_today, kpi_data, benchmarks, equ
     kpi_30d_html = render_kpi_card_html("Variation 30 Jours", kpi_data["30d"])
 
     thermometer_html = render_allocation_thermometer_html(alloc)
+    equity_pockets_html = render_equity_pockets_card_html(eq_pockets)
     salary_cashflow_html = render_salary_cashflow_card_html(sal_data, div_metrics, re_data)
     passive_income_html = render_passive_income_card_html(div_metrics, re_data)
     cockpit_pill_html = render_crypto_cockpit_pill()
@@ -1258,11 +1470,12 @@ def build_responsive_email_wrapper(title, total_today, kpi_data, benchmarks, equ
                             </td>
                         </tr>
 
-                        <!-- THERMOMÈTRE D'ALLOCATION, REVENUS D'ACTIVITÉ, RENTE & IMMOBILIER -->
+                        <!-- THERMOMÈTRE D'ALLOCATION, 4 POCHES ACTIONS, REVENUS D'ACTIVITÉ & RENTE -->
                         <tr>
                             <td style="padding: 8px 18px 0 18px; background-color: #f8fafc;">
                                 {immo_360_html}
                                 {thermometer_html}
+                                {equity_pockets_html}
                                 {salary_cashflow_html}
                                 {passive_income_html}
                                 {vigie_equity_html}
@@ -1306,7 +1519,7 @@ def load_wealth_advisory_instructions():
     return "Consulte exclusivement les comptes existants (CTO BoursoBank, CTO LCL, PEE EDF, Mon Petit Placement, Crypto, Livret A). Interdiction formelle de recommander un PEA ou une Assurance-Vie."
 
 
-def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, benchmarks, equity_alerts, div_metrics, re_data, sal_data, period_type):
+def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, benchmarks, equity_alerts, div_metrics, re_data, sal_data, eq_pockets, period_type):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return None
@@ -1357,6 +1570,12 @@ def generate_enhanced_analysis_html(kpi_data, movers_data, top_positions, benchm
   • Dette Immobilière Active (Prêt n°127314) : -{re_data['active_loan_crd']:,.2f} € (Échéance: {re_data['monthly_loan_payment']:,.2f} €/mois)
   • Actif Net Immobilier : {re_data['net_re']:,.2f} €
   • Patrimoine Net Global Consolidé (Financier + Immobilier Net) : {kpi_data['total_today'] + re_data['net_re']:,.2f} €
+- Gouvernance des 4 Poches Actions & Boussole Macro Bourse (SSOT equity_wealth.db) :
+  • Boussole Macro Bourse : Régime {eq_pockets['macro_compass'].get('regime')} ({eq_pockets['macro_compass'].get('macro_stars')}/5 ⭐) | VIX : {eq_pockets['macro_compass'].get('vix')} | MSCI World vs SMA200 : {eq_pockets['macro_compass'].get('cw8_dist_sma200_pct'):+.1f}%
+  • 1. Socle Salarial & Retraite (LT_SALARIAL) : {eq_pockets['lt_salarial']['val']:,.2f} € ({eq_pockets['lt_salarial']['pct']:.1f}%) [Intouchable]
+  • 2. Cœur Indiciel & Fonds (MT_CORE_ETF) : {eq_pockets['mt_core_etf']['val']:,.2f} € ({eq_pockets['mt_core_etf']['pct']:.1f}%)
+  • 3. Poche Spéculative 'Actions Chocs' (CT_SPECULATIVE) : {eq_pockets['ct_speculative']['val']:,.2f} € ({eq_pockets['ct_speculative']['pct']:.1f}% vs cap strict ≤ 6.0%)
+  • 4. Poudre Sèche Bourse : {eq_pockets['cash_bourse']['val']:,.2f} € ({eq_pockets['cash_bourse']['pct']:.1f}%)
 - Flux Financiers Globaux (Activité + Passif) :
   • Salaire Net du Mois en cours : {sal_data['current_month_salary']:,.2f} € {sal_data['detail_label']} (Socle mensuel: {sal_data['base_salary']:,.2f} €)
   • Revenus Passifs Mensuels : {div_metrics['monthly_passive_income']:,.2f} € / mois (Loyers LMNP 791 € + Dividendes titres + Intérêts Livret A)
@@ -1387,7 +1606,7 @@ CONSIGNES DE RÉDACTION :
 3. **🎯 CONSEILS TACTIQUES & ARBITRAGES PATRIMONIAUX (HORIZON : {period_type.upper()})** :
    - Applique strictement la doctrine de l'horizon {period_type.upper()}.
    - Rappel formel : interdiction de suggérer un PEA ou une Assurance-Vie. Travaille uniquement avec le CTO BoursoBank, le CTO LCL, le PEE avec abondement, Mon Petit Placement, la Crypto ou le surplus Livret A.
-   - Prends en compte la capacité d'épargne nette réelle du mois ({sal_data['net_free_cash_flow_month']:,.2f} €) et les flux exceptionnels éventuels (13e mois, prime) pour calibrer tes conseils de réinvestissement sans forcer de cessions inutiles.
+   - Respecte le cloisonnement des 4 poches Actions (Poche Spéculative plafonnée à 6 % max, profits recyclés vers le Cœur ETF MT/LT) et calibre les tickets sur le flux net disponible ({sal_data['net_free_cash_flow_month']:,.2f} €).
    - Si une opportunité nette se dégage, produis impérativement le ticket d'arbitrage normé dans un bloc <pre> stylisé.
 4. **📅 Agenda Financier & Catalyseurs Clés** :
    - Événements clés des 7 à 14 prochains jours pour les principales positions.
@@ -1414,7 +1633,7 @@ Ne génère PAS les balises <html>, <head>, <body>, le conteneur principal ni le
                 clean_ai_html = response.text.replace("```html", "").replace("```", "").strip()
                 return build_responsive_email_wrapper(
                     titles[period_type], kpi_data["total_today"], kpi_data, benchmarks,
-                    equity_alerts, div_metrics, re_data, sal_data, clean_ai_html, modele, period_type, current_horizon
+                    equity_alerts, div_metrics, re_data, sal_data, eq_pockets, clean_ai_html, modele, period_type, current_horizon
                 )
         except Exception as e:
             logging.warning(f"⚠️ Recherche Web ou modèle {modele} indisponible ({e}). Bascule en mode standard...")
@@ -1428,7 +1647,7 @@ Ne génère PAS les balises <html>, <head>, <body>, le conteneur principal ni le
                 clean_ai_html = response.text.replace("```html", "").replace("```", "").strip()
                 return build_responsive_email_wrapper(
                     titles[period_type], kpi_data["total_today"], kpi_data, benchmarks,
-                    equity_alerts, div_metrics, re_data, sal_data, clean_ai_html, f"{modele} (Standard)", period_type, current_horizon
+                    equity_alerts, div_metrics, re_data, sal_data, eq_pockets, clean_ai_html, f"{modele} (Standard)", period_type, current_horizon
                 )
         except Exception as e:
             logging.error(f"❌ Échec du modèle {modele} en mode standard : {e}")
@@ -1492,6 +1711,9 @@ def run_digest():
     # Calcul de la rémunération salariale, du cash-flow global et de l'indépendance financière (Jalon 5)
     sal_data = compute_current_month_salary_breakdown(div_metrics, re_data)
 
+    # Ventilation SSOT des 4 Poches Actions & Boussole Macro Bourse (Jalon 6)
+    eq_pockets = compute_equity_4_pockets_breakdown(invest_data, current_snap.get("cash_details", {}))
+
     history = {}
     if os.path.exists(HISTORY_FILE):
         try:
@@ -1510,9 +1732,9 @@ def run_digest():
     # 1. RAPPORT QUOTIDIEN
     daily_data_text, err = compute_movers_for_period(current_snap, history, target_days_ago=1)
     if daily_data_text:
-        logging.info("🔍 Génération du digest QUOTIDIEN (v1.8.0 - Activité & Indépendance)...")
+        logging.info("🔍 Génération du digest QUOTIDIEN (v1.9.0 - Cockpit 4 Poches Actions & Indépendance)...")
         daily_html = generate_enhanced_analysis_html(
-            kpi_data, daily_data_text, top_positions, benchmarks, equity_alerts, div_metrics, re_data, sal_data, "daily"
+            kpi_data, daily_data_text, top_positions, benchmarks, equity_alerts, div_metrics, re_data, sal_data, eq_pockets, "daily"
         )
         if daily_html:
             send_email_html(f"📊 Digest Quotidien — {today.strftime('%d/%m/%Y')}", daily_html)
@@ -1523,7 +1745,7 @@ def run_digest():
         if weekly_data_text:
             logging.info("🗓️ Génération du digest HEBDOMADAIRE...")
             weekly_html = generate_enhanced_analysis_html(
-                kpi_data, weekly_data_text, top_positions, benchmarks, equity_alerts, div_metrics, re_data, sal_data, "weekly"
+                kpi_data, weekly_data_text, top_positions, benchmarks, equity_alerts, div_metrics, re_data, sal_data, eq_pockets, "weekly"
             )
             if weekly_html:
                 send_email_html(f"🗓️ Bilan Hebdomadaire — Semaine du {today.strftime('%d/%m/%Y')}", weekly_html)
@@ -1534,7 +1756,7 @@ def run_digest():
         if monthly_data_text:
             logging.info("📈 Génération du digest MENSUEL (Bilan 360° Actif Net)...")
             monthly_html = generate_enhanced_analysis_html(
-                kpi_data, monthly_data_text, top_positions, benchmarks, equity_alerts, div_metrics, re_data, sal_data, "monthly"
+                kpi_data, monthly_data_text, top_positions, benchmarks, equity_alerts, div_metrics, re_data, sal_data, eq_pockets, "monthly"
             )
             if monthly_html:
                 send_email_html(f"📈 Synthèse Mensuelle — {today.strftime('%B %Y')}", monthly_html)
