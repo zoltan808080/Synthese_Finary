@@ -86,6 +86,7 @@ def run_equity_auto_tpsl_cycle(manual_trigger=False):
         data = json.loads(match.group(0))
         adjustments = data.get("adjustments", [])
         pos_by_id = {p[0]: p for p in auto_positions}
+        pos_by_id_live = {item["id"]: item["live_price_eur"] for item in payload}
 
         for adj in adjustments:
             pid = int(adj.get("id", 0))
@@ -101,8 +102,18 @@ def run_equity_auto_tpsl_cycle(manual_trigger=False):
             proposed_sl = float(adj.get("new_sl", orig_sl))
             reason = adj.get("reason", "Ajustement technique IA")
 
-            final_sl = max(orig_sl, proposed_sl)
-            final_tp1 = proposed_tp1 if proposed_tp1 > 0 else orig_tp1
+            live_p_curr = float(pos_by_id_live.get(pid, 0.0))
+            tp_breached = (orig_tp1 > 0 and live_p_curr >= orig_tp1 * 0.98)
+
+            # Garde-fou Python Trailing TP1 : si TP1 atteint/dépassé, projeter +22% min au-dessus du live et sécuriser le SL
+            if tp_breached:
+                min_trailing_tp1 = round(live_p_curr * 1.22, 4)
+                final_tp1 = max(proposed_tp1, min_trailing_tp1)
+                min_lock_sl = round(live_p_curr * 0.88, 4)
+                final_sl = max(orig_sl, proposed_sl, min_lock_sl)
+            else:
+                final_sl = max(orig_sl, proposed_sl)
+                final_tp1 = proposed_tp1 if proposed_tp1 > 0 else orig_tp1
 
             if abs(final_sl - orig_sl) > 0.01 or abs(final_tp1 - orig_tp1) > 0.01:
                 update_equity_levels(pid, final_tp1, orig_tp2, final_sl)
