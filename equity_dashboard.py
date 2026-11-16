@@ -956,8 +956,7 @@ with tab_alerts:
                             bucket="MT_CORE_ETF",
                         )
                         send_telegram_notify(f"💎 *ACTION RECLASSÉE EN CŒUR MT/LT*\n• **{d_sym}** transféré hors poche spéculative.")
-                        st.cache_data.clear()
-                        st.success(f"✅ {d_sym} reclassé en Cœur MT/LT !")
+                                                st.success(f"✅ {d_sym} reclassé en Cœur MT/LT !")
                         st.rerun()
 
             elif d_type == "VOLUME_MISMATCH":
@@ -976,8 +975,7 @@ with tab_alerts:
                     send_telegram_notify(
                         f"🔄 *VOLUME ACTION RESYNCHRONISÉ*\n• **{d_sym}** : {disc['finary_qty']:.2f} titres | PRU : {disc['adjusted_pru']:.2f} €"
                     )
-                    st.cache_data.clear()
-                    st.success(f"✅ Ligne {d_sym} resynchronisée avec Finary !")
+                                        st.success(f"✅ Ligne {d_sym} resynchronisée avec Finary !")
                     st.rerun()
 
             elif d_type == "GHOST_POSITION":
@@ -987,8 +985,7 @@ with tab_alerts:
                 ):
                     close_equity_trade(d_id, exit_price=disc["exit_price"], reason="FINARY_SOLD_SYNC")
                     send_telegram_notify(f"🧹 *VENTE SYNCHRONISÉE & ARCHIVÉE (FIFO)*\n• **{d_sym}** clôturé en base de données.")
-                    st.cache_data.clear()
-                    st.success(f"✅ Position {d_sym} archivée dans le journal FIFO !")
+                                        st.success(f"✅ Position {d_sym} archivée dans le journal FIFO !")
                     st.rerun()
     else:
         st.success("✅ Parfaite synchronisation : toutes vos lignes Finary sont alignées avec la base de données.")
@@ -1147,6 +1144,8 @@ DONNÉES PATRIMONIALES & MACRO EN TEMPS RÉEL :
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if msg["role"] == "assistant":
+                if msg.get("model"):
+                    st.caption(f"🤖 *Analyse générée avec succès via `{msg['model']}`*")
                 props = extract_equity_proposals_from_text(msg["content"])
                 if props and isinstance(props, dict):
                     st.markdown("---")
@@ -1185,9 +1184,10 @@ DONNÉES PATRIMONIALES & MACRO EN TEMPS RÉEL :
                         system_instruction=preset_context,
                     )
                     st.markdown(ans)
-                    st.caption(f"🤖 *Analyse générée via `{used_m}`*")
-                    st.session_state.eq_messages.append({"role": "assistant", "content": ans})
-                    st.rerun()
+                    st.caption(f"🤖 *Analyse générée avec succès via `{used_m}`*")
+                    st.session_state.eq_messages.append({"role": "assistant", "content": ans, "model": used_m})
+                    if extract_equity_proposals_from_text(ans):
+                        st.rerun()
                 except Exception as e:
                     st.error(f"⚠️ Erreur Gemini : {e}")
 
