@@ -956,7 +956,7 @@ with tab_alerts:
                             bucket="MT_CORE_ETF",
                         )
                         send_telegram_notify(f"💎 *ACTION RECLASSÉE EN CŒUR MT/LT*\n• **{d_sym}** transféré hors poche spéculative.")
-                                                st.success(f"✅ {d_sym} reclassé en Cœur MT/LT !")
+                        st.success(f"✅ {d_sym} reclassé en Cœur MT/LT !")
                         st.rerun()
 
             elif d_type == "VOLUME_MISMATCH":
@@ -975,7 +975,7 @@ with tab_alerts:
                     send_telegram_notify(
                         f"🔄 *VOLUME ACTION RESYNCHRONISÉ*\n• **{d_sym}** : {disc['finary_qty']:.2f} titres | PRU : {disc['adjusted_pru']:.2f} €"
                     )
-                                        st.success(f"✅ Ligne {d_sym} resynchronisée avec Finary !")
+                    st.success(f"✅ Ligne {d_sym} resynchronisée avec Finary !")
                     st.rerun()
 
             elif d_type == "GHOST_POSITION":
@@ -985,7 +985,7 @@ with tab_alerts:
                 ):
                     close_equity_trade(d_id, exit_price=disc["exit_price"], reason="FINARY_SOLD_SYNC")
                     send_telegram_notify(f"🧹 *VENTE SYNCHRONISÉE & ARCHIVÉE (FIFO)*\n• **{d_sym}** clôturé en base de données.")
-                                        st.success(f"✅ Position {d_sym} archivée dans le journal FIFO !")
+                    st.success(f"✅ Position {d_sym} archivée dans le journal FIFO !")
                     st.rerun()
     else:
         st.success("✅ Parfaite synchronisation : toutes vos lignes Finary sont alignées avec la base de données.")
@@ -1056,6 +1056,13 @@ with tab_ai:
     preset_prompt = None
     preset_context = None
 
+    spec_db_lookup = {(r[1], r[3]): r for r in spec_db_rows}
+    closed_recent = get_closed_equity_history()[:8]
+    closed_summary_str = (
+        "\n".join([f"- {c[1]} ({c[2]}) : clôturé le {c[9]} | PnL: {c[6]:+.2f} € ({c[7]:+.1f}%) | Motif: {c[10]}" for c in closed_recent])
+        if closed_recent else "Aucune clôture récente."
+    )
+
     spec_summary_json = json.dumps(
         [
             {
@@ -1067,12 +1074,15 @@ with tab_ai:
                 "Valeur_EUR": x["value_eur"],
                 "PnL_Pct": x["pnl_pct"],
                 "RSI_1D": x["rsi_1d"],
+                "Etape_Suivi_BDD": spec_db_lookup.get((x["name"], x["account"]), [None]*12)[11] or "ENTRY",
+                "TP1_EUR": spec_db_lookup.get((x["name"], x["account"]), [None]*12)[8] or 0.0,
+                "SL_EUR": spec_db_lookup.get((x["name"], x["account"]), [None]*12)[10] or 0.0,
             }
             for x in enriched_all_lines if x["bucket"] == "CT_SPECULATIVE"
         ],
         indent=2,
         ensure_ascii=False,
-    )
+    ) + f"\n\nHISTORIQUE DES PRISES DE PROFITS DÉJÀ EXÉCUTÉES (NE PAS RECOMMANDER UNE NOUVELLE VENTE PARTIELLE TP1 SI DÉJÀ EN 'TP1_DONE' / FREE RIDE) :\n{closed_summary_str}"
 
     core_summary_json = json.dumps(
         [
@@ -1226,6 +1236,9 @@ with tab_admin:
         )
 
         if st.button("💾 Sauvegarder le Mapping des Poches & Tickers", type="primary"):
+            conn_sync = get_connection()
+            cur_sync = conn_sync.cursor()
+            closed_reclass = []
             for _, r in edited_df.iterrows():
                 upsert_asset_classification(
                     asset_key=r["asset_key"],
@@ -1235,6 +1248,21 @@ with tab_admin:
                     yahoo_ticker=r["yahoo_ticker"],
                     bucket=r["bucket"],
                 )
+                # Si le titre passe en CORE ou SALARIAL, fermer son suivi spéculatif TP/SL ouvert
+                if r["bucket"] != "CT_SPECULATIVE":
+                    cur_sync.execute(
+                        "SELECT id FROM speculative_equities WHERE symbol = ? AND account = ? AND status = 'OPEN'",
+                        (r["name"], r["account"]),
+                    )
+                    rows_to_close = cur_sync.fetchall()
+                    for (tid_c,) in rows_to_close:
+                        cur_sync.execute(
+                            "UPDATE speculative_equities SET status = 'RECLASSIFIED_CORE', closed_at = datetime('now') WHERE id = ?",
+                            (tid_c,),
+                        )
+                        closed_reclass.append(r["name"])
+            conn_sync.commit()
+            conn_sync.close()
             st.cache_data.clear()
             send_telegram_notify("🗂️ *MAPPING DES POCHES BOURSE MIS À JOUR VIA WEB*")
             st.success("✅ Classification et tickers Yahoo mis à jour en base de données !")
