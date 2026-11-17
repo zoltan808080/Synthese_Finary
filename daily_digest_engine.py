@@ -578,7 +578,7 @@ def compute_equity_4_pockets_breakdown(invest_data, cash_details):
 
 
 def build_current_snapshot(invest_data, crypto_data, holdings_data=None):
-    snapshot = {"total_invest": 0.0, "total_crypto": 0.0, "total_cash": 0.0, "holdings": {}, "cash_details": {}}
+    snapshot = {"total_invest": 0.0, "total_crypto": 0.0, "total_cash": 0.0, "holdings": {}, "quantities": {}, "cash_details": {}}
 
     res_inv = invest_data.get("result", invest_data) if isinstance(invest_data, dict) else {}
     tot_inv = res_inv.get("total", {}) if isinstance(res_inv, dict) else {}
@@ -591,7 +591,10 @@ def build_current_snapshot(invest_data, crypto_data, holdings_data=None):
             sec = item.get("security", {}) if isinstance(item.get("security"), dict) else {}
             item_name = sec.get("name") or item.get("name") or "Titre inconnu"
             item_val = float(item.get("current_value") or item.get("balance") or 0)
-            snapshot["holdings"][f"{item_name} ({acc_name})"] = item_val
+            item_qty = float(item.get("quantity") or 0.0)
+            key_h = f"{item_name} ({acc_name})"
+            snapshot["holdings"][key_h] = item_val
+            snapshot["quantities"][key_h] = item_qty
 
     res_cry = crypto_data.get("result", crypto_data) if isinstance(crypto_data, dict) else {}
     tot_cry = res_cry.get("total", {}) if isinstance(res_cry, dict) else {}
@@ -604,7 +607,10 @@ def build_current_snapshot(invest_data, crypto_data, holdings_data=None):
             cry = item.get("crypto", {}) if isinstance(item.get("crypto"), dict) else {}
             item_name = cry.get("name") or item.get("name") or "Crypto inconnue"
             item_val = float(item.get("current_value") or item.get("balance") or 0)
-            snapshot["holdings"][f"{item_name} ({acc_name})"] = item_val
+            item_qty = float(item.get("quantity") or 0.0)
+            key_h = f"{item_name} ({acc_name})"
+            snapshot["holdings"][key_h] = item_val
+            snapshot["quantities"][key_h] = item_qty
 
     cash_info = extract_finary_cash_and_savings(invest_data, holdings_data)
     snapshot["total_cash"] = cash_info["total_dry_powder"]
@@ -800,11 +806,40 @@ def compute_movers_for_period(current_snap, history, target_days_ago):
     pct_total = (delta_total / total_prev * 100) if total_prev > 0 else 0
 
     holding_diffs = []
+    trade_flows = []
+    prev_quantities = prev_snap.get("quantities", {})
+    curr_quantities = current_snap.get("quantities", {})
+    prev_cash_b = float(prev_snap.get("cash_details", {}).get("brokerage_cash", 0.0))
+    curr_cash_b = float(current_snap.get("cash_details", {}).get("brokerage_cash", 0.0))
+    cash_inflow_broker = curr_cash_b - prev_cash_b
+
     for h_name, val_today in current_snap["holdings"].items():
         val_prev = prev_snap.get("holdings", {}).get(h_name, val_today)
         diff = val_today - val_prev
         pct = (diff / val_prev * 100) if val_prev > 0 else 0
-        if abs(diff) > 0.05:
+        if abs(diff) <= 0.05:
+            continue
+
+        q_today = float(curr_quantities.get(h_name, 0.0))
+        q_prev = float(prev_quantities.get(h_name, 0.0))
+
+        # Cas 1 : Quantités historiques connues -> comparaison directe
+        if q_prev > 0 and q_today > 0 and abs(q_today - q_prev) / q_prev > 0.01:
+            unit_p_prev = val_prev / q_prev
+            unit_p_today = val_today / q_today
+            price_pct = ((unit_p_today - unit_p_prev) / unit_p_prev * 100.0) if unit_p_prev > 0 else 0.0
+            op_type = "VENTE PARTIELLE / PRISE DE PROFIT" if q_today < q_prev else "RENFORT / ACHAT"
+            trade_flows.append({
+                "name": h_name, "op": op_type, "val": val_today,
+                "diff": diff, "price_pct": price_pct, "q_prev": q_prev, "q_today": q_today
+            })
+        # Cas 2 : Historique sans quantités (transition) mais baisse > 30% compensée par hausse des espèces courtage
+        elif q_prev == 0 and diff < -200.0 and cash_inflow_broker > (abs(diff) * 0.65):
+            trade_flows.append({
+                "name": h_name, "op": "VENTE PARTIELLE / PRISE DE PROFIT (Cash crédité sur CTO)",
+                "val": val_today, "diff": diff, "price_pct": 0.0, "q_prev": 0, "q_today": q_today
+            })
+        else:
             holding_diffs.append({"name": h_name, "val": val_today, "diff": diff, "pct": pct})
 
     top_n = int(os.getenv("TOP_N_ASSETS", "3"))
@@ -834,6 +869,14 @@ def compute_movers_for_period(current_snap, history, target_days_ago):
         lines.append(f"• [+] {item['name']} : {item['diff']:+,.2f} € ({item['pct']:+.2f}%)")
     for item in top_eur_down:
         lines.append(f"• [-] {item['name']} : {item['diff']:+,.2f} € ({item['pct']:+.2f}%)")
+
+    if trade_flows:
+        lines.append("")
+        lines.append("--- MOUVEMENTS D'ORDRES EXÉCUTÉS (ACHATS / VENTES PARTIELLES — NE PAS CLASSER EN FLOP BOURSIER) ---")
+        for tf in trade_flows:
+            lines.append(
+                f"• [{tf['op']}] {tf['name']} : Variation encours {tf['diff']:+,.2f} € | Solde résiduel : {tf['val']:,.2f} € | Perf unitaire cours : {tf['price_pct']:+.2f}%"
+            )
 
     return "\n".join(lines), None
 
@@ -1602,8 +1645,9 @@ CONSIGNES DE RÉDACTION :
 
 1. **Commentaire Macro & Analyse de l'Alpha** :
    - Explique la performance du portefeuille face aux indices de référence.
-2. **Moteurs de Performance (Top / Flops)** :
-   - Cartes stylisées pour les principaux mouvements.
+2. **Moteurs de Performance (Top / Flops) & Mouvements d'Ordres** :
+   - Cartes stylisées pour les principaux mouvements de marché.
+   - RÈGLE ABSOLUE : Toute ligne listée dans `MOUVEMENTS D'ORDRES EXÉCUTÉS` correspond à un arbitrage volontaire (vente partielle / prise de profit ou achat) et NON à un krach du titre. Présente-la comme une prise de profit / rotation réussie et ne génère JAMAIS d'alerte de chute boursière sur ces lignes.
 3. **🎯 CONSEILS TACTIQUES & ARBITRAGES PATRIMONIAUX (HORIZON : {period_type.upper()})** :
    - Applique strictement la doctrine de l'horizon {period_type.upper()}.
    - Rappel formel : interdiction de suggérer un PEA ou une Assurance-Vie. Travaille uniquement avec le CTO BoursoBank, le CTO LCL, le PEE avec abondement, Mon Petit Placement, la Crypto ou le surplus Livret A.
