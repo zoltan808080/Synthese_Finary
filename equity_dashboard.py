@@ -966,9 +966,34 @@ with tab_alerts:
                 ):
                     conn = get_connection()
                     c = conn.cursor()
+                    c.execute("SELECT quantity, price_entry, amount_eur, step FROM speculative_equities WHERE id = ?", (d_id,))
+                    prev_row = c.fetchone()
+                    new_step = prev_row[3] if prev_row else "ENTRY"
+
+                    if prev_row and disc["adjusted_qty"] < (prev_row[0] * 0.95):
+                        new_step = "TP1_DONE"
+                        sold_q = prev_row[0] - disc["adjusted_qty"]
+                        sold_inv = round(sold_q * prev_row[1], 2)
+                        curr_p_est = (disc["finary_val"] / disc["adjusted_qty"]) if disc["adjusted_qty"] > 0 else prev_row[1]
+                        realized_pnl = round((sold_q * curr_p_est) - sold_inv, 2)
+                        realized_pct = round(((curr_p_est - prev_row[1]) / prev_row[1] * 100.0), 2) if prev_row[1] > 0 else 0.0
+                        c.execute("PRAGMA table_info(closed_equity_trades)")
+                        t_cols = [r[1] for r in c.fetchall()]
+                        c_map = {
+                            "symbol": f"{d_sym} (Allègement)", "account": d_acc,
+                            "entry_price": prev_row[1], "price_entry": prev_row[1],
+                            "exit_price": round(curr_p_est, 4), "price_exit": round(curr_p_est, 4),
+                            "amount_eur": sold_inv, "invested_eur": sold_inv,
+                            "pnl_eur": realized_pnl, "pnl_pct": realized_pct,
+                            "reason": "PARTIAL_TP1_FREE_RIDE", "close_reason": "PARTIAL_TP1_FREE_RIDE",
+                        }
+                        i_cols = [col for col in t_cols if col in c_map]
+                        i_vals = [c_map[col] for col in i_cols]
+                        c.execute(f"INSERT INTO closed_equity_trades ({', '.join(i_cols)}) VALUES ({', '.join(['?']*len(i_vals))})", i_vals)
+
                     c.execute(
-                        "UPDATE speculative_equities SET quantity = ?, price_entry = ?, amount_eur = ? WHERE id = ?",
-                        (disc["adjusted_qty"], disc["adjusted_pru"], disc["adjusted_amount_eur"], d_id),
+                        "UPDATE speculative_equities SET quantity = ?, price_entry = ?, amount_eur = ?, step = ? WHERE id = ?",
+                        (disc["adjusted_qty"], disc["adjusted_pru"], disc["adjusted_amount_eur"], new_step, d_id),
                     )
                     conn.commit()
                     conn.close()
@@ -1074,7 +1099,14 @@ with tab_ai:
                 "Valeur_EUR": x["value_eur"],
                 "PnL_Pct": x["pnl_pct"],
                 "RSI_1D": x["rsi_1d"],
-                "Etape_Suivi_BDD": spec_db_lookup.get((x["name"], x["account"]), [None]*12)[11] or "ENTRY",
+                "Etape_Suivi_BDD": (
+                    "TP1_DONE (FREE RIDE ACTIF — NE PAS RECOMMANDER UNE NOUVELLE VENTE DE 50%)"
+                    if (
+                        (spec_db_lookup.get((x["name"], x["account"]), [None]*12)[11] in ["TP1_DONE", "TP2_DONE"])
+                        or ((spec_db_lookup.get((x["name"], x["account"]), [None]*12)[10] or 0.0) >= (x["pru_eur"] or 999999))
+                    )
+                    else "ENTRY"
+                ),
                 "TP1_EUR": spec_db_lookup.get((x["name"], x["account"]), [None]*12)[8] or 0.0,
                 "SL_EUR": spec_db_lookup.get((x["name"], x["account"]), [None]*12)[10] or 0.0,
             }
