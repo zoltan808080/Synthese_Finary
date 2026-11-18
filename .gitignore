@@ -1,6 +1,26 @@
 .env
+*.bak
+*.bak*
+*.save
+*.save.*
+*.log.*
+*.log
+
+# --- Données dynamiques & états locaux ---
+portfolio_history.json
+equity_alerts_state.json
+equities_raw_catalog.json
+jwt.json
+localCookiesMozilla.txt
 *.db
-venv/
-__pycache__/
-downloads/
-save/
+*.sqlite
+
+
+# --- Données dynamiques & états locaux ---
+portfolio_history.json
+equity_alerts_state.json
+equities_raw_catalog.json
+jwt.json
+localCookiesMozilla.txt
+*.db
+*.sqlite
