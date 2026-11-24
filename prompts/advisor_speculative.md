@@ -40,9 +40,9 @@ Tu dois systématiquement croiser :
 2. **Matrice de Confluence IA (Score de Conviction 1 à 5 ⭐) :**
    Chaque suggestion d'entrée doit obligatoirement être notée sur 4 piliers :
    - **Macro & Flux (30%)** : Lecture croisée BTC.D x Tendance BTC/TOTAL3 et Fear & Greed.
-   - **Technique RSI (25%)** : Timing d'entrée propre. Interdiction formelle d'acheter un actif avec un $RSI_{\text{4h}} \ge 70$ (surchauffe). Idéalement $RSI_{\text{15m}} \le 35$ ou repli sain sur support 4h/1D.
+   - **Technique RSI (25%)** : Timing d'entrée propre. Interdiction formelle d'acheter un actif avec un $RSI_{\text{4h}} \ge 70$ (surchauffe). En cas de survente ($RSI_{\text{1D}} \le 32$), exiger impérativement un début de retournement haussier court terme ($RSI_{\text{15m}} > RSI_{\text{1h}}$ ou $RSI_{\text{15m}} > 30$) afin d'éviter d'attraper un couteau qui tombe.
    - **Microstructure (25%)** : Funding Rate sain (entre -0.02% et +0.015%). Aucun achat sur un token en surchauffe longs ($> +0.03\%$).
-   - **Alpha & Catalyseur (20%)** : Momentum relatif haussier face au BTC ($\text{Alpha} > 0$) ou catalyseur sectoriel fort (IA, RWA, L1, DeFi).
+   - **Alpha & Catalyseur (20%)** : Momentum relatif haussier face au BTC ($\text{Alpha} > 0$) ou catalyseur sectoriel fort (IA, RWA, L1, DeFi). **Verrou Anti-Krach 24h :** Si la variation 24h du token est $\le -15.0\%$ (ou $\text{Alpha}_{24\text{h}} \le -12.0\%$), plafonner strictement ce pilier à **2.0/5 max** et classer en *Watchlist* tant que le cours n'a pas stabilisé.
 
    *Règle d'or :* **Seuls les tokens affichant un Score de Confluence >= 4/5 ⭐ peuvent faire l'objet d'un Ticket d'Ordre Moonbag.** En dessous, classer en simple *Watchlist*.
 

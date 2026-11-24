@@ -40,8 +40,18 @@ COINGECKO_MAP = {
 }
 
 
+_HTTP_SESSION = requests.Session()
+_HTTP_SESSION.headers.update({
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+})
+_CACHED_USD_EUR_RATE = None
+
+
 def get_usd_to_eur_rate():
-    """Récupère le taux USD/USDC vers EUR en temps réel."""
+    """Récupère le taux USD/USDC vers EUR en temps réel (mis en cache sur le cycle)."""
+    global _CACHED_USD_EUR_RATE
+    if _CACHED_USD_EUR_RATE is not None:
+        return _CACHED_USD_EUR_RATE
     try:
         res = requests.get(
             "https://www.okx.com/api/v5/market/ticker?instId=USDC-EUR", timeout=3
@@ -49,7 +59,8 @@ def get_usd_to_eur_rate():
         if res.status_code == 200:
             data = res.json().get("data", [])
             if data:
-                return float(data[0]["last"])
+                _CACHED_USD_EUR_RATE = float(data[0]["last"])
+                return _CACHED_USD_EUR_RATE
     except Exception:
         pass
 
@@ -63,7 +74,8 @@ def get_usd_to_eur_rate():
                 key = list(result.keys())[0]
                 price = float(result[key]["c"][0])
                 if price > 0:
-                    return 1.0 / price
+                    _CACHED_USD_EUR_RATE = 1.0 / price
+                    return _CACHED_USD_EUR_RATE
     except Exception:
         pass
 
@@ -169,12 +181,16 @@ def get_flash_ai_advice(
     alpha_vs_btc_pct,
     event_type,
     sl_price=0.0,
+    hours_open=None,
+    step="ENTRY",
 ):
-    """Sollicite Gemini en mode Flash ultra-rapide et économe (Flash-Lite SSOT)."""
+    """Sollicite Gemini en mode Flash rapide avec contexte complet du trade."""
     system_prompt = get_system_prompt("flash_advice")
+    age_str = f"{hours_open:.1f} heures ({hours_open/24:.1f} jours)" if hours_open is not None else "Inconnue"
 
     user_payload = f"""SITUATION DE L'ALERTE :
-- Actif : {symbol} ({exchange})
+- Actif : {symbol} ({exchange}) | Étape : {step}
+- Ancienneté de la position : {age_str}
 - Prix d'entrée : {price_entry:.4f} € | Prix actuel : {current_price:.4f} €
 - PnL latent : {pnl_pct:+.2f}% | Alpha vs BTC : {alpha_vs_btc_pct:+.2f}%
 - Stop-Loss actif : {sl_price:.4f} €
@@ -185,8 +201,7 @@ def get_flash_ai_advice(
             prompt_text=user_payload,
             system_instruction=system_prompt,
             json_mode=False,
-            custom_timeout=15,
-            model_override=["gemini-3.5-flash-lite", "gemini-3.5-flash"],
+            custom_timeout=20,
         )
         logging.info(
             f"⚡ Conseil flash généré avec succès via le modèle léger [{used_model}]"
@@ -435,8 +450,22 @@ def monitor_positions():
                 )
                 continue
 
-            # Enregistrement atomique du sommet local (High-Water Mark)
+            highest_seen = float(trade[13]) if (len(trade) > 13 and trade[13] is not None) else 0.0
+            new_hwm = max(highest_seen, current_price)
             update_highest_price_seen(rec_id, current_price)
+
+            trade_date = None
+            hours_open = None
+            if taken_at:
+                try:
+                    trade_date = datetime.datetime.fromisoformat(str(taken_at))
+                except Exception:
+                    try:
+                        trade_date = datetime.datetime.strptime(str(taken_at), "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        pass
+            if trade_date:
+                hours_open = max(0.0, (now - trade_date).total_seconds() / 3600.0)
 
             pnl_pct = ((current_price - price_entry) / price_entry) * 100.0
             btc_pnl_pct = (
@@ -532,28 +561,46 @@ def monitor_positions():
                 update_alert_status(rec_id, "SL_ALERTED")
                 logging.info(f"🚨 Alerte SL envoyée pour {symbol}")
 
-            # 4. Alerte Décrochage d'Alpha vs BTC (Sous-performance <= -5.0%)
+            # 4. Protection High-Water Mark en phase Free Ride (repli >= 25% depuis un pic >= +120%)
             elif (
-                alpha_vs_btc_pct <= -5.0
+                step == "TP1_DONE"
+                and new_hwm >= (price_entry * 2.20)
+                and current_price <= (new_hwm * 0.75)
+                and alert_status not in ["HWM_DRAWDOWN_ALERTED", "SL_ALERTED"]
+            ):
+                dd_from_peak = ((current_price - new_hwm) / new_hwm) * 100.0
+                ai_advice = get_flash_ai_advice(
+                    symbol, exchange, price_entry, current_price, pnl_pct, alpha_vs_btc_pct,
+                    f"REPLI DE {dd_from_peak:.1f}% DEPUIS LE SOMMET FREE RIDE ({new_hwm:.4f} €)",
+                    sl_price, hours_open=hours_open, step=step,
+                )
+                msg = (
+                    "📉 *VIGIE MOONBAG : REPLI DEPUIS SOMMET (HWM)*\n\n"
+                    f"Le reliquat Free Ride *{symbol}* ({exchange}) rend du terrain depuis son plus haut :\n"
+                    f"• Sommet atteint : {new_hwm:.4f} € | Actuel : *{current_price:.4f} €* ({dd_from_peak:+.1f}%)\n"
+                    f"• PnL global vs entrée : *{pnl_pct:+.2f}%*\n\n"
+                    f"🤖 *CONSEIL TACTIQUE IA* :\n{ai_advice}"
+                )
+                send_alert_telegram(msg, rec_id)
+                update_alert_status(rec_id, "HWM_DRAWDOWN_ALERTED")
+                logging.info(f"📉 Alerte HWM Drawdown envoyée pour {symbol}")
+
+            # 5. Alerte Décrochage d'Alpha vs BTC (après grâce de 24h et seuil <= -12.0%)
+            elif (
+                (hours_open is None or hours_open >= 24.0)
+                and alpha_vs_btc_pct <= -12.0
                 and alert_status not in ["ALPHA_ALERTED", "SL_ALERTED"]
             ):
                 ai_advice = get_flash_ai_advice(
-                    symbol,
-                    exchange,
-                    price_entry,
-                    current_price,
-                    pnl_pct,
-                    alpha_vs_btc_pct,
-                    "DÉCROCHAGE D'ALPHA VS BTC",
-                    sl_price,
+                    symbol, exchange, price_entry, current_price, pnl_pct, alpha_vs_btc_pct,
+                    "DÉCROCHAGE D'ALPHA VS BTC (<= -12%)",
+                    sl_price, hours_open=hours_open, step=step,
                 )
                 msg = (
                     "⚠️ *ALERTE DÉCROCHAGE D'ALPHA VS BTC*\n\n"
-                    f"Le token *{symbol}* ({exchange}) accuse un coût d'opportunité"
-                    " sévère face au Bitcoin !\n"
-                    f"• Alpha vs BTC : *{alpha_vs_btc_pct:+.2f}%* (Seuil : -5.0%)\n"
-                    f"• Prix d'entrée : {price_entry:.4f} €\n"
-                    f"• Prix actuel : *{current_price:.4f} €* ({pnl_pct:+.2f}%)\n"
+                    f"Le token *{symbol}* ({exchange}) accuse un coût d'opportunité sévère face au Bitcoin :\n"
+                    f"• Alpha vs BTC : *{alpha_vs_btc_pct:+.2f}%* (Seuil : -12.0% après 24h)\n"
+                    f"• Prix d'entrée : {price_entry:.4f} € | Actuel : *{current_price:.4f} €* ({pnl_pct:+.2f}%)\n"
                     f"• Stop-Loss Actuel : {sl_price:.4f} €\n\n"
                     f"🤖 *CONSEIL TACTIQUE IA* :\n{ai_advice}"
                 )
@@ -561,35 +608,15 @@ def monitor_positions():
                 update_alert_status(rec_id, "ALPHA_ALERTED")
                 logging.info(f"⚠️ Alerte Décrochage Alpha envoyée pour {symbol}")
 
-            # 5. Time-Stop Automatique (Stagnation > 21 jours entre -5% et +5%)
-            elif taken_at and alert_status not in [
-                "TIMESTOP_ALERTED",
-                "SL_ALERTED",
-                "ALPHA_ALERTED",
-            ]:
-                trade_date = None
-                try:
-                    trade_date = datetime.datetime.fromisoformat(str(taken_at))
-                except Exception:
-                    try:
-                        trade_date = datetime.datetime.strptime(
-                            str(taken_at), "%Y-%m-%d %H:%M:%S"
-                        )
-                    except Exception:
-                        pass
-
-                if trade_date:
+            # 6. Time-Stop Automatique (Stagnation >= 21 jours entre -5% et +5%)
+            elif trade_date and alert_status not in ["TIMESTOP_ALERTED", "SL_ALERTED"]:
+                if True:
                     days_open = (now - trade_date).days
                     if days_open >= 21 and abs(pnl_pct) <= 5.0:
                         ai_advice = get_flash_ai_advice(
-                            symbol,
-                            exchange,
-                            price_entry,
-                            current_price,
-                            pnl_pct,
-                            alpha_vs_btc_pct,
+                            symbol, exchange, price_entry, current_price, pnl_pct, alpha_vs_btc_pct,
                             "TIME-STOP 21 JOURS",
-                            sl_price,
+                            sl_price, hours_open=hours_open, step=step,
                         )
                         msg = (
                             "⏱️ *ALERTE TIME-STOP (21 JOURS)*\n\n"
