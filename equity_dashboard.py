@@ -13,11 +13,59 @@ import json
 import os
 import re
 import subprocess
-import pandas as pd
-import plotly.express as px
 import requests
 import streamlit as st
 from dotenv import load_dotenv
+
+
+
+
+_ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+load_dotenv(_ENV_PATH, override=True)
+
+st.set_page_config(
+    page_title="Cockpit Actions, ETF & Patrimoine (v2.0)",
+    page_icon="🏛️",
+    layout="wide",
+)
+
+
+def _early_check_password():
+    expected_password = os.getenv("STREAMLIT_PASSWORD", "MonMotDePasseSecret123").strip().strip('"').strip("'")
+
+    def password_entered():
+        if "eq_password" in st.session_state:
+            if st.session_state["eq_password"].strip() == expected_password:
+                st.session_state["eq_password_correct"] = True
+                del st.session_state["eq_password"]
+            else:
+                st.session_state["eq_password_correct"] = False
+
+    if "eq_password_correct" not in st.session_state:
+        st.text_input(
+            "🔒 Veuillez saisir le mot de passe pour accéder au Cockpit Actions :",
+            type="password",
+            on_change=password_entered,
+            key="eq_password",
+        )
+        return False
+    elif not st.session_state["eq_password_correct"]:
+        st.text_input(
+            "🔒 Veuillez saisir le mot de passe pour accéder au Cockpit Actions :",
+            type="password",
+            on_change=password_entered,
+            key="eq_password",
+        )
+        st.error("😕 Mot de passe incorrect.")
+        return False
+    return True
+
+
+if not _early_check_password():
+    st.stop()
+
+import pandas as pd
+import plotly.express as px
 
 from equity_db_manager import (
     init_equity_db,
@@ -84,13 +132,7 @@ try:
 except ImportError:
     PROMPT_LOADER_AVAILABLE = False
 
-load_dotenv(override=True)
 
-st.set_page_config(
-    page_title="Cockpit Actions, ETF & Patrimoine (v2.0)",
-    page_icon="🏛️",
-    layout="wide",
-)
 
 st.markdown(
     """
@@ -161,8 +203,7 @@ def check_password():
     return True
 
 
-if not check_password():
-    st.stop()
+
 
 init_equity_db()
 
@@ -180,7 +221,7 @@ def color_rsi(val):
     return ""
 
 
-@st.cache_data(ttl=300, show_spinner="Synchronisation Finary & Patrimoine en cours...")
+@st.cache_data(ttl=600, show_spinner="Synchronisation Finary & Patrimoine en cours...")
 def get_cached_finary_wealth_state():
     session = init_finary_session()
     invest_data = fetch_finary_portfolio_section(session, "investments")
@@ -227,6 +268,39 @@ def get_cached_finary_wealth_state():
         "div_metrics": div_metrics,
         "sal_data": sal_data,
     }
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def get_cached_open_speculative_equities():
+    return get_open_speculative_equities()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_cached_all_classifications():
+    return get_all_classifications()
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def get_cached_dynamic_equity_candidates(top_spec=8, top_core=8):
+    if DISCOVERY_AVAILABLE:
+        try:
+            return get_dynamic_equity_candidates(top_spec=top_spec, top_core=top_core, force_refresh=False)
+        except Exception:
+            pass
+    return {"speculative": [], "core": []}
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def get_cached_equity_reconciliation(finary_lines_json, yahoo_metrics_json):
+    if RECON_AVAILABLE:
+        try:
+            return audit_equity_database_vs_finary(
+                json.loads(finary_lines_json),
+                json.loads(yahoo_metrics_json),
+            )
+        except Exception:
+            pass
+    return []
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -280,7 +354,7 @@ re_data = wealth_state["re_data"]
 div_metrics = wealth_state["div_metrics"]
 sal_data = wealth_state["sal_data"]
 
-classifications = get_all_classifications()
+classifications = get_cached_all_classifications()
 class_map = {c["asset_key"]: c for c in classifications}
 
 salarial_kw = ["PEE", "PEG", "PERCO", "PERO", "EGEPARGNE", "EGÉPARGNE", "PROFIL EQUILIBRE", "LBPAM", "EDF"]
@@ -309,7 +383,7 @@ for line in finary_lines:
         new_finary_lines.append({**line, "auto_bucket": auto_bucket})
 
 if new_finary_lines:
-    classifications = get_all_classifications()
+    classifications = get_cached_all_classifications()
     class_map = {c["asset_key"]: c for c in classifications}
 
 all_tickers = [c["yahoo_ticker"] for c in classifications if c["yahoo_ticker"]]
@@ -387,7 +461,10 @@ pct_cash = (poudre_seche_bourse / total_equity_portfolio * 100.0) if total_equit
 macro_compass = get_cached_macro_compass()
 
 discrepancies = (
-    audit_equity_database_vs_finary(finary_lines, yahoo_metrics_map)
+    get_cached_equity_reconciliation(
+        json.dumps(finary_lines, sort_keys=True),
+        json.dumps(yahoo_metrics_map, sort_keys=True),
+    )
     if RECON_AVAILABLE else []
 )
 alert_badge = f" ({len(discrepancies)})" if discrepancies else ""
@@ -395,19 +472,35 @@ alert_badge = f" ({len(discrepancies)})" if discrepancies else ""
 # ==============================================================================
 # ONGLETS DU DASHBOARD (6 ONGLETS STRUCTURÉS)
 # ==============================================================================
-tab_overview, tab_spec, tab_screener, tab_alerts, tab_ai, tab_admin = st.tabs([
+_EQ_NAV_LABELS = [
     "📊 Vue Globale & 4 Poches",
     "🚀 Poche Spéculative ('Actions Chocs')",
     "🔥 Screener RSI & Découverte Marché",
     f"🔔 Centre d'Alertes & Réconciliation{alert_badge}",
     "🤖 Assistant IA Pro & Tickets",
     "🛠️ Administration, Mapping & SSOT",
-])
+]
+if hasattr(st, "segmented_control"):
+    _eq_selected = st.segmented_control(
+        "Navigation Cockpit Actions",
+        options=_EQ_NAV_LABELS,
+        default=_EQ_NAV_LABELS[0],
+        label_visibility="collapsed",
+        key="eq_main_nav",
+    ) or _EQ_NAV_LABELS[0]
+else:
+    _eq_selected = st.radio(
+        "Navigation Cockpit Actions",
+        options=_EQ_NAV_LABELS,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="eq_main_nav",
+    )
 
 # ==============================================================================
 # ONGLET 1 : VUE GLOBALE & GOUVERNANCE DES 4 POCHES
 # ==============================================================================
-with tab_overview:
+if _eq_selected == _EQ_NAV_LABELS[0]:
     with st.expander("📖 Guide de lecture — Vue Globale & Gouvernance des 4 Poches"):
         st.markdown("""
             Synthèse patrimoniale et allocation stratégique de vos actifs boursiers et salariaux :
@@ -470,7 +563,7 @@ with tab_overview:
     m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Indice VIX (Volatilité)", f"{vix:.2f}", delta="Calme < 20" if vix < 20 else "Tension > 20", delta_color="normal" if vix < 20 else "inverse")
     m2.metric("Taux 10 Ans US (^TNX)", f"{tnx:.2f} %", delta="Référence Taux", delta_color="off")
-    m3.metric("MSCI World (CW8.PA)", f"{cw8_live_price:.2f} €", delta=f"{cw8_24h_pct:+.2f}% (24h) | {cw8_sma:+.1f}% vs SMA200")
+    m3.metric("MSCI World (CW8.PA)", f"{cw8_live_price:.2f} €", delta=f"{cw8_24h_pct:+.2f}% (24h) | {macro_compass.get('cw8_dist_sma200_pct', 0.0):+.1f}% vs SMA200")
     m4.metric("Cash-Flow Net du Mois", f"{sal_data['net_free_cash_flow_month']:+,.2f} €", delta="Salaire + Passif - Prêt RP")
     m5.metric("Taux d'Indépendance", f"{sal_data['independence_ratio']:.1f} %", delta=f"Rente : {div_metrics['monthly_passive_income']:,.0f} €/mois")
 
@@ -561,7 +654,7 @@ with tab_overview:
 # ==============================================================================
 # ONGLET 2 : ZOOM POCHE SPÉCULATIVE ('ACTIONS CHOCS / PLAY')
 # ==============================================================================
-with tab_spec:
+elif _eq_selected == _EQ_NAV_LABELS[1]:
     with st.expander("📖 Guide de lecture — Pilotage de la Poche Spéculative ('Actions Chocs')"):
         st.markdown("""
             Suivi opérationnel des actions vives logées sur votre **CTO LCL (`ORD DE SENANT`)** ou **CTO BoursoBank** :
@@ -573,7 +666,7 @@ with tab_spec:
 
     st.subheader("🚀 Pilotage de la Poche Spéculative ('Actions Chocs / Play')")
 
-    spec_db_rows = get_open_speculative_equities()
+    spec_db_rows = get_cached_open_speculative_equities()
     finary_lookup = {(l["name"], l["account"]): l for l in finary_lines}
 
     enriched_spec = []
@@ -689,6 +782,7 @@ with tab_spec:
             if st.button("🛡️ Passer en Break-Even (SL = PRU)", type="primary", key="btn_eq_be"):
                 be_row = df_spec[df_spec["ID"] == be_id].iloc[0]
                 set_equity_break_even(be_id)
+                get_cached_open_speculative_equities.clear()
                 send_telegram_notify(
                     f"🛡️ *ACTION SÉCURISÉE (BREAK-EVEN)*\n• **{be_row['Action']}** (`{be_row['Ticker']}`)\n• Nouveau Stop-Loss calé sur PRU : **{be_row['PRU']:.2f} €**"
                 )
@@ -728,6 +822,7 @@ with tab_spec:
             n_sl = ec3.number_input("Nouveau Stop-Loss (€)", value=st.session_state[sk], format="%.2f", key=f"in_eq_sl_{ed_id}")
             if st.button("💾 Enregistrer Paliers", key="btn_save_eq_lvls"):
                 update_equity_levels(ed_id, n_tp1, n_tp2, n_sl)
+                get_cached_open_speculative_equities.clear()
                 if sk in st.session_state:
                     del st.session_state[sk]
                 send_telegram_notify(
@@ -747,10 +842,12 @@ with tab_spec:
             ac1, ac2 = st.columns(2)
             if ac1.button("🤖 Activer Auto IA", type="primary", key="btn_eq_auto_on"):
                 toggle_equity_auto_tpsl(au_id, True)
+                get_cached_open_speculative_equities.clear()
                 send_telegram_notify(f"🤖 *MODE AUTO TP/SL ACTIVÉ (ACTIONS)*\n• **{au_row['Action']}** est désormais piloté par l'IA.")
                 st.rerun()
             if ac2.button("👤 Passer en Manuel", key="btn_eq_auto_off"):
                 toggle_equity_auto_tpsl(au_id, False)
+                get_cached_open_speculative_equities.clear()
                 send_telegram_notify(f"👤 *MODE AUTO TP/SL DÉSACTIVÉ (ACTIONS)*\n• **{au_row['Action']}** repasse en gestion manuelle.")
                 st.rerun()
 
@@ -765,6 +862,8 @@ with tab_spec:
             ex_p = st.number_input("Prix de vente exécuté (€)", value=float(r_cl["Cours Live"]), format="%.2f", key="in_eq_exit")
             if st.button("🔒 Archiver la clôture", key="btn_eq_close"):
                 close_equity_trade(cl_id, exit_price=ex_p, reason="MANUAL_CLOSE")
+                get_cached_open_speculative_equities.clear()
+                get_cached_equity_reconciliation.clear()
                 send_telegram_notify(
                     f"🔒 *POSITION ACTION CLÔTURÉE (FIFO)*\n• **{r_cl['Action']}** (`{r_cl['Compte']}`)\n• Prix sortie : **{ex_p:.2f} €** (PRU : {r_cl['PRU']:.2f} €)"
                 )
@@ -784,7 +883,7 @@ with tab_spec:
 # ==============================================================================
 # ONGLET 3 : SCREENER RSI MULTI-TF & DÉCOUVERTE DYNAMIQUE DU MARCHÉ
 # ==============================================================================
-with tab_screener:
+elif _eq_selected == _EQ_NAV_LABELS[2]:
     with st.expander("📖 Guide de lecture — Screener RSI & Découverte Dynamique du Marché"):
         st.markdown("""
             Outil de détection des points d'entrée techniques et d'exploration d'opportunités hors portefeuille :
@@ -840,7 +939,11 @@ with tab_screener:
         with d_c2:
             st.caption("Scan multi-threadé Euronext & US filtrant automatiquement les titres déjà détenus en portefeuille (Cache TTL 15 min).")
 
-        disc_data = get_dynamic_equity_candidates(top_spec=8, top_core=8, force_refresh=force_disc)
+        if force_disc:
+            get_cached_dynamic_equity_candidates.clear()
+            disc_data = get_dynamic_equity_candidates(top_spec=8, top_core=8, force_refresh=True)
+        else:
+            disc_data = get_cached_dynamic_equity_candidates(top_spec=8, top_core=8)
         col_d_spec, col_d_core = st.columns(2)
 
         with col_d_spec:
@@ -882,7 +985,7 @@ with tab_screener:
 # ==============================================================================
 # ONGLET 4 : CENTRE D'ALERTES, RÉCONCILIATION & ZOMBIES CTO
 # ==============================================================================
-with tab_alerts:
+elif _eq_selected == _EQ_NAV_LABELS[3]:
     with st.expander("📖 Guide de lecture — Centre d'Alertes, Réconciliation & Fiscalité CTO"):
         st.markdown("""
             Vigie automatisée de cohérence comptable et de gestion des risques Bourse :
@@ -997,6 +1100,8 @@ with tab_alerts:
                     )
                     conn.commit()
                     conn.close()
+                    get_cached_open_speculative_equities.clear()
+                    get_cached_equity_reconciliation.clear()
                     send_telegram_notify(
                         f"🔄 *VOLUME ACTION RESYNCHRONISÉ*\n• **{d_sym}** : {disc['finary_qty']:.2f} titres | PRU : {disc['adjusted_pru']:.2f} €"
                     )
@@ -1009,6 +1114,8 @@ with tab_alerts:
                     key=f"close_ghost_eq_{d_id}",
                 ):
                     close_equity_trade(d_id, exit_price=disc["exit_price"], reason="FINARY_SOLD_SYNC")
+                    get_cached_open_speculative_equities.clear()
+                    get_cached_equity_reconciliation.clear()
                     send_telegram_notify(f"🧹 *VENTE SYNCHRONISÉE & ARCHIVÉE (FIFO)*\n• **{d_sym}** clôturé en base de données.")
                     st.success(f"✅ Position {d_sym} archivée dans le journal FIFO !")
                     st.rerun()
@@ -1046,7 +1153,7 @@ with tab_alerts:
 # ==============================================================================
 # ONGLET 5 : ASSISTANT IA PRO & TICKETS D'ORDRES BOURSE (SSOT)
 # ==============================================================================
-with tab_ai:
+elif _eq_selected == _EQ_NAV_LABELS[4]:
     with st.expander("📖 Guide de lecture — Assistant IA Stratège Bourse & Tickets d'Ordres"):
         st.markdown("""
             Votre comité d'investissement IA piloté par vos règles patrimoniales SSOT :
@@ -1081,7 +1188,8 @@ with tab_ai:
     preset_prompt = None
     preset_context = None
 
-    spec_db_lookup = {(r[1], r[3]): r for r in spec_db_rows}
+    _ai_spec_rows = get_cached_open_speculative_equities()
+    spec_db_lookup = {(r[1], r[3]): r for r in _ai_spec_rows}
     closed_recent = get_closed_equity_history()[:8]
     closed_summary_str = (
         "\n".join([f"- {c[1]} ({c[2]}) : clôturé le {c[9]} | PnL: {c[6]:+.2f} € ({c[7]:+.1f}%) | Motif: {c[10]}" for c in closed_recent])
@@ -1136,14 +1244,18 @@ with tab_ai:
     dyn_discovery_block = ""
     if DISCOVERY_AVAILABLE:
         try:
-            d_ai = get_dynamic_equity_candidates(top_spec=6, top_core=6)
+            _d_raw = get_cached_dynamic_equity_candidates(top_spec=8, top_core=8)
+            d_ai = {
+                "speculative": (_d_raw.get("speculative") or [])[:6],
+                "core": (_d_raw.get("core") or [])[:6],
+            }
             dyn_discovery_block = f"\nVIVIER DYNAMIQUE DU MARCHÉ (HORS PORTEFEUILLE) :\n{json.dumps(d_ai, indent=2, ensure_ascii=False)}"
         except Exception:
             pass
 
     common_wealth_header = f"""
 DONNÉES PATRIMONIALES & MACRO EN TEMPS RÉEL :
-- Boussole Macro Bourse : Régime {macro_compass['regime']} ({macro_compass['macro_stars']}/5 ⭐) | VIX : {macro_compass['vix']} | Taux 10Y US : {macro_compass['us_10y_yield']}% | MSCI World (CW8.PA) : {cw8_live_price} € ({cw8_24h_pct:+.2f}% 24h, {cw8_sma:+.1f}% vs SMA200)
+- Boussole Macro Bourse : Régime {macro_compass['regime']} ({macro_compass['macro_stars']}/5 ⭐) | VIX : {macro_compass['vix']} | Taux 10Y US : {macro_compass['us_10y_yield']}% | MSCI World (CW8.PA) : {cw8_live_price} € ({cw8_24h_pct:+.2f}% 24h, {macro_compass.get('cw8_dist_sma200_pct', 0.0):+.1f}% vs SMA200)
 - Ventilation des 4 Poches Actions & Cash Bourse ({total_equity_portfolio:,.2f} €) :
   1. Socle Salarial & Retraite (LT_SALARIAL) : {val_lt_salarial:,.2f} € ({pct_lt:.1f}%)
   2. Cœur Indiciel & Fonds (MT_CORE_ETF) : {val_mt_core:,.2f} € ({pct_mt:.1f}%)
@@ -1236,7 +1348,7 @@ DONNÉES PATRIMONIALES & MACRO EN TEMPS RÉEL :
 # ==============================================================================
 # ONGLET 6 : ADMINISTRATION, MAPPING DES POCHES & SSOT CONTROL PANEL
 # ==============================================================================
-with tab_admin:
+elif _eq_selected == _EQ_NAV_LABELS[5]:
     with st.expander("📖 Guide de lecture — Administration & Gouvernance SSOT"):
         st.markdown("""
             Panneau de contrôle centralisé de votre infrastructure Bourse & Patrimoine :
@@ -1295,7 +1407,9 @@ with tab_admin:
                         closed_reclass.append(r["name"])
             conn_sync.commit()
             conn_sync.close()
-            st.cache_data.clear()
+            get_cached_all_classifications.clear()
+            get_cached_open_speculative_equities.clear()
+            get_cached_equity_reconciliation.clear()
             send_telegram_notify("🗂️ *MAPPING DES POCHES BOURSE MIS À JOUR VIA WEB*")
             st.success("✅ Classification et tickers Yahoo mis à jour en base de données !")
             st.rerun()
