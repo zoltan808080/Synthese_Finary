@@ -62,19 +62,31 @@ STABLECOINS = {
 }
 
 
+_HTTP_SESSION = requests.Session()
+_HTTP_SESSION.headers.update({
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+})
+_CACHED_USD_EUR = None
+
+
 def get_usd_to_eur_rate():
-    """Récupère le taux de conversion USD/EUR en temps réel."""
+    """Récupère le taux de conversion USD/EUR en temps réel (caché sur le run)."""
+    global _CACHED_USD_EUR
+    if _CACHED_USD_EUR is not None:
+        return _CACHED_USD_EUR
     try:
-        res = requests.get(
+        res = _HTTP_SESSION.get(
             "https://www.okx.com/api/v5/market/ticker?instId=USDC-EUR", timeout=3
         )
         if res.status_code == 200:
             data = res.json().get("data", [])
             if data:
-                return float(data[0]["last"])
+                _CACHED_USD_EUR = float(data[0]["last"])
+                return _CACHED_USD_EUR
     except Exception:
         pass
-    return 0.883
+    _CACHED_USD_EUR = 0.883
+    return _CACHED_USD_EUR
 
 
 def calculate_wilder_rsi(prices, period=14):
@@ -99,54 +111,59 @@ def calculate_wilder_rsi(prices, period=14):
 
 
 def get_30d_history_and_rsi(symbol, exchange=""):
-    """Récupère le prix actuel, le prix à J-30, la variation 30j (%) et le RSI 1D."""
+    """Récupère le prix actuel en EUR, le prix J-30 en EUR, la variation 30j (%) et le RSI 1D."""
     symbol_u = symbol.upper().strip()
     symbol_l = symbol.lower().strip()
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like"
-            " Gecko) Chrome/124.0.0.0 Safari/537.36"
-        )
-    }
+    exch_u = (exchange or "").upper().strip()
+    usd_eur = get_usd_to_eur_rate()
 
-    # 1. Source OKX (Marché Spot ou Perpetual USDT)
-    for inst_id in [f"{symbol_u}-USDT", f"{symbol_u}-EUR"]:
-        try:
-            url = f"https://www.okx.com/api/v5/market/candles?instId={inst_id}&bar=1D&limit=35"
-            r = requests.get(url, headers=headers, timeout=4)
-            if r.status_code == 200:
-                candles = r.json().get("data", [])
-                if len(candles) >= 30:
-                    current_price = float(candles[0][4])
-                    price_30d = float(candles[29][4])
-                    pnl_30d = ((current_price - price_30d) / price_30d) * 100.0
-                    closes_chrono = [float(c[4]) for c in reversed(candles)]
-                    rsi_1d = calculate_wilder_rsi(closes_chrono)
-                    return current_price, price_30d, pnl_30d, rsi_1d
-        except Exception:
-            pass
-
-    # 2. Source Kraken OHLC (intervalle 1440 min = 1D)
-    kraken_symbols = [symbol_u]
-    if symbol_u == "BTC":
-        kraken_symbols.extend(["XBT", "XXBT"])
-    for s in kraken_symbols:
-        for pair in [f"{s}EUR", f"X{s}ZEUR", f"{s}USDT", f"{s}USD"]:
+    def _fetch_okx():
+        for inst_id, mult in [(f"{symbol_u}-EUR", 1.0), (f"{symbol_u}-USDT", usd_eur)]:
             try:
-                url = f"https://api.kraken.com/0/public/OHLC?pair={pair}&interval=1440"
-                r = requests.get(url, headers=headers, timeout=4)
+                url = f"https://www.okx.com/api/v5/market/candles?instId={inst_id}&bar=1D&limit=35"
+                r = _HTTP_SESSION.get(url, timeout=4)
                 if r.status_code == 200:
-                    res_dict = r.json().get("result", {})
-                    for k, candles in res_dict.items():
-                        if k != "last" and isinstance(candles, list) and len(candles) >= 30:
-                            current_price = float(candles[-1][4])
-                            price_30d = float(candles[-31][4])
-                            pnl_30d = ((current_price - price_30d) / price_30d) * 100.0
-                            closes = [float(c[4]) for c in candles[-35:]]
-                            rsi_1d = calculate_wilder_rsi(closes)
-                            return current_price, price_30d, pnl_30d, rsi_1d
+                    candles = r.json().get("data", [])
+                    if len(candles) >= 30:
+                        current_price = float(candles[0][4]) * mult
+                        price_30d = float(candles[29][4]) * mult
+                        pnl_30d = ((current_price - price_30d) / price_30d) * 100.0
+                        closes_chrono = [float(c[4]) for c in reversed(candles)]
+                        rsi_1d = calculate_wilder_rsi(closes_chrono)
+                        return current_price, price_30d, pnl_30d, rsi_1d
             except Exception:
                 pass
+        return None
+
+    def _fetch_kraken():
+        kraken_symbols = [symbol_u]
+        if symbol_u == "BTC":
+            kraken_symbols.extend(["XBT", "XXBT"])
+        for s in kraken_symbols:
+            for pair, mult in [(f"{s}EUR", 1.0), (f"X{s}ZEUR", 1.0), (f"{s}USDT", usd_eur), (f"{s}USD", usd_eur)]:
+                try:
+                    url = f"https://api.kraken.com/0/public/OHLC?pair={pair}&interval=1440"
+                    r = _HTTP_SESSION.get(url, timeout=4)
+                    if r.status_code == 200:
+                        res_dict = r.json().get("result", {})
+                        for k, candles in res_dict.items():
+                            if k != "last" and isinstance(candles, list) and len(candles) >= 30:
+                                current_price = float(candles[-1][4]) * mult
+                                price_30d = float(candles[-31][4]) * mult
+                                pnl_30d = ((current_price - price_30d) / price_30d) * 100.0
+                                closes = [float(c[4]) for c in candles[-35:]]
+                                rsi_1d = calculate_wilder_rsi(closes)
+                                return current_price, price_30d, pnl_30d, rsi_1d
+                except Exception:
+                    pass
+        return None
+
+    # Respecter l'exchange détenteur en priorité (évite les collisions de tickers comme LIT)
+    order = [_fetch_kraken, _fetch_okx] if "KRAKEN" in exch_u else [_fetch_okx, _fetch_kraken]
+    for fn in order:
+        res = fn()
+        if res is not None:
+            return res
 
     # 3. Source CoinGecko (market_chart 30j)
     cg_id = COINGECKO_MAP.get(symbol_l, symbol_l)
@@ -269,7 +286,7 @@ def run_zombie_sentinel(send_telegram=True):
         symbol_u = str(asset).upper().strip()
 
         # Exclusions doctrinales (Fiat, Stables, Benchmark BTC)
-        if symbol_u in STABLECOINS or symbol_u == "BTC":
+        if symbol_u in STABLECOINS or symbol_u in {"BTC", "ETH"}:
             continue
 
         amt = float(info.get("amount", 0.0)) if isinstance(info, dict) else float(info)
@@ -278,25 +295,11 @@ def run_zombie_sentinel(send_telegram=True):
         if amt <= 0:
             continue
 
-        # Récupération cours et RSI 1D
-        t_now, t_30d, t_pnl_30d, t_rsi = get_30d_history_and_rsi(symbol_u, exch)
-        if t_now is None or t_pnl_30d is None:
-            logging.warning(f"⚠️ Historique de cours introuvable pour {symbol_u} ({exch})")
-            continue
-
-        price_eur = t_now if "EUR" in exch.upper() or t_now > 1000 else (t_now * usd_eur_rate)
-        val_eur = amt * price_eur
-
-        # Seuil de matérialité doctrinal : ignorer les résidus < 30 €
-        if val_eur < 30.0:
-            continue
-
-        audited_count += 1
-
         # ====================================================================
-        # GARDE-FOU 1 : POSITION SPÉCULATIVE RÉCENTE (< 21 JOURS)
+        # GARDE-FOU 1 : POSITION SPÉCULATIVE RÉCENTE (< 21 JOURS) [AVANT APPEL API 30J]
         # ====================================================================
-        if symbol_u in spec_trades_map:
+        is_speculative_trade = symbol_u in spec_trades_map
+        if is_speculative_trade:
             trades = spec_trades_map[symbol_u]
             dts = [tr["taken_dt"] for tr in trades if tr["taken_dt"]]
             if dts:
@@ -312,16 +315,11 @@ def run_zombie_sentinel(send_telegram=True):
                     continue
 
         # ====================================================================
-        # GARDE-FOU 2 : GESTION DE LA POCHE CORE (IMMUNITÉ PAR DÉFAUT)
+        # GARDE-FOU 2 : GESTION DE LA POCHE CORE (UNIQUEMENT SI QUALIFIÉ EN BDD)
         # ====================================================================
-        # Tout actif qui n'est pas un trade spéculatif fait partie de la poche CORE
-        is_speculative_trade = symbol_u in spec_trades_map
-        
-        if not is_speculative_trade:
-            meta = core_metadata.get(symbol_u, {})
+        if not is_speculative_trade and symbol_u in core_metadata:
+            meta = core_metadata[symbol_u]
             thesis = meta.get("thesis_status", "ACTIVE")
-            
-            # Seuls les actifs explicitement marqués en sortie sont éligibles à l'éviction
             if thesis not in ["EXIT_RECOMMENDED", "WATCHLIST_TRIM"]:
                 protected_core_count += 1
                 logging.info(
@@ -335,6 +333,21 @@ def run_zombie_sentinel(send_telegram=True):
                     f"⚠️ [CORE AUDITÉ] {symbol_u} ({exch}) : Tagué '{thesis}' en BDD. "
                     "Éligible à l'évaluation d'attrition d'Alpha."
                 )
+
+        # Récupération cours (déjà en EUR) et RSI 1D uniquement pour les lignes réellement auditées
+        t_now, t_30d, t_pnl_30d, t_rsi = get_30d_history_and_rsi(symbol_u, exch)
+        if t_now is None or t_pnl_30d is None:
+            logging.warning(f"⚠️ Historique de cours introuvable pour {symbol_u} ({exch})")
+            continue
+
+        price_eur = t_now
+        val_eur = amt * price_eur
+
+        # Seuil de matérialité doctrinal : ignorer les résidus < 30 €
+        if val_eur < 30.0:
+            continue
+
+        audited_count += 1
 
         # ====================================================================
         # ANALYSE D'ATTRITION RÉELLE POUR ACTIFS ÉLIGIBLES
