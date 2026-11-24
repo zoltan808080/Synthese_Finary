@@ -2113,14 +2113,15 @@ elif active_view == "🔔 Centre d'Alertes":
             except Exception:
                 pass
 
+        _alert_open_pos = get_cached_open_positions() or []
         tracked_symbols = list(
-            {p["Symbole"] for p in enriched_positions}
+            {str(p[1]).upper().replace("USDT", "").replace("EUR", "").strip() for p in _alert_open_pos if len(p) > 1 and p[1]}
             | set(dyn_rsi_syms)
             | {"BTC", "ETH", "SOL"}
         )
 
         if st.button("🔄 Actualiser la Heatmap RSI"):
-            st.cache_data.clear()
+            get_cached_rsi_matrix.clear()
             st.rerun()
 
         @st.cache_data(ttl=120, show_spinner="Calcul des indicateurs RSI...")
@@ -2194,25 +2195,28 @@ elif active_view == "🔔 Centre d'Alertes":
             ),
         })
 
-    if positions and enriched_positions:
-        for row in enriched_positions:
-            sym = row["Symbole"]
-            exch = row["Exchange"]
-            current_price = row["Prix Actuel"] / curr_multiplier
-            tp1 = row["TP1"] / curr_multiplier
-            sl = row["Stop-Loss"] / curr_multiplier
+    _vigie_positions = get_cached_open_positions() or []
+    if _vigie_positions:
+        for _vp in _vigie_positions:
+            _v_id = _vp[0]
+            sym = _vp[1]
+            exch = _vp[2]
+            _v_entry = float(_vp[3]) if _vp[3] is not None else 0.0
+            tp1 = float(_vp[5]) if len(_vp) > 5 and _vp[5] is not None else 0.0
+            sl = float(_vp[7]) if len(_vp) > 7 and _vp[7] is not None else 0.0
+            current_price = fetch_live_price(sym, exch) or _v_entry
 
             if sl <= 0.0:
                 alerts_list.append({
                     "level": "CRITICAL",
                     "title": f"Stop-Loss manquant pour {sym} ({exch})",
-                    "desc": f"La position ID {row['ID']} n'a aucun Stop-Loss défini.",
+                    "desc": f"La position ID {_v_id} n'a aucun Stop-Loss défini.",
                 })
             if tp1 <= 0.0:
                 alerts_list.append({
                     "level": "WARNING",
                     "title": f"Take-Profit non configuré pour {sym} ({exch})",
-                    "desc": f"La position ID {row['ID']} n'a aucun palier TP1 défini.",
+                    "desc": f"La position ID {_v_id} n'a aucun palier TP1 défini.",
                 })
 
             if current_price and current_price > 0:
