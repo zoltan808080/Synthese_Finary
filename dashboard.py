@@ -122,6 +122,25 @@ except ImportError:
     AUTO_TPSL_AVAILABLE = False
 
 
+@st.cache_data(ttl=15, show_spinner=False)
+def get_cached_open_positions():
+    return get_open_positions()
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def get_cached_dynamic_candidates(top_n=15, min_volume_usd=4_000_000):
+    if DISCOVERY_ENGINE_AVAILABLE:
+        try:
+            return get_dynamic_speculative_candidates(top_n=top_n, min_volume_usd=min_volume_usd)
+        except Exception:
+            pass
+    return [], []
+
+
+def clear_all_dashboard_caches():
+    st.cache_data.clear()
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def get_cached_complete_macro_context():
     """Source Unique de Vérité (SSOT) pour le Contexte Macro complet (Cache 5 min)."""
@@ -255,7 +274,7 @@ def build_market_tech_micro_context(open_pos=None, balances=None, dynamic_symbol
         symbols.update(dynamic_symbols)
     elif DISCOVERY_ENGINE_AVAILABLE:
         try:
-            _, dyn_syms = get_dynamic_speculative_candidates(top_n=15)
+            _, dyn_syms = get_cached_dynamic_candidates(top_n=15)
             symbols.update(dyn_syms)
         except Exception:
             pass
@@ -392,9 +411,7 @@ def fetch_live_price_cached(sym, exch, eur_usd_rate):
     if clean_sym in ["EUR", "USD"]:
         return 1.0 if clean_sym == "EUR" else (1.0 / rate)
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    }
+    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
 
     # 1. Kraken Spot
     if "KRAKEN" in clean_exch:
@@ -519,20 +536,13 @@ def fetch_live_price(sym, exch):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def fetch_bulk_live_prices(symbols_tuple, eur_usd_rate):
+def fetch_bulk_live_prices(symbols_tuple, pos_exch_tuple, eur_usd_rate):
     symbols_list = list(symbols_tuple)
+    pos_exch_map = dict(pos_exch_tuple)
     prices = {}
     if not symbols_list:
         return prices
-    # Associer l'exchange réel des positions ouvertes pour éviter toute ambiguïté multi-exchange
-    pos_exch_map = {}
-    try:
-        for _p in get_open_positions():
-            if len(_p) > 2 and _p[1] and _p[2]:
-                pos_exch_map[str(_p[1]).upper().replace("USDT", "").replace("EUR", "").strip()] = str(_p[2]).upper().strip()
-    except Exception:
-        pass
-    with ThreadPoolExecutor(max_workers=min(12, len(symbols_list))) as executor:
+    with ThreadPoolExecutor(max_workers=min(8, len(symbols_list))) as executor:
         future_to_sym = {
             executor.submit(fetch_live_price_cached, sym, pos_exch_map.get(sym, ""), eur_usd_rate): sym
             for sym in symbols_list
@@ -695,32 +705,37 @@ st.sidebar.info(
     " données Live' pour forcer une réinterrogation des APIs."
 )
 
-(
-    tab_live,
-    tab_micro,
-    tab_alerts,
-    tab_ai,
-    tab_monitor,
-) = st.tabs([
+_NAV_OPTIONS = [
     "📊 Positions Actives (Live & BTC)",
     "🔥 Microstructure & Dérivés",
     "🔔 Centre d'Alertes",
     "🤖 Assistant IA Pro",
     "🛠️ Administration & Monitoring",
-])
+]
+if hasattr(st, "segmented_control"):
+    active_view = st.segmented_control(
+        "Navigation Cockpit",
+        options=_NAV_OPTIONS,
+        default=_NAV_OPTIONS[0],
+        label_visibility="collapsed",
+        key="main_nav_view",
+    ) or _NAV_OPTIONS[0]
+else:
+    active_view = st.radio(
+        "Navigation Cockpit",
+        options=_NAV_OPTIONS,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="main_nav_view",
+    )
 
 
 # Pre-fetch optimisé des prix en parallèle (Multi-threading) incluant les pépites découvertes
 active_symbols_set = {"BTC", "ETH", "SOL"}
-try:
-    if DISCOVERY_ENGINE_AVAILABLE:
-        _, _dyn_pre = get_dynamic_speculative_candidates(top_n=15)
-        active_symbols_set.update(_dyn_pre)
-except Exception:
-    pass
+# Découverte dynamique chargée uniquement à la demande dans les onglets concernés (évite de bloquer l'affichage initial)
 
 try:
-    _open_pos_pre = get_open_positions()
+    _open_pos_pre = get_cached_open_positions()
     if _open_pos_pre:
         for _p in _open_pos_pre:
             if len(_p) > 1 and _p[1]:
@@ -739,8 +754,12 @@ try:
 except Exception:
     pass
 
+_pos_exch_pairs = tuple(sorted([
+    (str(_p[1]).upper().replace("USDT", "").replace("EUR", "").strip(), str(_p[2]).upper().strip())
+    for _p in (_open_pos_pre or []) if len(_p) > 2 and _p[1] and _p[2]
+]))
 _bulk_prices_map = (
-    fetch_bulk_live_prices(tuple(sorted(list(active_symbols_set))), eur_usd_rate)
+    fetch_bulk_live_prices(tuple(sorted(list(active_symbols_set))), _pos_exch_pairs, eur_usd_rate)
     if active_symbols_set
     else {}
 )
@@ -751,7 +770,7 @@ btc_live_eur = fetch_live_price("BTC", "KRAKEN") or fetch_live_price("BTC", "OKX
 # ==========================================
 # ONGLET 1 : POSITIONS ACTIVES (LIVE & TEMPS RÉEL)
 # ==========================================
-with tab_live:
+if active_view == "📊 Positions Actives (Live & BTC)":
     with st.expander("📖 Guide de lecture & Répartition du Portefeuille"):
         st.markdown(f"""
             Inventaire global et ventilation de votre capital en temps réel (Autonome & 100% direct exchanges) :
@@ -761,7 +780,7 @@ with tab_live:
             * **Vigie 35% Intra-CORE (v3.6) :** Contrôle strict de surconcentration au sein de la poche long terme.
             """)
 
-    positions = get_open_positions()
+    positions = get_cached_open_positions()
     auto_tpsl_map = get_auto_tp_sl_status()
 
     enriched_positions = []
@@ -1379,7 +1398,8 @@ with tab_live:
                         "Symbole"
                     ].values[0]
                     close_trade(selected_close_id)
-                    st.cache_data.clear()
+                    get_cached_open_positions.clear()
+                    get_cached_reconciliation_audit.clear()
                     send_telegram_notify(
                         f"🔒 *POSITION CLÔTURÉE VIA DASHBOARD*\n• **{close_sym}** (ID"
                         f" {selected_close_id}) a été fermée en base de données."
@@ -1605,7 +1625,8 @@ with tab_live:
                         key=f"merge_btn_{d_sym}",
                     ):
                         if merge_duplicate_trades(primary_id, secondary_id):
-                            st.cache_data.clear()
+                            get_cached_open_positions.clear()
+                            get_cached_reconciliation_audit.clear()
                             send_telegram_notify(
                                 f"🔀 *FUSION DE DOUBLONS EFFECTUÉE*\n• **{d_sym}** : Lignes"
                                 f" ID {secondary_id} fusionnée dans ID {primary_id}.\n•"
@@ -1694,7 +1715,7 @@ with tab_live:
 # ==========================================
 # ONGLET 2 : MICROSTRUCTURE & DÉRIVÉS
 # ==========================================
-with tab_micro:
+elif active_view == "🔥 Microstructure & Dérivés":
     with st.expander("📖 Guide de lecture — Microstructure & Dérivés"):
         st.markdown("""
             Analyse du sentiment de marché dérivés sur les actifs de votre portefeuille :
@@ -1722,7 +1743,7 @@ with tab_micro:
         # Ingestion des pépites du vivier dynamique de marché (v4.0.0)
         if DISCOVERY_ENGINE_AVAILABLE:
             try:
-                _, dyn_syms_tab2 = get_dynamic_speculative_candidates(top_n=15)
+                _, dyn_syms_tab2 = get_cached_dynamic_candidates(top_n=15)
                 user_crypto_list.update(dyn_syms_tab2)
             except Exception:
                 pass
@@ -1844,7 +1865,7 @@ with tab_micro:
 # ==========================================
 # ONGLET 3 : CENTRE D'ALERTES & RAPPROCHEMENT
 # ==========================================
-with tab_alerts:
+elif active_view == "🔔 Centre d'Alertes":
     with st.expander("📖 Guide du Centre d'Alertes, Réconciliation & Zombies"):
         st.markdown("""
             Vigie automatisée de votre cockpit :
@@ -1904,7 +1925,8 @@ with tab_alerts:
                     key=f"web_clean_ghost_{d_id}",
                 ):
                     close_trade(d_id)
-                    st.cache_data.clear()
+                    get_cached_open_positions.clear()
+                    get_cached_reconciliation_audit.clear()
                     send_telegram_notify(
                         f"🧹 *LIGNE FANTÔME PURGÉE VIA WEB*\n• **{d_sym}** (ID {d_id})"
                         " supprimée."
@@ -1924,7 +1946,8 @@ with tab_alerts:
                     key=f"web_sync_vol_{d_id}",
                 ):
                     update_trade_amount(d_id, adj_amt)
-                    st.cache_data.clear()
+                    get_cached_open_positions.clear()
+                    get_cached_reconciliation_audit.clear()
                     send_telegram_notify(
                         f"🔄 *VOLUME RESYNCHRONISÉ VIA WEB*\n• **{d_sym}** (ID {d_id})"
                         f" ajusté à {disp_adj_amt:,.2f} {curr_symbol}."
@@ -1959,7 +1982,8 @@ with tab_alerts:
                             btc_price_entry=btc_live_eur,
                         )
                         mark_trade_taken(rec_id, btc_entry_price=btc_live_eur)
-                        st.cache_data.clear()
+                        get_cached_open_positions.clear()
+                        get_cached_reconciliation_audit.clear()
                         send_telegram_notify(
                             f"🎯 *TRADE MOONBAG ONBOARDÉ VIA WEB*\n• **{d_sym}**"
                             f" ({disp_cost:,.2f} {curr_symbol} @ {disp_price:.4f}"
@@ -1978,7 +2002,7 @@ with tab_alerts:
                         mark_manual_trade_core(
                             d_sym, d_exch, cost_eur, price_eur, reason="CORE"
                         )
-                        st.cache_data.clear()
+                        get_cached_reconciliation_audit.clear()
                         send_telegram_notify(
                             f"💎 *TRADE CLASSÉ POCHE CORE VIA WEB*\n• **{d_sym}**"
                             f" ({disp_cost:,.2f} {curr_symbol}) conservé en investissement"
@@ -2085,7 +2109,7 @@ with tab_alerts:
         dyn_rsi_syms = []
         if DISCOVERY_ENGINE_AVAILABLE:
             try:
-                _, dyn_rsi_syms = get_dynamic_speculative_candidates(top_n=15)
+                _, dyn_rsi_syms = get_cached_dynamic_candidates(top_n=15)
             except Exception:
                 pass
 
@@ -2271,7 +2295,7 @@ with tab_alerts:
 # ==========================================
 # ONGLET 4 : ASSISTANT IA PRO (SSOT EXTERNALISÉ v3.5+)
 # ==========================================
-with tab_ai:
+elif active_view == "🤖 Assistant IA Pro":
     with st.expander("📖 Guide de l'Assistant IA Conversationnel (Architecture SSOT & Benchmark BTC)"):
         st.markdown("""
             Votre stratège crypto personnel en direct :
@@ -2327,7 +2351,7 @@ with tab_ai:
     preset_prompt = None
     preset_context = None
 
-    open_pos = get_open_positions()
+    open_pos = get_cached_open_positions()
     try:
         all_balances = get_cached_crypto_balances()
     except Exception:
@@ -2366,29 +2390,30 @@ with tab_ai:
 
                 cats = calculate_unfied_crypto_categories()
 
-                live_positions_for_ai = (
-                    [
-                        {
-                            "Symbole": p["Symbole"],
-                            "Exchange": p["Exchange"],
-                            "Valeur_Actuelle_Marché_EUR": round(
-                                p["Valeur Actuelle"], 2
-                            ),
-                            "Montant_Investi_Initial_EUR": round(
-                                p["Montant Initial"], 2
-                            ),
-                            "Prix_Entree": round(p["Prix Entrée"], 4),
-                            "Prix_Actuel_Live": round(p["Prix Actuel"], 4),
-                            "PnL_Pct": round(p["PnL (%)"], 2),
-                            "Alpha_vs_BTC_Pct": round(p.get("Alpha vs BTC", 0.0), 2),
-                            "TP1": round(p["TP1"], 4),
-                            "Stop_Loss": round(p["Stop-Loss"], 4),
-                        }
-                        for p in enriched_positions
-                    ]
-                    if "enriched_positions" in locals() and enriched_positions
-                    else open_pos
-                )
+                live_positions_for_ai = []
+                for p in (open_pos or []):
+                    _sym, _exch = p[1], p[2]
+                    _entry = float(p[3] or 0.0)
+                    _amt = float(p[4] or 0.0)
+                    _tp1 = float(p[5] or 0.0) if len(p) > 5 and p[5] else 0.0
+                    _sl = float(p[7] or 0.0) if len(p) > 7 and p[7] else 0.0
+                    _btc_e = float(p[12]) if (len(p) > 12 and p[12] and float(p[12]) > 0) else btc_live_eur
+                    _lp = fetch_live_price(_sym, _exch) or _entry
+                    _val = ((_amt / _entry) * _lp) if _entry > 0 else _amt
+                    _pnl_p = (((_lp - _entry) / _entry) * 100.0) if _entry > 0 else 0.0
+                    _btc_p = (((btc_live_eur - _btc_e) / _btc_e) * 100.0) if _btc_e > 0 else 0.0
+                    live_positions_for_ai.append({
+                        "Symbole": _sym,
+                        "Exchange": _exch,
+                        "Valeur_Actuelle_Marché_EUR": round(_val, 2),
+                        "Montant_Investi_Initial_EUR": round(_amt, 2),
+                        "Prix_Entree": round(_entry, 4),
+                        "Prix_Actuel_Live": round(_lp, 4),
+                        "PnL_Pct": round(_pnl_p, 2),
+                        "Alpha_vs_BTC_Pct": round(_pnl_p - _btc_p, 2),
+                        "TP1": round(_tp1, 4),
+                        "Stop_Loss": round(_sl, 4),
+                    })
 
                 fiat_real_eur, stables_real_eur, total_liquidites_dispo = (
                     compute_ai_liquidities(
@@ -2678,7 +2703,7 @@ POSITIONS SPÉCULATIVES ACTIVES EN BDD :
             st.markdown(prompt_to_process)
 
         if not preset_context:
-            current_positions = get_open_positions()
+            current_positions = get_cached_open_positions()
             current_cash = get_cached_verified_cash()
             current_balances = get_cached_crypto_balances()
 
@@ -2774,7 +2799,7 @@ ACTIFS DÉTENUS EN POCHE CORE ET MAJEURES (FILTRE ANTI-DOUBLON IMPÉRATIF) :
 # ==========================================
 # ONGLET 5 : ADMINISTRATION & MONITORING
 # ==========================================
-with tab_monitor:
+elif active_view == "🛠️ Administration & Monitoring":
     with st.expander("📖 Guide du Monitoring Technique & de l'Administration"):
         st.markdown("""
             Surveillez l'état de santé de vos connecteurs et administrez votre cockpit :
