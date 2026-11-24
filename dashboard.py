@@ -508,10 +508,13 @@ def fetch_live_price(sym, exch):
     clean_exch = str(exch).upper().strip() if exch else ""
     if clean_sym in ["EUR", "USD"]:
         return 1.0 if clean_sym == "EUR" else (1.0 / eur_usd_rate)
+    # Toujours privilégier l'API de l'exchange détenteur (évite les collisions de tickers comme LIT entre OKX et Kraken)
+    if clean_exch:
+        res_exch = fetch_live_price_cached(sym, exch, eur_usd_rate)
+        if res_exch is not None and res_exch > 0:
+            return res_exch
     if clean_sym in _bulk_prices_map and _bulk_prices_map[clean_sym] is not None:
         return _bulk_prices_map[clean_sym]
-    if clean_exch:
-        return fetch_live_price_cached(sym, exch, eur_usd_rate)
     return fetch_live_price_cached(sym, exch, eur_usd_rate)
 
 
@@ -521,9 +524,17 @@ def fetch_bulk_live_prices(symbols_tuple, eur_usd_rate):
     prices = {}
     if not symbols_list:
         return prices
+    # Associer l'exchange réel des positions ouvertes pour éviter toute ambiguïté multi-exchange
+    pos_exch_map = {}
+    try:
+        for _p in get_open_positions():
+            if len(_p) > 2 and _p[1] and _p[2]:
+                pos_exch_map[str(_p[1]).upper().replace("USDT", "").replace("EUR", "").strip()] = str(_p[2]).upper().strip()
+    except Exception:
+        pass
     with ThreadPoolExecutor(max_workers=min(12, len(symbols_list))) as executor:
         future_to_sym = {
-            executor.submit(fetch_live_price_cached, sym, "", eur_usd_rate): sym
+            executor.submit(fetch_live_price_cached, sym, pos_exch_map.get(sym, ""), eur_usd_rate): sym
             for sym in symbols_list
         }
         for future in as_completed(future_to_sym):
@@ -2861,11 +2872,19 @@ with tab_monitor:
             "Nombre de retries par modèle",
             min_value=1,
             max_value=5,
-            value=int(gemini_cfg.get("max_retries_per_model", 2)),
+            value=int(gemini_cfg.get("max_retries_per_model", 1)),
             step=1,
             help="Nombre de tentatives sur un même modèle en cas d'erreur 503/timeout avant d'effectuer la bascule sur le modèle suivant.",
         )
-        st.markdown("<br>", unsafe_allow_html=True)
+        new_thinking = st.number_input(
+            "Budget Thinking Hydrogen (tokens)",
+            min_value=-1,
+            max_value=24576,
+            value=int(gemini_cfg.get("hydrogen_thinking_budget", 1024)),
+            step=256,
+            help="Plafond de réflexion interne pour gemini-4-hydrogen : 0 = Désactivé | 1024 = Low (Économique) | 4096 = Medium | 8192 = High | -1 = Dynamique auto.",
+        )
+        st.caption("💡 **Repères :** `1024` = Low | `4096` = Medium | `8192` = High | `-1` = Auto")
         if st.button("💾 Enregistrer la Configuration Gemini", type="primary"):
             parsed_models = [m.strip() for m in new_models_str.split("\n") if m.strip()]
             updated_cfg = {
@@ -2873,13 +2892,14 @@ with tab_monitor:
                 "models": parsed_models,
                 "timeout_seconds": int(new_timeout),
                 "max_retries_per_model": int(new_retries),
+                "hydrogen_thinking_budget": int(new_thinking),
             }
             if save_gemini_config(updated_cfg):
                 st.success("✅ Configuration Gemini mise à jour et appliquée à tous les services !")
                 send_telegram_notify(
                     "⚙️ *CONFIGURATION GEMINI MISE À JOUR VIA WEB*\n"
                     f"• Priorité : {', '.join(parsed_models)}\n"
-                    f"• Timeout : {new_timeout}s | Retries / modèle : {new_retries}"
+                    f"• Timeout : {new_timeout}s | Retries : {new_retries} | Thinking Hydrogen : {new_thinking} tok"
                 )
                 st.rerun()
             else:
