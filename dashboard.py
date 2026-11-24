@@ -367,7 +367,7 @@ def get_formatted_core_and_majors_breakdown(balances, eur_usd_rate=1.12, open_po
             meta_info = core_meta.get(asset_u, {})
             status_str = f" [Thèse: {meta_info.get('thesis_status', 'ACTIVE')}]" if meta_info else ""
             note_str = f" (Note: {meta_info.get('notes')})" if meta_info and meta_info.get("notes") else ""
-            breakdown.append(f"• {asset_u} : {val_eur:,.2f} € ({exch}){status_str}{note_str}")
+            breakdown.append(f"• {asset_u} : {amt:,.4f} unités @ {lp:,.4f} € = {val_eur:,.2f} € ({exch}){status_str}{note_str}")
             
     return "\n".join(breakdown) if breakdown else "Aucun actif significatif uniquement détenu en CORE / Majeures."
 
