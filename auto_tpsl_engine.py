@@ -2,6 +2,7 @@
 """Moteur d'auto-ajustement des paliers TP/SL par l'IA v3.5.0 (Benchmark BTC, Trailing SL High-Water Mark, SSOT Macro & Centralisation Gemini)."""
 
 import json
+from datetime import datetime
 import logging
 import os
 import re
@@ -177,7 +178,16 @@ def run_auto_tpsl_cycle(manual_trigger=False):
 
         drawdown_from_hwm_pct = (((current_price - highest_seen) / highest_seen) * 100.0) if highest_seen > 0 else 0.0
 
+        days_open = 0
+        if len(p) > 10 and p[10]:
+            try:
+                _dt_open = datetime.fromisoformat(str(p[10]).replace("Z", "+00:00"))
+                days_open = max(0, (datetime.now(_dt_open.tzinfo) - _dt_open).days)
+            except Exception:
+                days_open = 0
+
         positions_payload.append({
+            "days_open": days_open,
             "id": p_id,
             "symbol": sym,
             "exchange": exch,

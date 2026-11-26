@@ -1466,7 +1466,7 @@ if active_view == "📊 Positions Actives (Live & BTC)":
                 state_key = f"preset_sl_val_{selected_edit_id}"
                 if state_key not in st.session_state:
                     st.session_state[state_key] = (
-                        float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.70)
+                        float(raw_sl) if raw_sl > 0 else float(raw_entry * 0.88)
                     )
 
                 st.markdown(
@@ -1485,21 +1485,21 @@ if active_view == "📊 Positions Actives (Live & BTC)":
                     st.session_state[state_key] = float(raw_entry * 0.80)
                     st.rerun()
                 if r_c4.button("-30% (Large)", key="btn_sl_30"):
-                    st.session_state[state_key] = float(raw_entry * 0.70)
+                    st.session_state[state_key] = float(raw_entry * 0.88)
                     st.rerun()
 
                 e_col1, e_col2, e_col3 = st.columns(3)
                 with e_col1:
                     new_tp1 = st.number_input(
                         f"Nouveau TP1 ({curr_symbol})",
-                        value=float(raw_tp1) if raw_tp1 > 0 else float(raw_entry * 2.0),
+                        value=float(raw_tp1) if raw_tp1 > 0 else float(raw_entry * 1.22),
                         format="%.4f",
                         key=f"input_tp1_{selected_edit_id}",
                     )
                 with e_col2:
                     new_tp2 = st.number_input(
                         f"Nouveau TP2 ({curr_symbol})",
-                        value=float(raw_entry * 4.0),
+                        value=float(raw_entry * 1.50),
                         format="%.4f",
                         key=f"input_tp2_{selected_edit_id}",
                     )
@@ -1975,8 +1975,8 @@ elif active_view == "🔔 Centre d'Alertes":
                             exchange=d_exch,
                             price=price_eur,
                             amount_eur=cost_eur,
-                            tp1_price=price_eur * 2.0,
-                            tp2_price=price_eur * 4.0,
+                            tp1_price=price_eur * 1.22,
+                            tp2_price=price_eur * 1.50,
                             sl_price=price_eur * 0.60,
                             sl_type="invalidation",
                             btc_price_entry=btc_live_eur,

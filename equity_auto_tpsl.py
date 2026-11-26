@@ -7,6 +7,7 @@ Miroir de auto_tpsl_engine.py :
 """
 
 import json
+from datetime import datetime
 import re
 import logging
 from equity_db_manager import (
@@ -51,7 +52,15 @@ def run_equity_auto_tpsl_cycle(manual_trigger=False):
         m = metrics_map.get(ytick, {})
         live_p = m.get("price", 0.0) or entry_p
         pnl_pct = ((live_p - entry_p) / entry_p * 100.0) if entry_p > 0 else 0.0
+        days_open = 0
+        if taken_at:
+            try:
+                _dt_eq = datetime.fromisoformat(str(taken_at).replace("Z", "+00:00"))
+                days_open = max(0, (datetime.now(_dt_eq.tzinfo) - _dt_eq).days)
+            except Exception:
+                days_open = 0
         payload.append({
+            "days_open": days_open,
             "id": t_id,
             "symbol": sym,
             "ticker": ytick,
@@ -66,8 +75,8 @@ def run_equity_auto_tpsl_cycle(manual_trigger=False):
         })
 
     sys_inst = get_system_prompt("equity_auto_tpsl") or (
-        "Tu es un Risk Manager Actions. Recalibre TP1 et SL pour chaque position. "
-        "RÈGLE RATCHET : new_sl >= current_sl. Si pnl_pct >= 25.0, new_sl >= pru_eur * 1.01. "
+        "Tu es un Risk Manager Actions Swing 1-30j. Recalibre TP1 (+8% a +15%) et SL (-6% a -10%) pour chaque position. "
+        "RÈGLE RATCHET : new_sl >= current_sl. Si pnl_pct >= 8.0, new_sl >= pru_eur * 1.01. "
         "Réponds UNIQUEMENT en JSON valide : {\"adjustments\": [{\"id\": 1, \"new_tp1\": 10.5, \"new_sl\": 8.2, \"reason\": \"...\"}]}"
     )
 
@@ -105,11 +114,11 @@ def run_equity_auto_tpsl_cycle(manual_trigger=False):
             live_p_curr = float(pos_by_id_live.get(pid, 0.0))
             tp_breached = (orig_tp1 > 0 and live_p_curr >= orig_tp1 * 0.98)
 
-            # Garde-fou Python Trailing TP1 : si TP1 atteint/dépassé, projeter +22% min au-dessus du live et sécuriser le SL
+            # Garde-fou Python Trailing TP1 Swing 1-30j : si TP1 atteint/dépassé, projeter +14% min au-dessus du live et verrouiller SL à 94%
             if tp_breached:
-                min_trailing_tp1 = round(live_p_curr * 1.22, 4)
+                min_trailing_tp1 = round(live_p_curr * 1.14, 4)
                 final_tp1 = max(proposed_tp1, min_trailing_tp1)
-                min_lock_sl = round(live_p_curr * 0.88, 4)
+                min_lock_sl = round(live_p_curr * 0.94, 4)
                 final_sl = max(orig_sl, proposed_sl, min_lock_sl)
             else:
                 final_sl = max(orig_sl, proposed_sl)
