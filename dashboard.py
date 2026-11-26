@@ -2371,7 +2371,9 @@ elif active_view == "🤖 Assistant IA Pro":
     )
 
     with col_p1:
-        if st.button("📰 Rapport & Évaluation Spéculative", width="stretch"):
+        _api_b0 = st.button("📰 Rapport & Évaluation Spéculative", width="stretch")
+        _web_b0 = st.button("📋 Prompt Web : Spéculatif (0 $)", width="stretch", key="cr_web_p1")
+        if _api_b0 or _web_b0:
             with st.spinner(
                 "Découverte dynamique du marché et analyse technique..."
             ):
@@ -2463,7 +2465,9 @@ VIVIER DYNAMIQUE DU MARCHÉ ISSU DU SCREENER (TOP 15 LIQUIDES FILTRÉS HORS PORT
 """
 
     with col_p2:
-        if st.button("🛡️ Audit de Protection & SL", width="stretch"):
+        _api_b1 = st.button("🛡️ Audit de Protection & SL", width="stretch")
+        _web_b1 = st.button("📋 Prompt Web : Sécurité SL (0 $)", width="stretch", key="cr_web_p2")
+        if _api_b1 or _web_b1:
             with st.spinner("Analyse de la sécurité de vos positions en direct..."):
                 tech_micro_block = build_market_tech_micro_context(
                     open_pos=open_pos, balances=all_balances
@@ -2586,7 +2590,9 @@ Indique à l'utilisateur que son portefeuille spéculatif est totalement liquide
 """
 
     with col_p3:
-        if st.button("🔄 Arbitrages & Rééquilibrage Macro", width="stretch"):
+        _api_b2 = st.button("🔄 Arbitrages & Rééquilibrage Macro", width="stretch")
+        _web_b2 = st.button("📋 Prompt Web : Macro CORE (0 $)", width="stretch", key="cr_web_p3")
+        if _api_b2 or _web_b2:
             with st.spinner(
                 "Analyse de l'allocation globale, audit de la poche CORE et arbitrages..."
             ):
@@ -2652,6 +2658,68 @@ POSITIONS SPÉCULATIVES ACTIVES EN BDD :
 """
 
     st.markdown("---")
+
+
+    for _idx_w, (_w_flag, _w_title) in enumerate([
+        (locals().get("_web_b0", False), "Audit Spéculatif & Opportunités Moonbag"),
+        (locals().get("_web_b1", False), "Audit Protection Stop-Loss & Risque"),
+        (locals().get("_web_b2", False), "Arbitrages & Rééquilibrage Macro CORE"),
+    ]):
+        if _w_flag and preset_context and preset_prompt:
+            st.session_state["cr_web_prompt_title"] = _w_title
+            st.session_state["cr_web_prompt_body"] = (
+                f"{preset_context}\n\n---\n### 🎯 CONSIGNE D'ANALYSE :\n{preset_prompt}"
+            )
+            preset_prompt = None
+            preset_context = None
+
+    if st.session_state.get("cr_web_prompt_body"):
+        _cwp_body = st.session_state["cr_web_prompt_body"]
+        _cwp_title = st.session_state.get("cr_web_prompt_title", "Prompt Gemini Web")
+        _cwp_tok = int(len(_cwp_body) / 3.8)
+        st.info(
+            f"📋 **Prompt prêt pour Gemini Web (Google AI Pro — 0 $ API) : {_cwp_title}** "
+            f"(~{_cwp_tok:,} tokens) — Cliquez sur l'icône **Copier** en haut à droite du bloc ci-dessous."
+        )
+        cwb1, cwb2 = st.columns([1, 1])
+        with cwb1:
+            st.download_button(
+                "💾 Télécharger le prompt (.md)",
+                data=_cwp_body,
+                file_name="prompt_crypto_gemini_web.md",
+                mime="text/markdown",
+                use_container_width=True,
+                key="dl_cr_web_prompt",
+            )
+        with cwb2:
+            if st.button("❌ Fermer l'aperçu du prompt", use_container_width=True, key="close_cr_wp"):
+                del st.session_state["cr_web_prompt_body"]
+                st.rerun()
+        st.code(_cwp_body, language="markdown")
+        with st.expander("📥 Optionnel : Coller le JSON de retour Gemini Web (`core_proposals`) pour mise à jour BDD"):
+            _pasted_cr_json = st.text_area(
+                "Collez ici la réponse ou le bloc JSON généré par Gemini Web :",
+                height=120,
+                key="ta_paste_cr_json",
+            )
+            if st.button("✨ Appliquer les qualifications CORE en BDD", key="btn_apply_pasted_cr"):
+                _cprops = extract_core_proposals_from_text(_pasted_cr_json)
+                if not _cprops:
+                    try:
+                        _raw_cj = json.loads(_pasted_cr_json.strip())
+                        _cprops = _raw_cj.get("core_proposals", _raw_cj)
+                    except Exception:
+                        _cprops = None
+                if _cprops and isinstance(_cprops, dict):
+                    for _sym_k, _sym_d in _cprops.items():
+                        update_core_metadata(
+                            _sym_k,
+                            _sym_d.get("status", "ACTIVE"),
+                            _sym_d.get("notes", ""),
+                        )
+                    st.success(f"✅ {len(_cprops)} qualification(s) CORE enregistrée(s) en BDD !")
+                else:
+                    st.error("Format JSON `core_proposals` non reconnu.")
 
     if "messages" not in st.session_state:
         st.session_state.messages = [{

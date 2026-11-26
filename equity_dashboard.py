@@ -1269,23 +1269,76 @@ DONNÉES PATRIMONIALES & MACRO EN TEMPS RÉEL :
 {dyn_discovery_block}
 """
 
+    _q1 = "Audite ma Poche Spéculative ('Actions Chocs'), identifie les lignes à écrémer ou renforcer sur repli RSI et génère les tickets d'ordres Bourse correspondants."
+    _q2 = "Exécute un audit de protection Stop-Loss sur mes actions vives et identifie les opportunités de Tax-Loss Harvesting avant fin d'année."
+    _q3 = "Audite ma Poche Cœur MT/LT (ETF, Mon Petit Placement, Or), évalue l'allocation globale et propose le fléchage optimal de mon excédent mensuel."
+
     with ai_c1:
-        if st.button("🚀 Audit Poche Spéculative & Opportunités", use_container_width=True):
+        if st.button("🚀 Audit Spéculatif (API)", use_container_width=True):
             sys_p = get_system_prompt("equity_advisor_speculative") if PROMPT_LOADER_AVAILABLE else ""
-            preset_prompt = "Audite ma Poche Spéculative ('Actions Chocs'), identifie les lignes à écrémer ou renforcer sur repli RSI et génère les tickets d'ordres Bourse correspondants."
+            preset_prompt = _q1
             preset_context = f"{sys_p}\n\n{common_wealth_header}\n\nDÉTAIL POCHE SPÉCULATIVE :\n{spec_summary_json}"
+        if st.button("📋 Prompt Web : Spéculatif (0 $)", use_container_width=True, key="eq_web_p1"):
+            sys_p = get_system_prompt("equity_advisor_speculative") if PROMPT_LOADER_AVAILABLE else ""
+            st.session_state["eq_web_prompt_title"] = "Audit Poche Spéculative ('Actions Chocs')"
+            st.session_state["eq_web_prompt_body"] = f"{sys_p}\n\n{common_wealth_header}\n\nDÉTAIL POCHE SPÉCULATIVE :\n{spec_summary_json}\n\n---\n### 🎯 CONSIGNE D'ANALYSE :\n{_q1}"
 
     with ai_c2:
-        if st.button("🛡️ Audit Protection SL & Tax-Loss CTO", use_container_width=True):
+        if st.button("🛡️ Audit Protection SL (API)", use_container_width=True):
             sys_p = get_system_prompt("equity_risk_manager") if PROMPT_LOADER_AVAILABLE else ""
-            preset_prompt = "Exécute un audit de protection Stop-Loss sur mes actions vives et identifie les opportunités de Tax-Loss Harvesting avant fin d'année."
+            preset_prompt = _q2
             preset_context = f"{sys_p}\n\n{common_wealth_header}\n\nDÉTAIL POCHE SPÉCULATIVE :\n{spec_summary_json}"
+        if st.button("📋 Prompt Web : Protection SL (0 $)", use_container_width=True, key="eq_web_p2"):
+            sys_p = get_system_prompt("equity_risk_manager") if PROMPT_LOADER_AVAILABLE else ""
+            st.session_state["eq_web_prompt_title"] = "Audit Protection SL & Tax-Loss CTO"
+            st.session_state["eq_web_prompt_body"] = f"{sys_p}\n\n{common_wealth_header}\n\nDÉTAIL POCHE SPÉCULATIVE :\n{spec_summary_json}\n\n---\n### 🎯 CONSIGNE D'ANALYSE :\n{_q2}"
 
     with ai_c3:
-        if st.button("⚖️ Arbitrages Macro MT/LT & Fléchage Flux", use_container_width=True):
+        if st.button("⚖️ Arbitrages Macro MT/LT (API)", use_container_width=True):
             sys_p = get_system_prompt("equity_macro_arbitrage") if PROMPT_LOADER_AVAILABLE else ""
-            preset_prompt = "Audite ma Poche Cœur MT/LT (ETF, Mon Petit Placement, Or), évalue l'allocation globale et propose le fléchage optimal de mon excédent mensuel."
+            preset_prompt = _q3
             preset_context = f"{sys_p}\n\n{common_wealth_header}\n\nDÉTAIL POCHE CŒUR MT/LT :\n{core_summary_json}"
+        if st.button("📋 Prompt Web : Macro MT/LT (0 $)", use_container_width=True, key="eq_web_p3"):
+            sys_p = get_system_prompt("equity_macro_arbitrage") if PROMPT_LOADER_AVAILABLE else ""
+            st.session_state["eq_web_prompt_title"] = "Arbitrages Macro MT/LT & Fléchage Flux"
+            st.session_state["eq_web_prompt_body"] = f"{sys_p}\n\n{common_wealth_header}\n\nDÉTAIL POCHE CŒUR MT/LT :\n{core_summary_json}\n\n---\n### 🎯 CONSIGNE D'ANALYSE :\n{_q3}"
+
+    if st.session_state.get("eq_web_prompt_body"):
+        _wp_body = st.session_state["eq_web_prompt_body"]
+        _wp_title = st.session_state.get("eq_web_prompt_title", "Prompt Gemini Web")
+        _est_tok = int(len(_wp_body) / 3.8)
+        st.info(f"📋 **Prompt prêt pour Gemini Web (Google AI Pro — 0 $ API) : {_wp_title}** (~{_est_tok:,} tokens) — Cliquez sur l'icône **Copier** en haut à droite du bloc ci-dessous.")
+        wb1, wb2 = st.columns([1, 1])
+        with wb1:
+            st.download_button(
+                "💾 Télécharger le prompt (.md)",
+                data=_wp_body,
+                file_name="prompt_equity_gemini_web.md",
+                mime="text/markdown",
+                use_container_width=True,
+            )
+        with wb2:
+            if st.button("❌ Fermer l'aperçu du prompt", use_container_width=True, key="close_eq_wp"):
+                del st.session_state["eq_web_prompt_body"]
+                st.rerun()
+        st.code(_wp_body, language="markdown")
+        with st.expander("📥 Optionnel : Coller le JSON de retour Gemini Web (`equity_proposals`) pour mise à jour BDD"):
+            _pasted_eq_json = st.text_area("Collez ici la réponse ou le bloc JSON généré par Gemini Web :", height=120, key="ta_paste_eq_json")
+            if st.button("✨ Appliquer les qualifications en BDD", key="btn_apply_pasted_eq"):
+                _props = extract_equity_proposals_from_text(_pasted_eq_json)
+                if not _props:
+                    try:
+                        _raw_j = json.loads(_pasted_eq_json.strip())
+                        _props = _raw_j.get("equity_proposals", _raw_j)
+                    except Exception:
+                        _props = None
+                if _props and isinstance(_props, dict):
+                    for p_name, p_d in _props.items():
+                        update_core_etf_metadata(p_name, p_d.get("status", "ACTIVE"), p_d.get("notes", ""))
+                    send_telegram_notify(f"✨ *QUALIFICATIONS THÈSES BOURSE APPLIQUÉES (IMPORT WEB)*\n• {len(_props)} support(s) mis à jour en BDD.")
+                    st.success(f"✅ {len(_props)} qualification(s) enregistrée(s) en BDD !")
+                else:
+                    st.error("Format JSON `equity_proposals` non reconnu.")
 
     st.markdown("---")
     if "eq_messages" not in st.session_state:
