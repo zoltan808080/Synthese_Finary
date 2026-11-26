@@ -818,7 +818,7 @@ elif _eq_selected == _EQ_NAV_LABELS[1]:
 
             ec1, ec2, ec3 = st.columns(3)
             n_tp1 = ec1.number_input("Nouveau TP1 (€)", value=float(r_ed["TP1"]), format="%.2f", key=f"in_eq_tp1_{ed_id}")
-            n_tp2 = ec2.number_input("Nouveau TP2 (€)", value=round(base_pru * 1.80, 2), format="%.2f", key=f"in_eq_tp2_{ed_id}")
+            n_tp2 = ec2.number_input("Nouveau TP2 (€)", value=round(base_pru * 1.22, 2), format="%.2f", key=f"in_eq_tp2_{ed_id}")
             n_sl = ec3.number_input("Nouveau Stop-Loss (€)", value=st.session_state[sk], format="%.2f", key=f"in_eq_sl_{ed_id}")
             if st.button("💾 Enregistrer Paliers", key="btn_save_eq_lvls"):
                 update_equity_levels(ed_id, n_tp1, n_tp2, n_sl)
