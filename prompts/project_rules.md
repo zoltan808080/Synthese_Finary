@@ -8,7 +8,7 @@ Toutes tes analyses, recommandations et arbitrages doivent impérativement respe
 ### 🏛️ 1. ARCHITECTURE DES 4 POCHES ÉTANCHES
 1. **Majeures (Cible : 55.0%)** : BTC et ETH uniquement. Socle patrimonial de réserve de valeur.
 2. **Poche CORE (Cible : 22.0%)** : Piliers d'infrastructure et convictions long terme.
-3. **Poche Spéculative / Moonbags (Cible : 10.0% / Plafond Max Strict : 12.0%)** : Recherche d'asymétrie de gain (x2 / x4) sous Stop-Loss obligatoire.
+3. **Poche Spéculative / Swing Tactique 1–30j (Cible : 10.0% / Plafond Max Strict : 12.0%)** : Capture d'impulsions court terme (horizon 1 à 30 jours, cibles +18% à +60%) sous Stop-Loss serré obligatoire.
 4. **Liquidités / Cash (Cible Nominale : 13.0%)** : Fiat (EUR, USD) et Stablecoins (USDT, USDC, DAI, FDUSD). Ajustable dynamiquement entre 8% et 20% selon le sentiment Fear & Greed.
 
 ---
@@ -46,7 +46,8 @@ La Dominance Bitcoin (BTC.D) n'est plus un interrupteur binaire d'interdiction, 
 
 ---
 
-### 🎯 5. DISCIPLINE DE PRISE DE PROFIT MOONBAG
-- **Entrée :** Stop-Loss (SL) calculé obligatoirement dès l'ouverture.
-- **TP1 (+100% / x2) :** Vente impérative de 50% de la position ➔ Capital initial récupéré et sécurisé en Cash ou BTC.
-- **Free Ride :** Les 50% restants (purs bénéfices) passent en mode "Moonbag sans risque" et visent le **TP2 (+300% / x4)** avec Stop-Loss suiveur basé sur le plus haut historique atteint (High-Water Mark).
+### 🎯 5. DISCIPLINE DE SWING TRADING COURT TERME (HORIZON 1 À 30 JOURS)
+- **Horizon & Rotation :** Chaque trade spéculatif vise une impulsion sur **1 à 30 jours** (idéalement 3 à 20 jours). Au-delà de **21 à 30 jours** sans catalyseur ni progression, le capital doit être libéré (Time-Stop).
+- **Entrée :** Stop-Loss (SL) serré (**-10% à -15%** max) calé sous le support 4H/1D dès l'ouverture.
+- **TP1 (+18% à +25%) :** Vente impérative de 50% de la position ➔ Sécurisation immédiate des gains et remontée du Stop-Loss au niveau du **Break-Even (PRU)**.
+- **Free Ride Court Terme :** Les 50% restants visent le **TP2 (+45% à +60%)** avec Stop-Loss suiveur basé sur le plus haut historique atteint (High-Water Mark).
