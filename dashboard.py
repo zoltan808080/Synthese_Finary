@@ -2712,7 +2712,7 @@ POSITIONS SPÉCULATIVES ACTIVES EN BDD :
                         _cprops = None
                 if _cprops and isinstance(_cprops, dict):
                     for _sym_k, _sym_d in _cprops.items():
-                        update_core_metadata(
+                        update_core_asset_metadata(
                             _sym_k,
                             _sym_d.get("status", "ACTIVE"),
                             _sym_d.get("notes", ""),
