@@ -130,8 +130,12 @@ def audit_database_vs_exchanges():
         )
         real_asset_info = target_exchange_dict.get(sym, {})
         real_qty = float(real_asset_info.get("amount", -1.0))
+        mean_entry_est = (total_db_amount_eur / total_db_qty) if total_db_qty > 0 else 0.0
+        real_val_est = float(real_asset_info.get("eur_value", real_qty * mean_entry_est)) if real_qty > 0 else 0.0
+        is_dust = (0.0 < real_qty and real_val_est < 1.50)
 
-        if real_qty == 0.0 or (real_qty == -1.0 and sym not in ["BTC", "ETH"]):
+        if real_qty == 0.0 or is_dust or (real_qty == -1.0 and sym not in ["BTC", "ETH"]):
+            dust_note = f" (poussière résiduelle ~{real_val_est:.2f} € < 1,50 €)" if is_dust else " (solde réel = 0)"
             discrepancies.append({
                 "type": "GHOST_POSITION",
                 "id": first_pos_id,
@@ -141,7 +145,7 @@ def audit_database_vs_exchanges():
                 "real_amount": 0.0,
                 "desc": (
                     f"Ligne fantôme : {sym} ({exch}) actif en BDD"
-                    f" ({total_db_amount_eur:,.2f} €) mais solde réel = 0."
+                    f" ({total_db_amount_eur:,.2f} €){dust_note}."
                 ),
             })
         elif real_qty > 0.0 and total_db_qty > 0.0:

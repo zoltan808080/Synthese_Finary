@@ -555,8 +555,14 @@ def update_trade_step(rec_id, new_step):
     conn.close()
 
 
+DUST_THRESHOLD_EUR = 1.50
+
+
 def update_trade_amount(rec_id, new_amount_eur):
-    """Met à jour le montant engagé d'une position ouverte (synchronisation volume)."""
+    """Met à jour le montant engagé d'une position ouverte (clôture auto si poussière < 1,50 €)."""
+    if new_amount_eur is not None and float(new_amount_eur) < DUST_THRESHOLD_EUR:
+        close_trade(rec_id, close_reason="DUST_CLEANUP")
+        return
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
@@ -745,7 +751,7 @@ def get_open_positions():
     cursor.execute("""
         SELECT id, symbol, exchange, price_entry, amount_eur, tp1_price, tp2_price, sl_price, sl_type, step, taken_at, alert_status, btc_price_entry, highest_price_seen
         FROM speculative_trades
-        WHERE status = 'OPEN'
+        WHERE status = 'OPEN' AND COALESCE(amount_eur, 0) >= 1.50
         ORDER BY taken_at DESC
     """)
     rows = cursor.fetchall()
